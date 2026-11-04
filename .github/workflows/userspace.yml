@@ -32,10 +32,10 @@ jobs:
             quay.io/fedora/fedora:44 \
             bash -lc '
               set -euxo pipefail
-              dnf -y install rpm-build systemd-rpm-macros glib2 findutils tar gzip >/dev/null
+              dnf -y install rpm-build systemd-rpm-macros glib2 findutils tar gzip sed >/dev/null
               mkdir -p ~/rpmbuild/SOURCES ~/rpmbuild/RPMS /work/out-userspace
               rm -rf /tmp/src
-              VERSION=$(awk '/^Version:/{print $2; exit}' /work/userspace/gts9wifi-userspace.spec)
+              VERSION=$(sed -n "s/^Version:[[:space:]]*//p" /work/userspace/gts9wifi-userspace.spec | head -1)
               mkdir -p "/tmp/src/gts9wifi-userspace-$VERSION"
               cp -a /work/userspace/tree/. "/tmp/src/gts9wifi-userspace-$VERSION/"
               tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-$VERSION.tar.gz \
