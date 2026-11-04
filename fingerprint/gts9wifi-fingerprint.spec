@@ -9,6 +9,7 @@ URL:            https://github.com/Lymeeee/gts9wifi-fedora-linux
 BuildArch:      aarch64
 Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  glib2-devel
+BuildRequires:  systemd-rpm-macros
 Requires:       bash
 Requires:       python3
 Requires:       systemd
@@ -63,5 +64,5 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %{_unitdir}/vendor-firmware_mnt.mount
 
 %changelog
-* Tue Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.1.0-1
+* Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.1.0-1
 - Initial EL721 secure-start runtime, mounts and fprintd drop-in
