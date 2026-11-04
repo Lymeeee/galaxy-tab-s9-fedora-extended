@@ -86,9 +86,13 @@ jobs:
               cp /work/boot/dracut/dracut.conf.d/gts9wifi.conf /usr/lib/dracut/dracut.conf.d/
               install -d /usr/share/plymouth/themes/gts9wifi
               cp -a /work/boot/plymouth-theme-gts9wifi/. /usr/share/plymouth/themes/gts9wifi/
-              mkdir -p /etc/plymouth
-              printf '[Daemon]\nTheme=gts9wifi\nShowDelay=0\n' > /etc/plymouth/plymouthd.defaults
+              plymouth-set-default-theme gts9wifi
+              grep -q '^ShowDelay=' /etc/plymouth/plymouthd.conf || echo 'ShowDelay=0' >> /etc/plymouth/plymouthd.conf
+              grep -q '^Theme=gts9wifi$' /etc/plymouth/plymouthd.conf
               dracut --kver "$KVER" --force /tmp/initramfs.img
+              zcat /tmp/initramfs.img | cpio -it 2>/dev/null > /tmp/initramfs.list
+              grep -qx 'usr/share/plymouth/themes/gts9wifi/gts9wifi.script' /tmp/initramfs.list
+              grep -qx 'usr/share/plymouth/themes/gts9wifi/spinner-0084.png' /tmp/initramfs.list
 
               # --- boot bundle ---
               bash /work/boot/build-bundle.sh \
