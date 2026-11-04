@@ -9,6 +9,7 @@ set -euo pipefail
 
 REPO=${GTS9WIFI_REPO:-Lymeeee/gts9wifi-fedora-linux}
 DEFAULT_TAG=${GTS9WIFI_TAG:-kernel-7.2.0-merge-1}
+DEFAULT_FFMPEG_TAG=${GTS9WIFI_FFMPEG_TAG:-ffmpeg-8.1.3-gts9wifi-1}
 STATE=${GTS9WIFI_STATE:-/var/lib/gts9wifi}
 LOCKDIR=/usr/share/gts9wifi/versionlock.d
 BOOT_PARTS=(boot init_boot vendor_boot dtbo)
@@ -23,7 +24,7 @@ part_size() {
 
 cmd=${1:-check}
 [ $# -gt 0 ] && shift || true
-tag=$DEFAULT_TAG
+tag=${GTS9WIFI_TAG:-}
 dry=0
 flash=0
 reboot_after=0
@@ -36,11 +37,13 @@ Usage: gts9wifi-update <command> [options]
 Commands:
   check                 show installed versions, release assets and boot state
   userspace             install the userspace RPM from the release
+  ffmpeg                install the rebuilt ffmpeg-free (v4l2m2m) RPMs
   kernel [--flash]      download/verify the kernel pair; write boot partitions with --flash
   rollback [--backup D] restore the latest (or D) boot-partition backup
 
 Options:
-  --tag TAG             release tag (default: kernel-7.2.0-merge-1)
+  --tag TAG             release tag (default: kernel-7.2.0-merge-1,
+                        ffmpeg-8.1.3-gts9wifi-1 for ffmpeg)
   --dry-run             print the plan without installing or writing
   --flash               allow kernel boot-partition writes (kernel command only)
   --reboot              reboot after a successful kernel update/rollback
@@ -108,6 +111,24 @@ download_asset() {
         mv "$dir/$name.part" "$dir/$name"
     fi
     printf '%s\n' "$dir/$name"
+}
+
+# assets <regex> -> "name<TAB>url" for every matching release asset
+assets() {
+    local json
+    json=$(api_json) || return 1
+    python3 - "$json" "$1" <<'PY'
+import json, re, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+pat = re.compile(sys.argv[2])
+for item in data.get("assets", []):
+    name = item.get("name", "")
+    if pat.search(name):
+        print(name + "\t" + item.get("browser_download_url", ""))
+PY
 }
 
 dnf_cmd() {
@@ -186,6 +207,7 @@ do_reboot() {
 }
 
 cmd_check() {
+    [ -n "$tag" ] || tag=$DEFAULT_TAG
     echo "release tag: $tag"
     if ! api_json >/dev/null 2>&1; then
         echo "release metadata: unavailable" >&2
@@ -199,6 +221,11 @@ PY
     fi
     echo "installed:"
     rpm -q linux-gts9wifi gts9wifi-userspace 2>/dev/null || true
+    if rpm -q libavcodec-free >/dev/null 2>&1; then
+        echo "ffmpeg codecs: $(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' libavcodec-free)"
+    else
+        echo "ffmpeg codecs: not installed"
+    fi
     echo "running kernel: $(uname -r)"
     [ -d "/lib/modules/$(uname -r)" ] && echo "modules: present" || echo "modules: MISSING"
     if [ -f "$STATE/boot-version" ]; then
@@ -210,6 +237,7 @@ PY
 }
 
 cmd_userspace() {
+    [ -n "$tag" ] || tag=$DEFAULT_TAG
     need_root
     need_cmd dnf
     local line name url rpm dir
@@ -227,7 +255,91 @@ cmd_userspace() {
     echo "userspace updated; log out and back in for the GNOME extension"
 }
 
+install_firefox_policy() {
+    mkdir -p /etc/firefox/policies
+    python3 - <<'PY'
+import json
+import os
+import tempfile
+
+path = "/etc/firefox/policies/policies.json"
+data = {}
+if os.path.exists(path) and os.path.getsize(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except Exception as e:
+        raise SystemExit("cannot parse %s: %s" % (path, e))
+prefs = data.setdefault("policies", {}).setdefault("Preferences", {})
+prefs["media.hardware-video-decoding.force-enabled"] = True
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+with os.fdopen(fd, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+os.replace(tmp, path)
+PY
+}
+
+lock_ffmpeg_packages() {
+    [ -d "$LOCKDIR" ] || return 0
+    cat > "$LOCKDIR/50-ffmpeg.list" <<'EOF'
+ffmpeg-free
+libavcodec-free
+libavdevice-free
+libavfilter-free
+libavformat-free
+libavutil-free
+libswresample-free
+libswscale-free
+EOF
+    apply_versionlock
+}
+
+cmd_ffmpeg() {
+    [ -n "$tag" ] || tag=$DEFAULT_FFMPEG_TAG
+    local line name url dir sums=""
+    local -a entries=() rpms=()
+    local pattern='^(ffmpeg-free|libav(codec|device|filter|format|util)-free|libsw(resample|scale)-free)-[0-9].*\.aarch64\.rpm$|^SHA256SUMS$'
+
+    api_json >/dev/null || die "release $tag not found"
+    mapfile -t entries < <(assets "$pattern")
+    [ ${#entries[@]} -gt 0 ] || die "no FFmpeg RPMs in release $tag"
+
+    if [ "$dry" -eq 1 ]; then
+        echo "would install from $tag:"
+        for line in "${entries[@]}"; do
+            printf '  %s\n' "${line%%$'\t'*}"
+        done
+        return 0
+    fi
+
+    need_root
+    need_cmd dnf
+    need_cmd python3
+    need_cmd sha256sum
+    dir="$STATE/cache/$tag"
+    for line in "${entries[@]}"; do
+        IFS=$'\t' read -r name url <<<"$line"
+        download_asset "$name" "$url" "$dir" >/dev/null
+        case "$name" in
+            SHA256SUMS) sums="$dir/$name" ;;
+            *) rpms+=("$dir/$name") ;;
+        esac
+    done
+    [ -n "$sums" ] || die "SHA256SUMS missing from release $tag"
+    [ ${#rpms[@]} -gt 0 ] || die "no FFmpeg RPMs in release $tag"
+    (cd "$dir" && sha256sum -c --ignore-missing SHA256SUMS) || die "checksum verification failed"
+
+    echo "installing ${#rpms[@]} rebuilt FFmpeg packages"
+    dnf -y --nogpgcheck install "${rpms[@]}"
+    rpm -q libavcodec-free >/dev/null || die "libavcodec-free is not installed"
+    install_firefox_policy
+    lock_ffmpeg_packages
+    echo "FFmpeg installed and locked; restart Firefox to load the new libavcodec"
+}
+
 cmd_kernel() {
+    [ -n "$tag" ] || tag=$DEFAULT_TAG
     local line krpm_name krpm_url kzip_name kzip_url dir rpm zip imgdir p dev
     local backup running
     line=$(asset '^linux-gts9wifi-.*\.aarch64\.rpm$') ||
@@ -349,6 +461,7 @@ cmd_rollback() {
 case "$cmd" in
     check) cmd_check ;;
     userspace) cmd_userspace ;;
+    ffmpeg) cmd_ffmpeg ;;
     kernel) cmd_kernel ;;
     rollback) cmd_rollback ;;
     -h|--help|help) usage ;;

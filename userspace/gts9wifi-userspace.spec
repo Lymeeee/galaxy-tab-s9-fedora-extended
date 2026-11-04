@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.2.0
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -23,8 +23,9 @@ Requires:       util-linux
 Tab9 Extras GNOME Shell extension (v6), the gts9wifi device-control helper
 with charge limit/bypass, charger udev permissions, the Wi-Fi background
 scan dispatcher and the gts9wifi-update tool (userspace RPM install,
-versionlock, kernel boot-bundle self-flash and rollback).  Imported from
-the ygecesefa/gts9wifi-ubuntu-port userspace and adapted for Fedora.
+versionlock, kernel boot-bundle self-flash and rollback, and the rebuilt
+ffmpeg-free codec packages).  Imported from the
+ygecesefa/gts9wifi-ubuntu-port userspace and adapted for Fedora.
 
 The proprietary V37 keyboard firmware is not part of this package; install
 stm32_gts9family.bin into /lib/firmware/keyboard_stm/ separately.
@@ -59,6 +60,10 @@ glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
 %config(noreplace) %{_sysconfdir}/NetworkManager/dispatcher.d/90-gts9wifi-no-bgscan
 
 %changelog
+* Tue Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.3.0-1
+- Add gts9wifi-update ffmpeg to install and lock the rebuilt ffmpeg-free RPMs
+- Set Firefox media.hardware-video-decoding.force-enabled policy
+
 * Tue Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.2.0-1
 - Add gts9wifi-update with kernel self-flash, rollback and versionlock
 - Initial port of the Tab9 Extras v6 extension and device helpers
