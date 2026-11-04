@@ -266,6 +266,13 @@ config KEYBOARD_SAMSUNG_STM32_POGO\
 grep -q 'samsung_stm32_pogo.o' drivers/input/keyboard/Makefile || \
     echo 'obj-$(CONFIG_KEYBOARD_SAMSUNG_STM32_POGO) += samsung_stm32_pogo.o' >> drivers/input/keyboard/Makefile
 
+# gts9wifi Ubuntu port patch set, applied after the Fedora/C-neon base recipe
+# exactly as ygecesefa's build-gts9wifi-kernel.sh does.  The files it edits
+# (out-of-tree drivers and the board DTS) have been copied above by now.
+for p in "$here"/patches-gts9wifi/*.patch; do
+    patch -p1 --forward < "$p"
+done
+
 # Kernel release tag must match the rootfs modules (vermagic ABI).
 echo "-gts9wifi" > localversion-gts9wifi
 
