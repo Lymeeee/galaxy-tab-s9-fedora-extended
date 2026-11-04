@@ -52,7 +52,7 @@ jobs:
               dnf -y install make gcc clang lld llvm bc flex bison perl \
                   openssl openssl-devel elfutils-libelf-devel python3 tar xz \
                   zstd rpm-build ccache dtc findutils dwarves dracut \
-                  cpio lz4 iproute >/dev/null
+                  cpio lz4 iproute plymouth plymouth-theme-spinner >/dev/null
 
               # --- kernel ---
               mkdir -p /tmp/kcache
@@ -84,6 +84,8 @@ jobs:
               tar xzf /tmp/fw.tar.gz -C /
               cp -a /work/boot/dracut/90gts9wifi-usbnet /usr/lib/dracut/modules.d/
               cp /work/boot/dracut/dracut.conf.d/gts9wifi.conf /usr/lib/dracut/dracut.conf.d/
+              mkdir -p /etc/plymouth
+              printf '[Daemon]\nTheme=spinner\nShowDelay=0\n' > /etc/plymouth/plymouthd.defaults
               dracut --kver "$KVER" --force /tmp/initramfs.img
 
               # --- boot bundle ---

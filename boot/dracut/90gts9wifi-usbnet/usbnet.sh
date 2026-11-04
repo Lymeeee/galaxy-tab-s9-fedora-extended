@@ -1,6 +1,11 @@
 #!/bin/sh
-# Bring up the RNDIS gadget early so a failing boot is still visible to the
-# host (172.16.42.1 answers ping once this runs).
+# Bring up the RNDIS gadget early only when the caller asked for it with
+# gts9wifi.usbnet=1 on the kernel cmdline.  The debug link keeps the UDC
+# powered, so it is off by default.
+case "$(cat /proc/cmdline 2>/dev/null)" in
+    *gts9wifi.usbnet=1*) ;;
+    *) return 0 ;;
+esac
 modprobe configfs 2>/dev/null
 modprobe libcomposite 2>/dev/null
 modprobe usb_f_rndis 2>/dev/null
