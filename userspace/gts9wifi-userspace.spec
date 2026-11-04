@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.8.0
+Version:        0.9.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -79,6 +79,8 @@ fi
 %{_libexecdir}/gts9wifi-device-control
 %{_libexecdir}/gts9wifi-privileged
 %{_libexecdir}/gts9wifi-usb-net-off
+%{_libexecdir}/gts9wifi-mirrors
+%{_libexecdir}/gts9wifi-protect
 %{_bindir}/gts9wifi-power
 %{_unitdir}/gts9wifi-fast-charge-default.service
 %{_unitdir}/gts9wifi-usb-net-off.service
@@ -91,6 +93,9 @@ fi
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 
 %changelog
+* Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.9.0-1
+- Add setup helpers: mirrors, RPM Fusion/Copr, Chinese locale, protection
+
 * Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.8.0-1
 - Add the Tab9 Settings GTK4/libadwaita application
 

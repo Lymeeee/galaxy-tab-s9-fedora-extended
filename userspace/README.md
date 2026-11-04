@@ -22,24 +22,29 @@ Noarch RPM with the Phase 1 userspace pieces from the Ubuntu port:
   boot bundle carries the same theme for the initramfs)
 - `Tab9 Settings`, a GTK4/libadwaita application in the app grid that
   aggregates the device controls, power profile, USB debug switch and
-  system/firmware status (`gts9wifi-settings`); its Advanced page installs
+  system/firmware status (`gts9wifi-settings`); its Setup page adds
+  EasyEffects, RPM Fusion/Copr, Simplified Chinese, USTC/TUNA mirror
+  switching and the dnf protection switch, and Advanced installs
   components, flashes/rolls back the boot pair (typed confirmation) and
   installs the keyboard V37 firmware file
+- `gts9wifi-protect` blocks dnf updates of port-patched packages, the
+  Fedora kernel/firmware and fedora-release/repos, and pins `releasever`;
+  explicit `dnf system-upgrade` is still possible
 
 Build (Fedora container):
 
 ```sh
 mkdir -p ~/rpmbuild/SOURCES
-mkdir -p /tmp/src/gts9wifi-userspace-0.8.0
-cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.8.0/
-tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.8.0.tar.gz gts9wifi-userspace-0.8.0
+mkdir -p /tmp/src/gts9wifi-userspace-0.9.0
+cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.9.0/
+tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.9.0.tar.gz gts9wifi-userspace-0.9.0
 rpmbuild -bb userspace/gts9wifi-userspace.spec
 ```
 
 Install:
 
 ```sh
-sudo dnf install ./gts9wifi-userspace-0.8.0-1.fc44.noarch.rpm
+sudo dnf install ./gts9wifi-userspace-0.9.0-1.fc44.noarch.rpm
 ```
 
 The keyboard firmware is not included. Copy the verified V37 blob to

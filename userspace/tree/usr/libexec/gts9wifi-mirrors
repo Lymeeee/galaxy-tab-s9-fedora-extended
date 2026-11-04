@@ -1,0 +1,92 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Switch Fedora/RPM Fusion/Flathub to a Chinese mirror, with backups.
+set -eu
+
+[ "$(id -u)" -eq 0 ] || { echo "gts9wifi-mirrors: run as root" >&2; exit 1; }
+
+REPO_DIR=/etc/yum.repos.d
+BASE=/var/lib/gts9wifi/mirror
+DEFAULT_FLATHUB=https://dl.flathub.org/repo/
+
+usage() {
+    echo "usage: gts9wifi-mirrors ustc|tuna | --restore" >&2
+    exit 2
+}
+
+bump_file() {
+    file=$1
+    backup=$2
+    rel=${file#"$REPO_DIR"/}
+    [ -e "$backup/$rel" ] || cp -a "$file" "$backup/$rel"
+}
+
+apply_mirror() {
+    host=$1
+    mkdir -p "$BASE"
+    if [ ! -e "$BASE/latest" ]; then
+        backup="$BASE/backup-$(date -u +%Y%m%dT%H%M%SZ)"
+        mkdir -p "$backup"
+        cp -a "$REPO_DIR"/. "$backup"/
+        ln -s "$backup" "$BASE/latest"
+        if command -v flatpak >/dev/null 2>&1; then
+            url=$(flatpak remotes --columns=name,url 2>/dev/null |
+                awk '$1 == "flathub" {print $2; exit}')
+            [ -n "$url" ] && printf '%s\n' "$url" >"$BASE/flathub-url"
+        fi
+    else
+        backup=$(readlink -f "$BASE/latest")
+    fi
+
+    for name in fedora.repo fedora-updates.repo fedora-updates-testing.repo; do
+        file=$REPO_DIR/$name
+        [ -f "$file" ] || continue
+        bump_file "$file" "$backup"
+        sed -i -e 's|^metalink=|#metalink=|' \
+            -e "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://$host/fedora|" \
+            -e "s|^baseurl=https://[^/]*/fedora|baseurl=https://$host/fedora|" \
+            "$file"
+    done
+
+    for file in "$REPO_DIR"/rpmfusion-*.repo; do
+        [ -f "$file" ] || continue
+        bump_file "$file" "$backup"
+        sed -i -e 's|^metalink=|#metalink=|' \
+            -e "s|^#baseurl=http://download1.rpmfusion.org|baseurl=https://$host/rpmfusion|" \
+            -e "s|^baseurl=https://[^/]*/rpmfusion|baseurl=https://$host/rpmfusion|" \
+            "$file"
+    done
+
+    if [ "$host" = mirrors.ustc.edu.cn ] && command -v flatpak >/dev/null 2>&1; then
+        flatpak remote-modify --system flathub \
+            --url=https://mirrors.ustc.edu.cn/flathub 2>/dev/null || true
+    elif [ "$host" = mirrors.tuna.tsinghua.edu.cn ]; then
+        echo "note: TUNA does not mirror Flathub; Flathub left unchanged" >&2
+    fi
+
+    echo "Copr is not mirrored by USTC/TUNA; Copr repositories left unchanged." >&2
+    dnf clean all >/dev/null 2>&1 || true
+    echo "mirrors set to $host"
+}
+
+restore_mirror() {
+    [ -L "$BASE/latest" ] || {
+        echo "gts9wifi-mirrors: no repository backup found" >&2
+        exit 1
+    }
+    backup=$(readlink -f "$BASE/latest")
+    cp -a "$backup"/. "$REPO_DIR"/
+    if command -v flatpak >/dev/null 2>&1 && [ -f "$BASE/flathub-url" ]; then
+        url=$(cat "$BASE/flathub-url")
+        flatpak remote-modify --system flathub --url="$url" 2>/dev/null || true
+    fi
+    dnf clean all >/dev/null 2>&1 || true
+    echo "repository files restored from $backup"
+}
+
+case "${1:-}" in
+    ustc) apply_mirror mirrors.ustc.edu.cn ;;
+    tuna) apply_mirror mirrors.tuna.tsinghua.edu.cn ;;
+    --restore) restore_mirror ;;
+    *) usage ;;
+esac

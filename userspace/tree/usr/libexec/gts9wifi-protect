@@ -1,0 +1,60 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Keep dnf from replacing port-patched packages, the Fedora kernel/firmware
+# and the Fedora release.  Explicit system-upgrade is still possible.
+set -eu
+
+[ "$(id -u)" -eq 0 ] || { echo "gts9wifi-protect: run as root" >&2; exit 1; }
+
+CONF=/etc/dnf/dnf.conf
+VARS=/etc/dnf/vars/releasever
+STATE=/var/lib/gts9wifi/protect
+BEGIN='# BEGIN gts9wifi-protect'
+END='# END gts9wifi-protect'
+EXCLUDES='kernel*,linux-firmware*,atheros-firmware,qcom-firmware,gts9wifi-*,libfprint,ffmpeg-free,libavcodec-free,libavdevice-free,libavfilter-free,libavformat-free,libavutil-free,libswresample-free,libswscale-free,iio-sensor-proxy,hexagonrpcd*,libssc*,pd-mapper,fedora-release*,fedora-repos*'
+
+enabled() {
+    grep -q "^$BEGIN$" "$CONF" 2>/dev/null && [ -f "$VARS" ]
+}
+
+case "${1:-status}" in
+    status)
+        if enabled; then echo "protected"; else echo "unprotected"; fi
+        ;;
+    on)
+        mkdir -p "$STATE" /etc/dnf/vars
+        if [ ! -e "$STATE/releasever" ] && [ ! -e "$STATE/releasever.absent" ]; then
+            if [ -e "$VARS" ]; then
+                cp -a "$VARS" "$STATE/releasever"
+            else
+                : >"$STATE/releasever.absent"
+            fi
+        fi
+        sed -i "/^$BEGIN$/,/^$END$/d" "$CONF" 2>/dev/null || true
+        if ! grep -q '^\[main\]' "$CONF"; then
+            printf '[main]\n' >>"$CONF"
+        fi
+        sed -i "/^\[main\]/a\\
+$BEGIN\\
+exclude=$EXCLUDES\\
+$END" "$CONF"
+        version=$(sed -n 's/^VERSION_ID="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/os-release | head -1)
+        [ -n "$version" ] || version=44
+        printf '%s\n' "$version" >"$VARS"
+        echo "protection enabled (releasever=$version)"
+        ;;
+    off)
+        sed -i "/^$BEGIN$/,/^$END$/d" "$CONF" 2>/dev/null || true
+        if [ -e "$STATE/releasever" ]; then
+            cp -a "$STATE/releasever" "$VARS"
+        else
+            rm -f "$VARS"
+        fi
+        rm -f "$STATE/releasever" "$STATE/releasever.absent"
+        echo "protection disabled"
+        ;;
+    *)
+        echo "usage: gts9wifi-protect on|off|status" >&2
+        exit 2
+        ;;
+esac

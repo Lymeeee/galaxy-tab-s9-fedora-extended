@@ -5,6 +5,7 @@
 import glob
 import hashlib
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -24,8 +25,14 @@ KEYBOARD_FW = '/lib/firmware/keyboard_stm/stm32_gts9family.bin'
 KEYBOARD_FW_SIZE = 52132
 KEYBOARD_FW_SHA256 = '1b48d88c23523ae205cd960e6d42725268638a15a47d8a5e52854eb01108caa3'
 UPDATE = '/usr/bin/gts9wifi-update'
+PROTECT = '/usr/libexec/gts9wifi-protect'
 DEFAULT_KERNEL_TAG = 'kernel-7.2.0-merge-1'
 POWER_IDS = ['powersave', 'balanced', 'performance']
+MIRROR_IDS = ['ustc', 'tuna']
+MIRROR_HOSTS = {
+    'ustc': 'mirrors.ustc.edu.cn',
+    'tuna': 'mirrors.tuna.tsinghua.edu.cn',
+}
 
 
 def run(args, timeout=10):
@@ -77,6 +84,7 @@ class Settings(Adw.Application):
         window.add(self.device_page())
         window.add(self.power_page())
         window.add(self.debug_page())
+        window.add(self.setup_page())
         window.add(self.advanced_page())
         window.add(self.status_page())
         window.present()
@@ -191,6 +199,155 @@ class Settings(Adw.Application):
         group.add(row)
         page.add(group)
         return page
+
+    def setup_page(self):
+        page = Adw.PreferencesPage(title='Setup', icon_name='applications-system-symbolic')
+
+        applications = Adw.PreferencesGroup(title='Applications')
+        installed = shutil.which('easyeffects') is not None
+        self.action_row(applications, 'EasyEffects',
+            'PipeWire system-wide equalizer, compressor and limiter.',
+            'Open' if installed else 'Install & Open',
+            self.open_easyeffects)
+        page.add(applications)
+
+        repositories = Adw.PreferencesGroup(
+            title='Repositories',
+            description='Copr is not mirrored by USTC/TUNA; it is enabled directly.'
+        )
+        self.action_row(repositories, 'RPM Fusion',
+            'Free and nonfree release repositories.', 'Enable',
+            self.enable_rpmfusion)
+        self.copr_entry = Adw.EntryRow(title='Copr project (owner/project)')
+        repositories.add(self.copr_entry)
+        self.action_row(repositories, 'Copr repository',
+            'Installs dnf5-plugins if needed, then enables the project above.',
+            'Enable', self.enable_copr)
+        page.add(repositories)
+
+        protection = Adw.PreferencesGroup(title='Protection')
+        self.protect_row = Adw.SwitchRow(
+            title='Protect port packages and Fedora release',
+            subtitle='Excludes packages this port replaces, the Fedora kernel/firmware '
+                     'and fedora-release/repos, and pins releasever. Explicit '
+                     'system-upgrade is still possible.',
+            active=self.protect_enabled())
+        guard = {'busy': False}
+
+        def protect_toggled(row, _pspec, guard=guard):
+            if guard['busy']:
+                return
+            action = 'on' if row.get_active() else 'off'
+            result = run(['pkexec', PROTECT, action], timeout=30)
+            if result is None or result.returncode != 0:
+                guard['busy'] = True
+                row.set_active(self.protect_enabled())
+                guard['busy'] = False
+
+        self.protect_row.connect('notify::active', protect_toggled)
+        protection.add(self.protect_row)
+        page.add(protection)
+
+        locale = Adw.PreferencesGroup(title='Language')
+        self.action_row(locale, 'Simplified Chinese',
+            'Install the zh_CN language packs, set the system locale and the GNOME region '
+            '(log out and back in afterwards).', 'Set 简体中文', self.enable_chinese)
+        page.add(locale)
+
+        mirrors = Adw.PreferencesGroup(
+            title='Mirrors',
+            description='USTC mirrors Fedora, RPM Fusion and Flathub; TUNA mirrors Fedora '
+                        'and RPM Fusion. Repository files are backed up before the first change.'
+        )
+        self.mirror_row = Adw.ComboRow(
+            title='Mirror',
+            model=Gtk.StringList.new(['USTC', 'TUNA']),
+            selected=0)
+        mirrors.add(self.mirror_row)
+        self.action_row(mirrors, 'Switch package mirrors',
+            'Rewrites Fedora and RPM Fusion repo files and switches Flathub when the '
+            'chosen mirror provides it; then cleans the dnf cache.',
+            'Apply', self.apply_mirrors)
+        self.action_row(mirrors, 'Restore repository files',
+            'Restores the repository backup taken before the first mirror switch.',
+            'Restore', self.restore_mirrors)
+        page.add(mirrors)
+        return page
+
+    def mirror_host(self):
+        return MIRROR_HOSTS[MIRROR_IDS[self.mirror_row.get_selected()]]
+
+    def protect_enabled(self):
+        try:
+            with open('/etc/dnf/dnf.conf', encoding='utf-8') as f:
+                conf = f.read()
+        except OSError:
+            return False
+        return '# BEGIN gts9wifi-protect' in conf and os.path.exists('/etc/dnf/vars/releasever')
+
+    def open_easyeffects(self):
+        if shutil.which('easyeffects'):
+            try:
+                subprocess.Popen(['easyeffects'])
+            except OSError as error:
+                self.alert('Cannot start EasyEffects', str(error))
+            return
+        self.confirm_simple(
+            'Install EasyEffects?',
+            'Installs the Fedora EasyEffects package, then opens it.',
+            lambda: self.open_terminal([
+                'bash', '-lc',
+                'pkexec dnf install -y easyeffects && easyeffects']))
+
+    def enable_rpmfusion(self):
+        if rpm('rpmfusion-free-release') != 'not installed':
+            self.alert('RPM Fusion is already enabled', 'The release packages are installed.')
+            return
+        host = self.mirror_host()
+        command = (
+            'pkexec dnf install -y '
+            f'https://{host}/rpmfusion/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm '
+            f'https://{host}/rpmfusion/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm')
+        self.confirm_simple(
+            'Enable RPM Fusion?',
+            'Installs the RPM Fusion release packages from %s.' % host,
+            lambda: self.open_terminal(['bash', '-lc', command]))
+
+    def enable_copr(self):
+        project = self.copr_entry.get_text().strip()
+        if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', project):
+            self.alert('Invalid Copr project', 'Use the form owner/project.')
+            return
+        command = ('pkexec dnf install -y dnf5-plugins && '
+                   'pkexec dnf copr enable -y ' + shlex.quote(project))
+        self.confirm_simple(
+            'Enable Copr repository?',
+            'Enables %s. Copr is not mirrored by USTC/TUNA.' % project,
+            lambda: self.open_terminal(['bash', '-lc', command]))
+
+    def enable_chinese(self):
+        command = (
+            'pkexec dnf install -y langpacks-zh_CN glibc-langpack-zh && '
+            'pkexec localectl set-locale LANG=zh_CN.UTF-8 && '
+            "gsettings set org.gnome.system.locale region 'zh_CN.UTF-8'")
+        self.confirm_simple(
+            'Switch to Simplified Chinese?',
+            'Installs the language packs and sets zh_CN.UTF-8. Log out and back in to apply it.',
+            lambda: self.open_terminal(['bash', '-lc', command]))
+
+    def apply_mirrors(self):
+        mirror = MIRROR_IDS[self.mirror_row.get_selected()]
+        self.confirm_simple(
+            'Switch package mirrors?',
+            'Rewrites the Fedora and RPM Fusion repository files and cleans the dnf cache. '
+            'A backup is kept; use Restore to go back.',
+            lambda: self.open_terminal(['pkexec', '/usr/libexec/gts9wifi-mirrors', mirror]))
+
+    def restore_mirrors(self):
+        self.confirm_simple(
+            'Restore repository files?',
+            'Restores the repository backup taken before the first mirror switch.',
+            lambda: self.open_terminal(['pkexec', '/usr/libexec/gts9wifi-mirrors', '--restore']))
 
     def advanced_page(self):
         page = Adw.PreferencesPage(title='Advanced', icon_name='dialog-warning-symbolic')
