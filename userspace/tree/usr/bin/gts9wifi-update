@@ -1,0 +1,356 @@
+#!/bin/bash
+# gts9wifi-update: userspace and boot-partition updates for the nacht Fedora port.
+#
+# Userspace updates are ordinary RPM installs.  Kernel updates are a paired
+# kernel RPM + Android boot bundle; flashing boot partitions is irreversible
+# and therefore requires --flash explicitly.  This tool never writes vbmeta,
+# persist, modemst or efs.
+set -euo pipefail
+
+REPO=${GTS9WIFI_REPO:-Lymeeee/gts9wifi-fedora-linux}
+DEFAULT_TAG=${GTS9WIFI_TAG:-kernel-7.2.0-merge-1}
+STATE=${GTS9WIFI_STATE:-/var/lib/gts9wifi}
+LOCKDIR=/usr/share/gts9wifi/versionlock.d
+BOOT_PARTS=(boot init_boot vendor_boot dtbo)
+part_size() {
+    case "$1" in
+        boot|vendor_boot) echo 100663296 ;;
+        init_boot) echo 8388608 ;;
+        dtbo) echo 16777216 ;;
+        *) return 1 ;;
+    esac
+}
+
+cmd=${1:-check}
+[ $# -gt 0 ] && shift || true
+tag=$DEFAULT_TAG
+dry=0
+flash=0
+reboot_after=0
+backup_arg=""
+
+usage() {
+    cat <<'EOF'
+Usage: gts9wifi-update <command> [options]
+
+Commands:
+  check                 show installed versions, release assets and boot state
+  userspace             install the userspace RPM from the release
+  kernel [--flash]      download/verify the kernel pair; write boot partitions with --flash
+  rollback [--backup D] restore the latest (or D) boot-partition backup
+
+Options:
+  --tag TAG             release tag (default: kernel-7.2.0-merge-1)
+  --dry-run             print the plan without installing or writing
+  --flash               allow kernel boot-partition writes (kernel command only)
+  --reboot              reboot after a successful kernel update/rollback
+  --backup DIR          backup directory for rollback
+EOF
+}
+
+die() { echo "gts9wifi-update: $*" >&2; exit 1; }
+need_root() { [ "$(id -u)" -eq 0 ] || die "run as root"; }
+need_cmd() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --tag) tag=${2:?missing value}; shift 2 ;;
+        --dry-run) dry=1; shift ;;
+        --flash) flash=1; shift ;;
+        --reboot) reboot_after=1; shift ;;
+        --backup) backup_arg=${2:?missing value}; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) die "unknown option: $1" ;;
+    esac
+done
+
+api_json() {
+    mkdir -p "$STATE"
+    local f="$STATE/release-$tag.json"
+    if [ ! -s "$f" ] || [ "${GTS9WIFI_REFRESH:-0}" = 1 ]; then
+        curl -fsSL --retry 3 --retry-delay 2 \
+            "https://api.github.com/repos/$REPO/releases/tags/$tag" -o "$f"
+    fi
+    printf '%s\n' "$f"
+}
+
+# asset <regex> -> "name<TAB>url" for the first matching release asset
+asset() {
+    local json line
+    json=$(api_json) || return 1
+    line=$(python3 - "$json" "$1" <<'PY'
+import json, re, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+pat = re.compile(sys.argv[2])
+matches = []
+for item in data.get("assets", []):
+    name = item.get("name", "")
+    if pat.search(name):
+        matches.append((name, item.get("browser_download_url", "")))
+if matches:
+    matches.sort(reverse=True)
+    print(matches[0][0] + "\t" + matches[0][1])
+PY
+) || return 1
+    [ -n "$line" ] || return 1
+    printf '%s\n' "$line"
+}
+
+download_asset() {
+    local name=$1 url=$2 dir=$3
+    mkdir -p "$dir"
+    if [ ! -s "$dir/$name" ]; then
+        echo "downloading $name" >&2
+        curl -fL --retry 3 --retry-delay 2 -o "$dir/$name.part" "$url"
+        mv "$dir/$name.part" "$dir/$name"
+    fi
+    printf '%s\n' "$dir/$name"
+}
+
+dnf_cmd() {
+    if command -v dnf5 >/dev/null 2>&1; then printf 'dnf5\n'; else printf 'dnf\n'; fi
+}
+
+apply_versionlock() {
+    local specs=() line
+    [ -d "$LOCKDIR" ] || return 0
+    while IFS= read -r line; do
+        line=${line%%#*}
+        line=${line#"${line%%[![:space:]]*}"}
+        line=${line%"${line##*[![:space:]]}"}
+        [ -n "$line" ] && specs+=("$line")
+    done < <(cat "$LOCKDIR"/*.list 2>/dev/null || true)
+    [ ${#specs[@]} -gt 0 ] || return 0
+    local dnf
+    dnf=$(dnf_cmd)
+    echo "locking: ${specs[*]}"
+    if ! "$dnf" versionlock add "${specs[@]}" >/dev/null 2>&1; then
+        echo "warning: versionlock unavailable or failed; install dnf-plugins-core/dnf5-plugins" >&2
+    fi
+}
+
+battery_ok() {
+    local cap ac
+    cap=$(cat /sys/class/power_supply/*/capacity 2>/dev/null | sort -n | head -1 || true)
+    ac=$(cat /sys/class/power_supply/*/online 2>/dev/null | grep -qx 1 && echo 1 || true)
+    [ -n "$cap" ] || { echo "warning: battery capacity not found; cannot check charge" >&2; return 0; }
+    echo "battery: ${cap}%${ac:+ (AC online)}"
+    [ "$cap" -ge 60 ] || [ -n "$ac" ] || die "battery below 60%; charge before flashing"
+}
+
+part_dev() {
+    local p=$1
+    local d="/dev/disk/by-partlabel/$p"
+    [ -e "$d" ] || die "missing partition label: $d"
+    printf '%s\n' "$d"
+}
+
+check_part_sizes() {
+    local p dev size expected
+    need_cmd blockdev
+    for p in "${BOOT_PARTS[@]}"; do
+        dev=$(part_dev "$p")
+        size=$(blockdev --getsize64 "$dev")
+        expected=$(part_size "$p") || die "unknown partition size for $p"
+        [ "$size" -eq "$expected" ] ||
+            die "$p size $size, expected $expected"
+    done
+}
+
+restore_boot() {
+    local backup=$1 p
+    echo "restoring boot partitions from $backup" >&2
+    for p in "${BOOT_PARTS[@]}"; do
+        dd if="$backup/$p.img" of="$(part_dev "$p")" bs=4M conv=fsync 2>/dev/null || return 1
+    done
+    sync
+    return 0
+}
+
+restore_modules() {
+    local backup=$1 t
+    for t in "$backup"/modules-*.tar.gz; do
+        [ -e "$t" ] || continue
+        echo "restoring $(basename "$t")" >&2
+        tar -C /lib/modules -xzf "$t" || true
+    done
+}
+
+do_reboot() {
+    [ "$reboot_after" -eq 1 ] || return 0
+    echo "rebooting..."
+    reboot
+}
+
+cmd_check() {
+    echo "release tag: $tag"
+    if ! api_json >/dev/null 2>&1; then
+        echo "release metadata: unavailable" >&2
+    else
+        echo "assets:"
+        python3 - "$(api_json)" <<'PY'
+import json, sys
+for a in json.load(open(sys.argv[1])).get("assets", []):
+    print("  " + a.get("name", ""))
+PY
+    fi
+    echo "installed:"
+    rpm -q linux-gts9wifi gts9wifi-userspace 2>/dev/null || true
+    echo "running kernel: $(uname -r)"
+    [ -d "/lib/modules/$(uname -r)" ] && echo "modules: present" || echo "modules: MISSING"
+    if [ -f "$STATE/boot-version" ]; then
+        echo "boot state:"; sed 's/^/  /' "$STATE/boot-version"
+    else
+        echo "boot state: no marker (unknown bundle)"
+    fi
+    battery_ok || true
+}
+
+cmd_userspace() {
+    need_root
+    need_cmd dnf
+    local line name url rpm dir
+    line=$(asset '^gts9wifi-userspace-.*\.noarch\.rpm$') ||
+        die "no userspace RPM in release $tag"
+    IFS=$'\t' read -r name url <<<"$line"
+    [ "$dry" -eq 0 ] || { echo "would install $name from $tag"; return 0; }
+    dir="$STATE/cache/$tag"
+    rpm=$(download_asset "$name" "$url" "$dir")
+    echo "installing $name"
+    dnf -y --nogpgcheck install "$rpm"
+    apply_versionlock
+    glib-compile-schemas /usr/share/glib-2.0/schemas >/dev/null 2>&1 || true
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+    echo "userspace updated; log out and back in for the GNOME extension"
+}
+
+cmd_kernel() {
+    local line krpm_name krpm_url kzip_name kzip_url dir rpm zip imgdir p dev
+    local backup running
+    line=$(asset '^linux-gts9wifi-.*\.aarch64\.rpm$') ||
+        die "no kernel RPM in release $tag"
+    IFS=$'\t' read -r krpm_name krpm_url <<<"$line"
+    line=$(asset '^gts9wifi-fedora-.*\.zip$') ||
+        die "no TWRP boot bundle in release $tag"
+    IFS=$'\t' read -r kzip_name kzip_url <<<"$line"
+
+    if [ "$dry" -eq 1 ]; then
+        echo "would download $krpm_name and $kzip_name from $tag"
+        check_part_sizes || true
+        battery_ok || true
+        [ "$flash" -eq 1 ] && echo "would flash: ${BOOT_PARTS[*]}" || echo "pass --flash to write boot partitions"
+        return 0
+    fi
+
+    need_root
+    need_cmd unzip
+    need_cmd blockdev
+    battery_ok
+    check_part_sizes
+    running=$(uname -r)
+    dir="$STATE/cache/$tag"
+    rpm=$(download_asset "$krpm_name" "$krpm_url" "$dir")
+    zip=$(download_asset "$kzip_name" "$kzip_url" "$dir")
+
+    imgdir=$(mktemp -d /tmp/gts9wifi-bundle.XXXXXX)
+    trap 'rm -rf "$imgdir"' EXIT
+    unzip -q "$zip" '*.img' SHA256SUMS -d "$imgdir"
+    (cd "$imgdir" && sha256sum -c SHA256SUMS)
+
+    if [ "$flash" -ne 1 ]; then
+        echo "kernel pair verified; boot partitions NOT written and RPM NOT installed"
+        echo "run again with --flash to update"
+        return 0
+    fi
+
+    backup="$STATE/boot-backup/$(date -u +%Y%m%dT%H%M%SZ)"
+    mkdir -p "$backup"
+    [ "$(df -Pk "$STATE" | awk 'NR==2 {print $4}')" -gt 524288 ] ||
+        die "less than 512 MiB free under $STATE"
+    echo "backing up boot partitions to $backup"
+    for p in "${BOOT_PARTS[@]}"; do
+        dd if="$(part_dev "$p")" of="$backup/$p.img" bs=4M conv=fsync 2>/dev/null
+    done
+    (cd "$backup" && sha256sum "${BOOT_PARTS[@]/%/.img}" > SHA256SUMS)
+    tar -C /lib/modules -czf "$backup/modules-$running.tar.gz" "$running"
+    rpm -qa | grep -E 'linux-gts9wifi|gts9wifi-userspace' > "$backup/rpm-list.txt" || true
+
+    if [ "$flash" -eq 1 ]; then
+        echo "flashing boot/init_boot/vendor_boot/dtbo (vbmeta untouched)"
+        for p in "${BOOT_PARTS[@]}"; do
+            dd if="$imgdir/$p.img" of="$(part_dev "$p")" bs=4M conv=fsync 2>/dev/null || {
+                restore_boot "$backup" || true
+                die "failed writing $p; restore attempted"
+            }
+        done
+        sync
+        echo "verifying written partitions"
+        for p in "${BOOT_PARTS[@]}"; do
+            dd if="$(part_dev "$p")" of="$imgdir/read-$p.img" bs=4M 2>/dev/null
+            cmp -s "$imgdir/$p.img" "$imgdir/read-$p.img" ||
+                { restore_boot "$backup" || true; die "readback mismatch for $p"; }
+        done
+    else
+        echo "boot bundle verified; not writing (pass --flash)"
+    fi
+
+    echo "installing $krpm_name"
+    if rpm -q linux-gts9wifi >/dev/null 2>&1; then
+        rpm -Uvh --replacepkgs --replacefiles "$rpm" || {
+            [ "$flash" -eq 1 ] && restore_boot "$backup" || true
+            restore_modules "$backup"
+            die "kernel RPM install failed"
+        }
+    else
+        dnf -y --nogpgcheck install "$rpm" || {
+            [ "$flash" -eq 1 ] && restore_boot "$backup" || true
+            restore_modules "$backup"
+            die "kernel RPM install failed"
+        }
+    fi
+
+    mkdir -p "$STATE"
+    {
+        printf 'tag=%s\n' "$tag"
+        printf 'date=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'kernel=%s\n' "$krpm_name"
+        printf 'bundle=%s\n' "$kzip_name"
+    } > "$STATE/boot-version"
+    echo "kernel update complete; reboot to use it"
+    do_reboot
+}
+
+cmd_rollback() {
+    local backup p
+    need_root
+    backup=$backup_arg
+    if [ -z "$backup" ]; then
+        backup=$(ls -1dt "$STATE"/boot-backup/* 2>/dev/null | head -1 || true)
+    fi
+    [ -n "$backup" ] && [ -d "$backup" ] || die "no boot backup found"
+    for p in "${BOOT_PARTS[@]}"; do
+        [ -f "$backup/$p.img" ] || die "missing $backup/$p.img"
+    done
+    check_part_sizes
+    if [ "$dry" -eq 1 ]; then
+        echo "would restore ${BOOT_PARTS[*]} from $backup"
+        return 0
+    fi
+    restore_boot "$backup" || die "restore failed"
+    restore_modules "$backup"
+    rm -f "$STATE/boot-version"
+    echo "rollback complete; reboot to use the previous kernel"
+    do_reboot
+}
+
+case "$cmd" in
+    check) cmd_check ;;
+    userspace) cmd_userspace ;;
+    kernel) cmd_kernel ;;
+    rollback) cmd_rollback ;;
+    -h|--help|help) usage ;;
+    *) die "unknown command: $cmd" ;;
+esac

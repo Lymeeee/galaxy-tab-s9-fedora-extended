@@ -35,10 +35,10 @@ jobs:
               dnf -y install rpm-build systemd-rpm-macros glib2 findutils tar gzip >/dev/null
               mkdir -p ~/rpmbuild/SOURCES ~/rpmbuild/RPMS /work/out-userspace
               rm -rf /tmp/src
-              mkdir -p /tmp/src/gts9wifi-userspace-0.1.0
-              cp -a /work/userspace/tree/. /tmp/src/gts9wifi-userspace-0.1.0/
-              tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.1.0.tar.gz \
-                gts9wifi-userspace-0.1.0
+              mkdir -p /tmp/src/gts9wifi-userspace-0.2.0
+              cp -a /work/userspace/tree/. /tmp/src/gts9wifi-userspace-0.2.0/
+              tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.2.0.tar.gz \
+                gts9wifi-userspace-0.2.0
               rpmbuild -bb /work/userspace/gts9wifi-userspace.spec
               cp ~/rpmbuild/RPMS/noarch/*.rpm /work/out-userspace/
             '

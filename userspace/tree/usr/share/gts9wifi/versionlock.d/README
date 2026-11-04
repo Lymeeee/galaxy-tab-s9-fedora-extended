@@ -1,0 +1,7 @@
+Drop-in versionlock fragments for packages rebuilt by the GTS9 port.
+
+A fragment is a plain text list of rpm/dnf package specs, one per line;
+lines starting with # are ignored. gts9wifi-update applies every *.list
+file here after installing userspace packages. Use this for packages that
+replace Fedora's versions (libfprint, fprintd, ffmpeg, ...), never for the
+whole system.

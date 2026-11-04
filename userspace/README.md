@@ -12,18 +12,32 @@ Build (Fedora container):
 
 ```sh
 mkdir -p ~/rpmbuild/SOURCES
-mkdir -p /tmp/src/gts9wifi-userspace-0.1.0
-cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.1.0/
-tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.1.0.tar.gz gts9wifi-userspace-0.1.0
+mkdir -p /tmp/src/gts9wifi-userspace-0.2.0
+cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.2.0/
+tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.2.0.tar.gz gts9wifi-userspace-0.2.0
 rpmbuild -bb userspace/gts9wifi-userspace.spec
 ```
 
 Install:
 
 ```sh
-sudo dnf install ./gts9wifi-userspace-0.1.0-1.fc44.noarch.rpm
+sudo dnf install ./gts9wifi-userspace-0.2.0-1.fc44.noarch.rpm
 ```
 
 The keyboard firmware is not included. Copy the verified V37 blob to
 `/lib/firmware/keyboard_stm/stm32_gts9family.bin` only after the matching
 kernel is installed.
+
+## Updates
+
+```sh
+gts9wifi-update check
+sudo gts9wifi-update userspace
+sudo gts9wifi-update kernel --flash --reboot
+sudo gts9wifi-update rollback
+```
+
+`kernel` without `--flash` only downloads and verifies the pair. With
+`--flash` it backs up the four boot partitions and the running modules,
+writes boot/init_boot/vendor_boot/dtbo, verifies the readback, then installs
+the matching kernel RPM. It never writes vbmeta, persist, modemst or efs.
