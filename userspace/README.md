@@ -24,7 +24,8 @@ Noarch RPM with the Phase 1 userspace pieces from the Ubuntu port:
   aggregates the device controls, power profile, USB debug switch and
   system/firmware status (`gts9wifi-settings`); its Setup page adds
   EasyEffects, RPM Fusion/Copr, Simplified Chinese, IBus Rime/雾凇拼音,
-  USTC/TUNA mirror switching and the dnf protection switch, and Advanced installs
+  USTC/TUNA mirror switching, the dnf protection switch and the convertible
+  power-key toggle, and Advanced installs
   components, flashes/rolls back the boot pair (typed confirmation) and
   installs the keyboard V37 firmware file
 - `gts9wifi-protect` blocks dnf updates of port-patched packages, the
@@ -35,16 +36,16 @@ Build (Fedora container):
 
 ```sh
 mkdir -p ~/rpmbuild/SOURCES
-mkdir -p /tmp/src/gts9wifi-userspace-0.10.0
-cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.10.0/
-tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.10.0.tar.gz gts9wifi-userspace-0.10.0
+mkdir -p /tmp/src/gts9wifi-userspace-0.11.0
+cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.11.0/
+tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.11.0.tar.gz gts9wifi-userspace-0.11.0
 rpmbuild -bb userspace/gts9wifi-userspace.spec
 ```
 
 Install:
 
 ```sh
-sudo dnf install ./gts9wifi-userspace-0.10.0-1.fc44.noarch.rpm
+sudo dnf install ./gts9wifi-userspace-0.11.0-1.fc44.noarch.rpm
 ```
 
 The keyboard firmware is not included. Copy the verified V37 blob to

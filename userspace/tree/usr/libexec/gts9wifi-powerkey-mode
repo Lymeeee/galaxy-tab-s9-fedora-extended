@@ -1,0 +1,41 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Toggle the convertible power-key mode: CHASSIS=convertible plus the
+# /etc/gts9wifi/power-key-enabled flag read by the user service.
+set -eu
+
+[ "$(id -u)" -eq 0 ] || { echo "gts9wifi-powerkey-mode: run through pkexec" >&2; exit 1; }
+
+FLAG=/etc/gts9wifi/power-key-enabled
+MACHINE=/etc/machine-info
+STATE=/var/lib/gts9wifi/power-key
+
+case "${1:-status}" in
+    on)
+        mkdir -p /etc/gts9wifi "$STATE"
+        [ -e "$STATE/machine-info" ] || cp -a "$MACHINE" "$STATE/machine-info" 2>/dev/null || true
+        if grep -q '^CHASSIS=' "$MACHINE" 2>/dev/null; then
+            sed -i 's/^CHASSIS=.*/CHASSIS="convertible"/' "$MACHINE"
+        else
+            printf 'CHASSIS="convertible"\n' >>"$MACHINE"
+        fi
+        : >"$FLAG"
+        echo "convertible power-key mode enabled"
+        ;;
+    off)
+        rm -f "$FLAG"
+        if [ -e "$STATE/machine-info" ]; then
+            cp -a "$STATE/machine-info" "$MACHINE"
+        elif grep -q '^CHASSIS=' "$MACHINE" 2>/dev/null; then
+            sed -i 's/^CHASSIS=.*/CHASSIS="tablet"/' "$MACHINE"
+        fi
+        echo "convertible power-key mode disabled"
+        ;;
+    status)
+        if [ -e "$FLAG" ]; then echo enabled; else echo disabled; fi
+        ;;
+    *)
+        echo "usage: gts9wifi-powerkey-mode on|off|status" >&2
+        exit 2
+        ;;
+esac

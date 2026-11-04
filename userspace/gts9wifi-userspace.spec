@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.10.0
+Version:        0.11.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -82,6 +82,10 @@ fi
 %{_libexecdir}/gts9wifi-mirrors
 %{_libexecdir}/gts9wifi-protect
 %{_libexecdir}/gts9wifi-ime
+%{_libexecdir}/gts9wifi-power-key
+%{_libexecdir}/gts9wifi-powerkey-mode
+%{_userunitdir}/gts9wifi-power-key.service
+%{_udevrulesdir}/72-gts9wifi-power-key.rules
 %{_bindir}/gts9wifi-power
 %{_unitdir}/gts9wifi-fast-charge-default.service
 %{_unitdir}/gts9wifi-usb-net-off.service
@@ -94,6 +98,9 @@ fi
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 
 %changelog
+* Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.11.0-1
+- Port the convertible power-key user service with a settings toggle
+
 * Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.10.0-1
 - Add the IBus Rime / 雾凇拼音 one-click installer
 

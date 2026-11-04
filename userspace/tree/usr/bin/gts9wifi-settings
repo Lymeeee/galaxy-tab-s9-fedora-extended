@@ -27,6 +27,7 @@ KEYBOARD_FW_SHA256 = '1b48d88c23523ae205cd960e6d42725268638a15a47d8a5e52854eb011
 UPDATE = '/usr/bin/gts9wifi-update'
 PROTECT = '/usr/libexec/gts9wifi-protect'
 IME = '/usr/libexec/gts9wifi-ime'
+POWERKEY = '/usr/libexec/gts9wifi-powerkey-mode'
 DEFAULT_KERNEL_TAG = 'kernel-7.2.0-merge-1'
 POWER_IDS = ['powersave', 'balanced', 'performance']
 MIRROR_IDS = ['ustc', 'tuna']
@@ -249,6 +250,16 @@ class Settings(Adw.Application):
         protection.add(self.protect_row)
         page.add(protection)
 
+        powerkey = Adw.PreferencesGroup(title='Power key')
+        self.powerkey_row = Adw.SwitchRow(
+            title='Convertible power-key mode',
+            subtitle='Short press locks and suspends; hold opens the power menu. '
+                     'Sets CHASSIS=convertible and needs a re-login for gsd-media-keys.',
+            active=os.path.exists('/etc/gts9wifi/power-key-enabled'))
+        self.powerkey_row.connect('notify::active', self.powerkey_toggled)
+        powerkey.add(self.powerkey_row)
+        page.add(powerkey)
+
         locale = Adw.PreferencesGroup(title='Language')
         self.action_row(locale, 'Simplified Chinese',
             'Install the zh_CN language packs, set the system locale and the GNOME region '
@@ -288,6 +299,43 @@ class Settings(Adw.Application):
         except OSError:
             return False
         return '# BEGIN gts9wifi-protect' in conf and os.path.exists('/etc/dnf/vars/releasever')
+
+    def powerkey_toggled(self, row, _pspec):
+        if getattr(self, '_powerkey_busy', False):
+            return
+        enable = row.get_active()
+        ok = True
+        if enable:
+            result = run(['pkexec', POWERKEY, 'on'], timeout=30)
+            ok = result is not None and result.returncode == 0
+            if ok:
+                run(['systemctl', '--user', 'daemon-reload'], timeout=20)
+                result = run(['systemctl', '--user', 'enable', '--now',
+                              'gts9wifi-power-key.service'], timeout=30)
+                ok = result is not None and result.returncode == 0
+            if ok:
+                run(['gsettings', 'set', 'org.gnome.settings-daemon.plugins.power',
+                     'power-button-action', 'nothing'], timeout=10)
+                run(['systemctl', '--user', 'restart',
+                     'org.gnome.SettingsDaemon.MediaKeys.service'], timeout=20)
+                self.alert('Log out and back in',
+                    'CHASSIS is now convertible; gsd-media-keys may need a re-login '
+                    'before the power button stops acting on key-down.')
+        else:
+            run(['systemctl', '--user', 'disable', '--now',
+                 'gts9wifi-power-key.service'], timeout=30)
+            run(['gsettings', 'set', 'org.gnome.settings-daemon.plugins.power',
+                 'power-button-action', 'suspend'], timeout=10)
+            result = run(['pkexec', POWERKEY, 'off'], timeout=30)
+            ok = result is not None and result.returncode == 0
+            run(['systemctl', '--user', 'restart',
+                 'org.gnome.SettingsDaemon.MediaKeys.service'], timeout=20)
+        if not ok:
+            self._powerkey_busy = True
+            row.set_active(os.path.exists('/etc/gts9wifi/power-key-enabled'))
+            self._powerkey_busy = False
+            self.alert('Power-key mode failed',
+                'Could not change the mode; check the polkit prompt or the user service.')
 
     def open_easyeffects(self):
         if shutil.which('easyeffects'):
