@@ -4,6 +4,7 @@ local-assets/
 
 # Build output
 out/
+out-fingerprint/
 build/
 
 # Disk images

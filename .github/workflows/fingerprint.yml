@@ -1,0 +1,54 @@
+name: Fingerprint libfprint RPM
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish the libfprint RPMs to"
+        required: false
+        default: "libfprint-1.94.100-gts9wifi-1"
+        type: string
+      srpm_url:
+        description: "Fedora libfprint source RPM to rebuild"
+        required: false
+        default: "https://dl.fedoraproject.org/pub/fedora/linux/updates/44/Everything/source/tree/Packages/l/libfprint-1.94.100-1.fc44.src.rpm"
+        type: string
+  push:
+    branches: [phase3-fingerprint]
+    paths:
+      - 'fingerprint/**'
+      - '.github/workflows/fingerprint.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-libfprint:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build libfprint with EL721
+        env:
+          SRPM_URL: ${{ inputs.srpm_url || 'https://dl.fedoraproject.org/pub/fedora/linux/updates/44/Everything/source/tree/Packages/l/libfprint-1.94.100-1.fc44.src.rpm' }}
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/work" -w /work \
+            -e SRPM_URL \
+            quay.io/fedora/fedora:44 \
+            bash /work/fingerprint/build-libfprint-rpm.sh
+
+      - name: Publish to the named release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REL: ${{ inputs.release_tag || 'libfprint-1.94.100-gts9wifi-1' }}
+        run: |
+          [ -n "$REL" ] || { echo "release tag is empty" >&2; exit 1; }
+          gh release view "$REL" >/dev/null 2>&1 || \
+            gh release create "$REL" --title "Experimental Test Build ($REL)" \
+              --prerelease --latest=false \
+              --notes "Fedora 44 libfprint rebuilt with the EgisTec EL721 platform driver."
+          gh release upload "$REL" --clobber \
+            out-fingerprint/*.rpm out-fingerprint/SHA256SUMS out-fingerprint/BUILD-METADATA.txt
