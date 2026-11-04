@@ -1,0 +1,420 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+# Tab9 Settings: GTK4/libadwaita front end for the gts9wifi controls.
+
+import glob
+import hashlib
+import os
+import shlex
+import shutil
+import subprocess
+
+import gi
+
+gi.require_version('Adw', '1')
+gi.require_version('Gtk', '4.0')
+from gi.repository import Adw, Gtk
+
+APP_ID = 'io.github.lymeeee.Gts9wifiSettings'
+DEVICE_CONTROL = '/usr/libexec/gts9wifi-device-control'
+PRIVILEGED = '/usr/libexec/gts9wifi-privileged'
+POWER_PROFILE = '/var/lib/gts9wifi/power-profile'
+USB_NET_FLAG = '/etc/gts9wifi/usb-net-enabled'
+KEYBOARD_FW = '/lib/firmware/keyboard_stm/stm32_gts9family.bin'
+KEYBOARD_FW_SIZE = 52132
+KEYBOARD_FW_SHA256 = '1b48d88c23523ae205cd960e6d42725268638a15a47d8a5e52854eb01108caa3'
+UPDATE = '/usr/bin/gts9wifi-update'
+DEFAULT_KERNEL_TAG = 'kernel-7.2.0-merge-1'
+POWER_IDS = ['powersave', 'balanced', 'performance']
+
+
+def run(args, timeout=10):
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def rpm(name):
+    result = run(['rpm', '-q', '--qf', '%{VERSION}-%{RELEASE}', name])
+    if result is not None and result.returncode == 0:
+        return result.stdout.strip()
+    return 'not installed'
+
+
+def read(path):
+    try:
+        with open(path, encoding='utf-8') as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def keyboard_status():
+    for diag in glob.glob('/sys/bus/i2c/devices/*-002a/diagnostics'):
+        text = read(diag)
+        if not text:
+            continue
+        values = {}
+        for item in text.split():
+            if '=' in item:
+                key, value = item.split('=', 1)
+                values[key] = value
+        return values
+    return {}
+
+
+class Settings(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID)
+        self.connect('activate', self.activate)
+        self._status_rows = {}
+
+    def activate(self, app):
+        window = Adw.PreferencesWindow(application=app, title='Tab9 Settings')
+        window.set_default_size(540, 820)
+        self.window = window
+        window.add(self.device_page())
+        window.add(self.power_page())
+        window.add(self.debug_page())
+        window.add(self.advanced_page())
+        window.add(self.status_page())
+        window.present()
+
+    def device_page(self):
+        page = Adw.PreferencesPage(title='Device', icon_name='preferences-system-symbolic')
+        controls = self.controls()
+        if not controls:
+            group = Adw.PreferencesGroup()
+            group.add(Adw.ActionRow(
+                title='No device controls',
+                subtitle='gts9wifi-device-control was not found.'))
+            page.add(group)
+            return page
+        groups = {}
+        for control in controls:
+            if control['group'] not in groups:
+                group = Adw.PreferencesGroup(title=control['group'])
+                groups[control['group']] = group
+                page.add(group)
+            row = Adw.SwitchRow(
+                title=control['label'],
+                subtitle=control['description'],
+                active=control['active'])
+            guard = {'busy': False}
+
+            def toggled(row, _pspec, control=control, guard=guard):
+                if guard['busy']:
+                    return
+                value = '1' if row.get_active() else '0'
+                result = run([DEVICE_CONTROL, 'set', control['name'], value])
+                if result is None or result.returncode != 0:
+                    guard['busy'] = True
+                    row.set_active(not row.get_active())
+                    guard['busy'] = False
+
+            row.connect('notify::active', toggled)
+            groups[control['group']].add(row)
+        return page
+
+    def controls(self):
+        result = run([DEVICE_CONTROL, 'list'])
+        if result is None or result.returncode != 0:
+            return []
+        controls = []
+        for line in result.stdout.splitlines():
+            parts = line.split('\t')
+            if len(parts) != 5:
+                continue
+            name, group, label, description, value = parts
+            controls.append({
+                'name': name, 'group': group, 'label': label,
+                'description': description, 'active': value == '1',
+            })
+        return controls
+
+    def power_page(self):
+        page = Adw.PreferencesPage(title='Power', icon_name='battery-symbolic')
+        group = Adw.PreferencesGroup(
+            title='Profile',
+            description='CPU governor/EPP, GPU devfreq and Wi-Fi powersave. '
+                        'Changes authenticate through pkexec.')
+        labels = Gtk.StringList.new(['Power saver', 'Balanced', 'Performance'])
+        current = read(POWER_PROFILE) or 'balanced'
+        if current not in POWER_IDS:
+            current = 'balanced'
+        row = Adw.ComboRow(
+            title='Power profile', model=labels,
+            selected=POWER_IDS.index(current))
+        guard = {'busy': False}
+
+        def changed(row, _pspec, guard=guard):
+            if guard['busy']:
+                return
+            profile = POWER_IDS[row.get_selected()]
+            result = run(['pkexec', PRIVILEGED, 'power', profile], timeout=60)
+            if result is None or result.returncode != 0:
+                saved = read(POWER_PROFILE) or 'balanced'
+                if saved not in POWER_IDS:
+                    saved = 'balanced'
+                guard['busy'] = True
+                row.set_selected(POWER_IDS.index(saved))
+                guard['busy'] = False
+
+        row.connect('notify::selected', changed)
+        group.add(row)
+        page.add(group)
+        return page
+
+    def debug_page(self):
+        page = Adw.PreferencesPage(title='Debug', icon_name='utilities-terminal-symbolic')
+        group = Adw.PreferencesGroup(
+            title='USB debug network',
+            description='USB gadget at 172.16.42.1 for SSH. '
+                        'Leave it off for daily use; it keeps the UDC powered.')
+        row = Adw.SwitchRow(
+            title='Enable USB debug network',
+            active=os.path.exists(USB_NET_FLAG))
+        guard = {'busy': False}
+
+        def changed(row, _pspec, guard=guard):
+            if guard['busy']:
+                return
+            value = 'on' if row.get_active() else 'off'
+            result = run(['pkexec', PRIVILEGED, 'usbnet', value], timeout=60)
+            if result is None or result.returncode != 0:
+                guard['busy'] = True
+                row.set_active(os.path.exists(USB_NET_FLAG))
+                guard['busy'] = False
+
+        row.connect('notify::active', changed)
+        group.add(row)
+        page.add(group)
+        return page
+
+    def advanced_page(self):
+        page = Adw.PreferencesPage(title='Advanced', icon_name='dialog-warning-symbolic')
+
+        components = Adw.PreferencesGroup(
+            title='Components',
+            description='Opens a terminal with pkexec; the update tool verifies its own downloads.')
+        self.action_row(components, 'Userspace package',
+            'Install the latest userspace controls and update tool.',
+            'Install', lambda: self.confirm_simple(
+                'Update userspace?',
+                'Installs the userspace RPM from the release and applies the power defaults.',
+                lambda: self.open_terminal(['pkexec', UPDATE, 'userspace'])))
+        self.action_row(components, 'FFmpeg codecs',
+            'Install the rebuilt ffmpeg-free RPMs and the Firefox hardware-video policy.',
+            'Install', lambda: self.confirm_simple(
+                'Install FFmpeg codecs?',
+                'Downloads and verifies the ffmpeg-free runtime RPMs.',
+                lambda: self.open_terminal(['pkexec', UPDATE, 'ffmpeg'])))
+        self.action_row(components, 'Fingerprint stack',
+            'Install libfprint EL721 and the secure-start runtime.',
+            'Install', lambda: self.confirm_simple(
+                'Install the fingerprint stack?',
+                'Installs both EL721 packages and enables the mount/fingerprint units. '
+                'Calibration and authselect still need the documented follow-up.',
+                lambda: self.open_terminal(['pkexec', UPDATE, 'fingerprint'])))
+        page.add(components)
+
+        kernel = Adw.PreferencesGroup(
+            title='Kernel and boot',
+            description='Boot partitions are written only after the typed confirmation below.')
+        self.kernel_tag = Adw.EntryRow(title='Kernel release tag')
+        self.kernel_tag.set_text(DEFAULT_KERNEL_TAG)
+        kernel.add(self.kernel_tag)
+        self.action_row(kernel, 'Update kernel + boot bundle',
+            'Downloads and verifies the pair, backs up boot, writes four partitions, verifies readback and installs the RPM.',
+            'Flash...', self.flash_kernel, destructive=True)
+        self.action_row(kernel, 'Rollback boot partitions',
+            'Restores the latest gts9wifi boot backup and its modules.',
+            'Rollback...', self.rollback_boot, destructive=True)
+        page.add(kernel)
+
+        keyboard = Adw.PreferencesGroup(
+            title='Keyboard',
+            description='The file is only installed here; the pogo driver writes the MCU on the next boot when it is not V37.')
+        self.keyboard_row = Adw.ActionRow(
+            title='STM32 V37 firmware',
+            subtitle=self.keyboard_subtitle())
+        install = Gtk.Button(label='Install file...')
+        install.connect('clicked', lambda _button: self.choose_keyboard_firmware())
+        self.keyboard_row.add_suffix(install)
+        keyboard.add(self.keyboard_row)
+        page.add(keyboard)
+        return page
+
+    def action_row(self, group, title, subtitle, button_label, callback, destructive=False):
+        row = Adw.ActionRow(title=title, subtitle=subtitle)
+        button = Gtk.Button(label=button_label)
+        if destructive:
+            button.add_css_class('destructive-action')
+        button.connect('clicked', lambda _button: callback())
+        row.add_suffix(button)
+        group.add(row)
+        return row
+
+    def keyboard_subtitle(self):
+        keyboard = keyboard_status()
+        if keyboard.get('flash_version'):
+            return 'flash_version=%s app_version=%s' % (
+                keyboard.get('flash_version'), keyboard.get('app_version', '?'))
+        return 'controller not detected'
+
+    def alert(self, heading, body):
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        dialog.add_response('close', 'Close')
+        dialog.set_default_response('close')
+        dialog.present(self.window)
+
+    def confirm_simple(self, heading, body, callback):
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        dialog.add_response('cancel', 'Cancel')
+        dialog.add_response('ok', 'Continue')
+        dialog.set_response_appearance('ok', Adw.ResponseAppearance.SUGGESTED)
+
+        def response(_dialog, answer):
+            if answer == 'ok':
+                callback()
+
+        dialog.connect('response', response)
+        dialog.present(self.window)
+
+    def confirm_typed(self, heading, body, word, callback):
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        entry = Gtk.Entry(placeholder_text='type %s to confirm' % word)
+        dialog.set_extra_child(entry)
+        dialog.add_response('cancel', 'Cancel')
+        dialog.add_response('ok', 'Continue')
+        dialog.set_response_appearance('ok', Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def response(_dialog, answer):
+            if answer == 'ok' and entry.get_text().strip() == word:
+                callback()
+
+        dialog.connect('response', response)
+        dialog.present(self.window)
+
+    def flash_kernel(self):
+        tag = self.kernel_tag.get_text().strip()
+        if not tag or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-' for c in tag):
+            self.alert('Invalid tag', 'Use a release tag such as kernel-7.2.0-merge-2.')
+            return
+        self.confirm_typed(
+            'Flash kernel and boot bundle?',
+            'This writes boot, init_boot, vendor_boot and dtbo, then installs the matching kernel RPM. '
+            'The tool verifies the download and keeps a rollback backup. Tag: %s' % tag,
+            'FLASH',
+            lambda: self.open_terminal(['pkexec', UPDATE, 'kernel', '--tag', tag, '--flash']))
+
+    def rollback_boot(self):
+        self.confirm_typed(
+            'Rollback boot partitions?',
+            'Restores the latest boot-partition backup and its kernel modules, then asks you to reboot.',
+            'ROLLBACK',
+            lambda: self.open_terminal(['pkexec', UPDATE, 'rollback']))
+
+    def choose_keyboard_firmware(self):
+        dialog = Gtk.FileDialog(title='Select stm32_gts9family.bin')
+        dialog.open(self.window, None, self.keyboard_file_chosen)
+
+    def keyboard_file_chosen(self, dialog, result):
+        try:
+            file = dialog.open_finish(result)
+            path = file.get_path()
+        except Exception:
+            return
+        if not path:
+            return
+        try:
+            data = open(path, 'rb').read()
+        except OSError as error:
+            self.alert('Cannot read file', str(error))
+            return
+        if len(data) != KEYBOARD_FW_SIZE or hashlib.sha256(data).hexdigest() != KEYBOARD_FW_SHA256:
+            self.alert('Wrong firmware',
+                'Expected the 52132-byte V37 stm32_gts9family.bin with SHA-256 %s.' % KEYBOARD_FW_SHA256)
+            return
+        self.confirm_typed(
+            'Install keyboard V37 firmware?',
+            'The file is copied to /lib/firmware/keyboard_stm/. The pogo driver will write the MCU '
+            'on the next boot if it is not already V37; that write is persistent.',
+            'MCU',
+            lambda: self.open_terminal([
+                'pkexec', '/usr/bin/install', '-D', '-m0644', path, KEYBOARD_FW]))
+
+    def open_terminal(self, argv):
+        command = ' '.join(shlex.quote(arg) for arg in argv)
+        script = '%s; rc=$?; echo; read -r -p "Press Enter to close..." _; exit $rc' % command
+        candidates = [
+            ('ptyxis', ['--']),
+            ('kgx', ['--']),
+            ('gnome-terminal', ['--']),
+            ('xterm', ['-e']),
+        ]
+        for term, args in candidates:
+            if shutil.which(term):
+                subprocess.Popen([term, *args, 'bash', '-lc', script])
+                return
+        self.alert('No terminal found', 'Run this command manually:\n' + command)
+
+    def status_page(self):
+        page = Adw.PreferencesPage(title='Status', icon_name='dialog-information-symbolic')
+        group = Adw.PreferencesGroup(title='System')
+        refresh = Gtk.Button.new_from_icon_name('view-refresh-symbolic')
+        refresh.set_tooltip_text('Refresh')
+        refresh.connect('clicked', lambda _button: self.update_status())
+        header = Adw.ActionRow(title='Device and firmware status')
+        header.add_suffix(refresh)
+        group.add(header)
+        for key, title in [
+            ('kernel', 'Kernel'),
+            ('userspace', 'Userspace package'),
+            ('libfprint', 'libfprint'),
+            ('fingerprint', 'Fingerprint runtime'),
+            ('esfp', 'Fingerprint device'),
+            ('keyboard', 'Keyboard controller'),
+            ('keyboard_fw', 'Keyboard firmware file'),
+            ('ffmpeg', 'FFmpeg codecs'),
+            ('vendor', 'Android /vendor'),
+            ('usbnet', 'USB debug network'),
+        ]:
+            row = Adw.ActionRow(title=title, subtitle='…')
+            group.add(row)
+            self._status_rows[key] = row
+        page.add(group)
+        self.update_status()
+        return page
+
+    def update_status(self):
+        rows = self._status_rows
+        rows['kernel'].set_subtitle(os.uname().release)
+        rows['userspace'].set_subtitle(rpm('gts9wifi-userspace'))
+        rows['libfprint'].set_subtitle(rpm('libfprint'))
+        rows['fingerprint'].set_subtitle(rpm('gts9wifi-fingerprint'))
+        rows['esfp'].set_subtitle(
+            '/dev/esfp0 present' if os.path.exists('/dev/esfp0') else 'not detected')
+        keyboard = keyboard_status()
+        if keyboard.get('flash_version'):
+            rows['keyboard'].set_subtitle(
+                'flash_version=%s app_version=%s' % (
+                    keyboard.get('flash_version'), keyboard.get('app_version', '?')))
+        else:
+            rows['keyboard'].set_subtitle('controller not detected')
+        rows['keyboard_fw'].set_subtitle(
+            'installed' if os.path.exists(KEYBOARD_FW) else 'not installed (V37 blob)')
+        rows['ffmpeg'].set_subtitle(rpm('libavcodec-free'))
+        rows['vendor'].set_subtitle(
+            'mounted read-only' if os.path.ismount('/vendor') else 'not mounted')
+        rows['usbnet'].set_subtitle(
+            'enabled (flag set)' if os.path.exists(USB_NET_FLAG) else 'disabled (default)')
+
+
+def main():
+    return Settings().run([])
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -32,7 +32,11 @@ jobs:
             quay.io/fedora/fedora:44 \
             bash -lc '
               set -euxo pipefail
-              dnf -y install rpm-build systemd-rpm-macros glib2 findutils tar gzip sed >/dev/null
+              dnf -y install rpm-build systemd-rpm-macros glib2 findutils tar gzip sed python3 desktop-file-utils python3-gobject gtk4 libadwaita >/dev/null
+              python3 -m py_compile /work/userspace/tree/usr/bin/gts9wifi-settings
+              rm -rf /work/userspace/tree/usr/bin/__pycache__
+              python3 /work/userspace/tests/settings-smoke.py
+              desktop-file-validate /work/userspace/tree/usr/share/applications/gts9wifi-settings.desktop
               mkdir -p ~/rpmbuild/SOURCES ~/rpmbuild/RPMS /work/out-userspace
               rm -rf /tmp/src
               VERSION=$(sed -n "s/^Version:[[:space:]]*//p" /work/userspace/gts9wifi-userspace.spec | head -1)

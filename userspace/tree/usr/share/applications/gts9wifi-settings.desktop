@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Tab9 Settings
+Comment=Galaxy Tab S9 Wi-Fi controls, power profiles and device status
+Exec=gts9wifi-settings
+Icon=gts9wifi-settings
+Terminal=false
+Type=Application
+Categories=Settings;System;
+StartupNotify=true

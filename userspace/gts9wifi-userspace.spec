@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.7.0
+Version:        0.8.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -23,6 +23,9 @@ Requires:       systemd
 Requires:       polkit
 Requires:       plymouth
 Requires:       plymouth-plugin-script
+Requires:       python3-gobject
+Requires:       gtk4
+Requires:       libadwaita
 
 %description
 Tab9 Extras GNOME Shell extension (v6), the gts9wifi device-control helper
@@ -62,6 +65,9 @@ fi
 
 %files
 %{_bindir}/gts9wifi-update
+%{_bindir}/gts9wifi-settings
+%{_datadir}/applications/gts9wifi-settings.desktop
+%{_datadir}/icons/hicolor/scalable/apps/gts9wifi-settings.svg
 %dir %{_datadir}/gnome-shell/extensions/gnome-gts9wifi@tabs9linux
 %{_datadir}/gnome-shell/extensions/gnome-gts9wifi@tabs9linux/*
 %{_datadir}/glib-2.0/schemas/org.gnome.shell.extensions.gts9wifi.gschema.xml
@@ -85,6 +91,9 @@ fi
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 
 %changelog
+* Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.8.0-1
+- Add the Tab9 Settings GTK4/libadwaita application
+
 * Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.7.0-1
 - Ship the GTS9 Plymouth theme in the rootfs and select it on install
 
