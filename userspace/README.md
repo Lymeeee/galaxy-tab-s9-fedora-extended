@@ -18,21 +18,23 @@ Noarch RPM with the Phase 1 userspace pieces from the Ubuntu port:
   gnome-gts9wifi -> Preferences, or
   `gnome-extensions prefs gnome-gts9wifi@tabs9linux`); power and USB debug
   changes authenticate through pkexec
+- the GTS9 Plymouth splash theme for the rootfs (selected on install; the
+  boot bundle carries the same theme for the initramfs)
 
 Build (Fedora container):
 
 ```sh
 mkdir -p ~/rpmbuild/SOURCES
-mkdir -p /tmp/src/gts9wifi-userspace-0.6.0
-cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.6.0/
-tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.6.0.tar.gz gts9wifi-userspace-0.6.0
+mkdir -p /tmp/src/gts9wifi-userspace-0.7.0
+cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.7.0/
+tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.7.0.tar.gz gts9wifi-userspace-0.7.0
 rpmbuild -bb userspace/gts9wifi-userspace.spec
 ```
 
 Install:
 
 ```sh
-sudo dnf install ./gts9wifi-userspace-0.6.0-1.fc44.noarch.rpm
+sudo dnf install ./gts9wifi-userspace-0.7.0-1.fc44.noarch.rpm
 ```
 
 The keyboard firmware is not included. Copy the verified V37 blob to

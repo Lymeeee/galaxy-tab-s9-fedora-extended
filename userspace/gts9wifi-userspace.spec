@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.6.0
+Version:        0.7.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -21,6 +21,8 @@ Requires:       util-linux
 Requires:       iw
 Requires:       systemd
 Requires:       polkit
+Requires:       plymouth
+Requires:       plymouth-plugin-script
 
 %description
 Tab9 Extras GNOME Shell extension (v6), the gts9wifi device-control helper
@@ -47,10 +49,16 @@ cp -a . %{buildroot}/
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
 udevadm control --reload-rules >/dev/null 2>&1 || :
 systemctl daemon-reload >/dev/null 2>&1 || :
+if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+    plymouth-set-default-theme gts9wifi >/dev/null 2>&1 || :
+fi
 
 %postun
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
 systemctl daemon-reload >/dev/null 2>&1 || :
+if [ "$1" = 0 ] && command -v plymouth-set-default-theme >/dev/null 2>&1; then
+    plymouth-set-default-theme spinner >/dev/null 2>&1 || :
+fi
 
 %files
 %{_bindir}/gts9wifi-update
@@ -60,6 +68,8 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %dir %{_datadir}/gts9wifi
 %dir %{_datadir}/gts9wifi/versionlock.d
 %{_datadir}/gts9wifi/versionlock.d/README
+%dir %{_datadir}/plymouth/themes/gts9wifi
+%{_datadir}/plymouth/themes/gts9wifi/*
 %{_libexecdir}/gts9wifi-device-control
 %{_libexecdir}/gts9wifi-privileged
 %{_libexecdir}/gts9wifi-usb-net-off
@@ -75,6 +85,9 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 
 %changelog
+* Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.7.0-1
+- Ship the GTS9 Plymouth theme in the rootfs and select it on install
+
 * Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.6.0-1
 - Add gts9wifi-update fingerprint: libfprint EL721 + runtime, mounts,
   services, versionlock and optional calibration import
