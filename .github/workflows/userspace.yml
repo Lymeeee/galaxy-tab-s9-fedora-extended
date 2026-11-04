@@ -1,0 +1,55 @@
+name: Userspace RPM
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish the userspace RPM to"
+        required: false
+        default: "kernel-7.2.0-merge-1"
+        type: string
+  push:
+    branches: [phase1-userspace]
+    paths:
+      - 'userspace/**'
+      - '.github/workflows/userspace.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-userspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build noarch RPM
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" -w /work \
+            quay.io/fedora/fedora:44 \
+            bash -lc '
+              set -euxo pipefail
+              dnf -y install rpm-build systemd-rpm-macros glib2 findutils tar gzip >/dev/null
+              mkdir -p ~/rpmbuild/SOURCES ~/rpmbuild/RPMS /work/out-userspace
+              rm -rf /tmp/src
+              mkdir -p /tmp/src/gts9wifi-userspace-0.1.0
+              cp -a /work/userspace/tree/. /tmp/src/gts9wifi-userspace-0.1.0/
+              tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.1.0.tar.gz \
+                gts9wifi-userspace-0.1.0
+              rpmbuild -bb /work/userspace/gts9wifi-userspace.spec
+              cp ~/rpmbuild/RPMS/noarch/*.rpm /work/out-userspace/
+            '
+
+      - name: Publish to the named release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REL: ${{ inputs.release_tag || 'kernel-7.2.0-merge-1' }}
+        run: |
+          [ -n "$REL" ] || { echo "release tag is empty" >&2; exit 1; }
+          gh release view "$REL" >/dev/null 2>&1 || \
+            gh release create "$REL" --title "Experimental Test Build ($REL)" \
+              --prerelease --latest=false --notes "Automated build for $REL"
+          gh release upload "$REL" --clobber out-userspace/*.rpm
