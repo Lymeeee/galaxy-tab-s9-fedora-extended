@@ -1,0 +1,34 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Root actions for the gnome-gts9wifi settings page (invoked through pkexec).
+set -eu
+
+[ "$(id -u)" -eq 0 ] || { echo "gts9wifi-privileged: run through pkexec" >&2; exit 1; }
+
+case "${1:-}" in
+    power)
+        shift
+        [ $# -gt 0 ] || exit 2
+        exec /usr/bin/gts9wifi-power "$@"
+        ;;
+    usbnet)
+        case "${2:-}" in
+            on)
+                mkdir -p /etc/gts9wifi
+                : >/etc/gts9wifi/usb-net-enabled
+                systemctl enable --now gts9wifi-usb-net.service
+                ;;
+            off)
+                rm -f /etc/gts9wifi/usb-net-enabled
+                systemctl disable --now gts9wifi-usb-net.service >/dev/null 2>&1 || true
+                systemctl start gts9wifi-usb-net-off.service
+                ;;
+            *)
+                exit 2
+                ;;
+        esac
+        ;;
+    *)
+        exit 2
+        ;;
+esac

@@ -15,6 +15,25 @@ import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Ex
 
 import {helperAvailable, listControls, setControl} from './deviceControls.js';
 
+const PRIVILEGED_HELPER = '/usr/libexec/gts9wifi-privileged';
+
+function privilegedAvailable() {
+    return GLib.file_test(PRIVILEGED_HELPER, GLib.FileTest.IS_EXECUTABLE);
+}
+
+function runPrivileged(args) {
+    try {
+        const proc = Gio.Subprocess.new(
+            ['pkexec', PRIVILEGED_HELPER, ...args],
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+        proc.communicate_utf8(null, null);
+        return proc.get_successful();
+    } catch (error) {
+        console.error(`gnome-gts9wifi: ${error.message}`);
+        return false;
+    }
+}
+
 export default class Gts9wifiPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const page = new Adw.PreferencesPage({
@@ -65,12 +84,78 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
             groups.get(control.group).add(row);
         }
 
+        const power = this._powerGroup();
+        if (power)
+            page.add(power);
+        const usbNet = this._usbNetGroup();
+        if (usbNet)
+            page.add(usbNet);
+
         const boot = this._bootGroup();
         if (boot)
             page.add(boot);
         page.add(this._lockGroup());
         page.add(this._keyboardGroup());
         window.add(page);
+    }
+
+    _powerGroup() {
+        if (!privilegedAvailable())
+            return null;
+
+        const ids = ['powersave', 'balanced', 'performance'];
+        const names = [_('Power saver'), _('Balanced'), _('Performance')];
+        const model = new Gtk.StringList();
+        names.forEach(name => model.append(name));
+
+        let current = 'balanced';
+        try {
+            current = new TextDecoder().decode(
+                GLib.file_get_contents('/var/lib/gts9wifi/power-profile')[1]).trim();
+        } catch {}
+
+        const group = new Adw.PreferencesGroup({title: _('Power')});
+        const row = new Adw.ComboRow({
+            title: _('Power profile'),
+            subtitle: _('CPU governor/EPP, GPU devfreq and Wi-Fi powersave. Each change asks for authentication.'),
+            model,
+            selected: Math.max(0, ids.indexOf(current)),
+        });
+        row.connect('notify::selected', () => {
+            if (!runPrivileged(['power', ids[row.selected]]))
+                logError(new Error('cannot apply the power profile'),
+                    'gnome-gts9wifi');
+        });
+        group.add(row);
+        return group;
+    }
+
+    _usbNetGroup() {
+        if (!privilegedAvailable())
+            return null;
+
+        const enabled = GLib.file_test('/etc/gts9wifi/usb-net-enabled',
+            GLib.FileTest.EXISTS);
+        const group = new Adw.PreferencesGroup({title: _('Debug')});
+        const row = new Adw.SwitchRow({
+            title: _('USB debug network'),
+            subtitle: _('The USB gadget at 172.16.42.1 for SSH when the system does not boot. It keeps the USB device controller powered, so leave it off for daily use.'),
+            active: enabled,
+        });
+
+        let reverting = false;
+        row.connect('notify::active', () => {
+            if (reverting)
+                return;
+            if (runPrivileged(['usbnet', row.active ? 'on' : 'off']))
+                return;
+
+            reverting = true;
+            row.active = !row.active;
+            reverting = false;
+        });
+        group.add(row);
+        return group;
     }
 
     // The boot animation gts9wifi-boot-animation plays: one of the videos in

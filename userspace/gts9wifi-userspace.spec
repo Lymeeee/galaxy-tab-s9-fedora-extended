@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.4.0
+Version:        0.5.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -20,6 +20,7 @@ Requires:       unzip
 Requires:       util-linux
 Requires:       iw
 Requires:       systemd
+Requires:       polkit
 
 %description
 Tab9 Extras GNOME Shell extension (v6), the gts9wifi device-control helper
@@ -60,6 +61,7 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %dir %{_datadir}/gts9wifi/versionlock.d
 %{_datadir}/gts9wifi/versionlock.d/README
 %{_libexecdir}/gts9wifi-device-control
+%{_libexecdir}/gts9wifi-privileged
 %{_libexecdir}/gts9wifi-usb-net-off
 %{_bindir}/gts9wifi-power
 %{_unitdir}/gts9wifi-fast-charge-default.service
@@ -73,6 +75,10 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 
 %changelog
+* Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.5.0-1
+- Add power profile and USB debug network controls to the settings page
+- Add the pkexec helper for privileged settings actions
+
 * Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.4.0-1
 - Default fast charging on and add the one-time default service
 - Disable the USB debug net by default, with a rescue flag file
