@@ -28,8 +28,8 @@ tar -C "$work" -xf "$top/SOURCES/libfprint-v$version.tar.gz"
 
 (cd "$srcdir" && patch -p1 < "$here/patches/0001-el721-platform-driver-1.94.100.patch")
 install -m0644 "$here"/libfprint/el721.c "$here"/libfprint/el721.h \
-    "$here"/libfprint/el721-qtee.c "$here"/libfprint/el721-qtee.h \
-    "$here"/libfprint/el721-*.h "$srcdir/libfprint/drivers/"
+    "$here"/libfprint/el721-qtee.c "$here"/libfprint/el721-*.h \
+    "$srcdir/libfprint/drivers/"
 
 # quic-teec and QCBOR are linked statically into the driver, as in the
 # Ubuntu port, so the tablet needs no private runtime ABI.
