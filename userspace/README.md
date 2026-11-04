@@ -23,16 +23,16 @@ Build (Fedora container):
 
 ```sh
 mkdir -p ~/rpmbuild/SOURCES
-mkdir -p /tmp/src/gts9wifi-userspace-0.5.0
-cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.5.0/
-tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.5.0.tar.gz gts9wifi-userspace-0.5.0
+mkdir -p /tmp/src/gts9wifi-userspace-0.6.0
+cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.6.0/
+tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.6.0.tar.gz gts9wifi-userspace-0.6.0
 rpmbuild -bb userspace/gts9wifi-userspace.spec
 ```
 
 Install:
 
 ```sh
-sudo dnf install ./gts9wifi-userspace-0.5.0-1.fc44.noarch.rpm
+sudo dnf install ./gts9wifi-userspace-0.6.0-1.fc44.noarch.rpm
 ```
 
 The keyboard firmware is not included. Copy the verified V37 blob to
@@ -45,6 +45,7 @@ kernel is installed.
 gts9wifi-update check
 sudo gts9wifi-update userspace
 sudo gts9wifi-update ffmpeg
+sudo gts9wifi-update fingerprint --calib /path/to/calibration
 sudo gts9wifi-update kernel --flash --reboot
 sudo gts9wifi-update rollback
 
@@ -60,6 +61,13 @@ get it back.  The old initramfs gadget is unbound at boot either way.
 `ffmpeg` defaults to the `ffmpeg-8.1.3-gts9wifi-1` release; override with
 `--tag` if the rebuilt codecs are published elsewhere. It installs only
 the runtime `*-free` packages and leaves devel/debuginfo assets alone.
+
+`fingerprint` installs the EL721 libfprint build and the secure-start
+runtime, locks both, enables the vendor/apnhlos mounts and fingerprint
+units, and assembles the TA/firmware from the tablet's own partitions.
+`--calib DIR` copies `calib.dat` and `egoptbds.dat` into the firmware
+store (0600). After the first enrollment, enable the PAM path with
+`sudo authselect enable-feature with-fingerprint`.
 
 `kernel` without `--flash` only downloads and verifies the pair. With
 `--flash` it backs up the four boot partitions and the running modules,

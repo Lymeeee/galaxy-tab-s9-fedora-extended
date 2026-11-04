@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.5.0
+Version:        0.6.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -75,6 +75,10 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 
 %changelog
+* Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.6.0-1
+- Add gts9wifi-update fingerprint: libfprint EL721 + runtime, mounts,
+  services, versionlock and optional calibration import
+
 * Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.5.0-1
 - Add power profile and USB debug network controls to the settings page
 - Add the pkexec helper for privileged settings actions
