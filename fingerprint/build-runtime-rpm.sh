@@ -15,7 +15,7 @@ dnf -y install rpm-build rpmdevtools dnf5-plugins tar xz zstd cpio patch git cur
 git config --system user.name rpmbuild
 git config --system user.email rpmbuild@localhost
 
-rm -rf "$work" && mkdir -p "$work" "$out"
+rm -rf "$work" && mkdir -p "$work" "$out" "$top/SOURCES" "$top/SPECS" "$top/RPMS"
 
 git clone --quiet https://github.com/laurencelundblade/QCBOR.git "$work/qcbor"
 git -C "$work/qcbor" checkout --quiet "$qcbor_commit"
