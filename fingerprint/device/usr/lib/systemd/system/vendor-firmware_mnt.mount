@@ -1,0 +1,16 @@
+[Unit]
+Description=Android apnhlos firmware image (read-only)
+DefaultDependencies=no
+Requires=dev-disk-by\x2dpartlabel-apnhlos.device vendor.mount
+After=dev-disk-by\x2dpartlabel-apnhlos.device vendor.mount
+Conflicts=umount.target
+Before=umount.target local-fs.target
+
+[Mount]
+What=/dev/disk/by-partlabel/apnhlos
+Where=/vendor/firmware_mnt
+Type=auto
+Options=ro,nodev,nosuid
+
+[Install]
+WantedBy=local-fs.target
