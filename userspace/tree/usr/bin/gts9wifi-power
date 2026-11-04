@@ -1,0 +1,107 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Power profiles for the gts9wifi port.  Run as root (the boot service does).
+set -u
+
+STATE=/var/lib/gts9wifi/power-profile
+
+usage() {
+    echo "usage: gts9wifi-power [powersave|balanced|performance|apply|status]" >&2
+    exit 2
+}
+
+set_cpu() { # set_cpu <governor> [energy_performance_preference]
+    for d in /sys/devices/system/cpu/cpufreq/policy*; do
+        [ -d "$d" ] || continue
+        case " $(cat "$d/scaling_available_governors" 2>/dev/null) " in
+            *" $1 "*) printf '%s\n' "$1" >"$d/scaling_governor" 2>/dev/null || true ;;
+        esac
+        if [ -n "${2:-}" ]; then
+            case " $(cat "$d/energy_performance_available_preferences" 2>/dev/null) " in
+                *" $2 "*) printf '%s\n' "$2" >"$d/energy_performance_preference" 2>/dev/null || true ;;
+            esac
+        fi
+    done
+}
+
+set_gpu() { # set_gpu <governor>
+    for d in /sys/class/devfreq/*; do
+        [ -d "$d" ] || continue
+        case "$(basename "$d")" in
+            *gpu*|*gfx*|*3d*) ;;
+            *) continue ;;
+        esac
+        case " $(cat "$d/available_governors" 2>/dev/null) " in
+            *" $1 "*) printf '%s\n' "$1" >"$d/governor" 2>/dev/null || true ;;
+        esac
+    done
+}
+
+set_wifi() { # set_wifi on|off
+    command -v iw >/dev/null 2>&1 || return 0
+    iw dev 2>/dev/null | awk '/Interface/ {print $2}' | while read -r iface; do
+        iw dev "$iface" set power_save "$1" 2>/dev/null || true
+    done
+}
+
+apply_profile() { # apply_profile <name>
+    case "$1" in
+        powersave)
+            set_cpu schedutil power
+            set_gpu simple_ondemand
+            set_wifi on
+            ;;
+        balanced)
+            set_cpu schedutil balance_power
+            set_gpu msm-adreno-tz
+            set_wifi on
+            ;;
+        performance)
+            set_cpu performance performance
+            set_gpu performance
+            set_wifi off
+            ;;
+        *)
+            usage
+            ;;
+    esac
+    mkdir -p /var/lib/gts9wifi 2>/dev/null || true
+    printf '%s\n' "$1" >"$STATE" 2>/dev/null || true
+    echo "power profile: $1"
+}
+
+show_status() {
+    echo "saved profile: $(cat "$STATE" 2>/dev/null || echo balanced)"
+    for d in /sys/devices/system/cpu/cpufreq/policy*; do
+        [ -d "$d" ] || continue
+        printf 'cpu %s: %s' "$(basename "$d")" \
+            "$(cat "$d/scaling_governor" 2>/dev/null || echo unknown)"
+        if [ -r "$d/energy_performance_preference" ]; then
+            printf ' / %s' "$(cat "$d/energy_performance_preference" 2>/dev/null)"
+        fi
+        echo
+    done
+    for d in /sys/class/devfreq/*; do
+        [ -d "$d" ] || continue
+        case "$(basename "$d")" in
+            *gpu*|*gfx*|*3d*) printf 'gpu %s: %s\n' "$(basename "$d")" \
+                "$(cat "$d/governor" 2>/dev/null || echo unknown)" ;;
+        esac
+    done
+    command -v iw >/dev/null 2>&1 && iw dev 2>/dev/null | awk '/Interface/ {print "wifi " $2}'
+}
+
+[ "$(id -u)" -eq 0 ] || { echo "gts9wifi-power: run as root" >&2; exit 1; }
+
+case "${1:-status}" in
+    powersave|balanced|performance) apply_profile "$1" ;;
+    apply)
+        if [ -s "$STATE" ]; then
+            apply_profile "$(cat "$STATE")"
+        else
+            apply_profile balanced
+        fi
+        ;;
+    status) show_status ;;
+    *) usage ;;
+esac

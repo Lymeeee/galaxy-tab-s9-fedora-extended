@@ -1,0 +1,13 @@
+[Unit]
+Description=Enable fast charging once after the userspace update
+After=gts9wifi-device-control.service
+Wants=gts9wifi-device-control.service
+ConditionPathExists=!/var/lib/gts9wifi/.fast-charge-default
+
+[Service]
+Type=oneshot
+# A later user choice (off) is preserved: the marker prevents re-enabling.
+ExecStart=-/bin/sh -c '/usr/libexec/gts9wifi-device-control set fast-charge 1 && touch /var/lib/gts9wifi/.fast-charge-default'
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Unbind the initramfs USB debug gadget unless /etc/gts9wifi/usb-net-enabled
+# exists.  The initramfs gadget survives switch_root and keeps the UDC powered.
+set -u
+
+G=/sys/kernel/config/usb_gadget/g1
+[ -d "$G" ] || exit 0
+
+udc=$(cat "$G/UDC" 2>/dev/null || true)
+if [ -n "$udc" ]; then
+    echo "" >"$G/UDC" 2>/dev/null || true
+fi
+ip link set usb0 down 2>/dev/null || true
+exit 0

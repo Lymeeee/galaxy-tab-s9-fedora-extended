@@ -1,0 +1,12 @@
+[Unit]
+Description=Disable the USB debug gadget unless explicitly enabled
+ConditionPathExists=!/etc/gts9wifi/usb-net-enabled
+After=local-fs.target
+Before=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gts9wifi-usb-net-off
+
+[Install]
+WantedBy=multi-user.target

@@ -252,6 +252,16 @@ cmd_userspace() {
     apply_versionlock
     glib-compile-schemas /usr/share/glib-2.0/schemas >/dev/null 2>&1 || true
     udevadm control --reload-rules >/dev/null 2>&1 || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    for unit in gts9wifi-fast-charge-default.service \
+                gts9wifi-usb-net-off.service gts9wifi-power.service; do
+        if [ -f "/usr/lib/systemd/system/$unit" ]; then
+            systemctl enable --now "$unit" >/dev/null 2>&1 || true
+        fi
+    done
+    systemctl disable --now gts9wifi-usb-net.service >/dev/null 2>&1 || true
+    echo "power defaults applied; USB debug net disabled"
+    echo "  (create /etc/gts9wifi/usb-net-enabled to restore the debug link)"
     echo "userspace updated; log out and back in for the GNOME extension"
 }
 

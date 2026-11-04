@@ -1,0 +1,11 @@
+[Unit]
+Description=Apply the saved gts9wifi power profile
+After=local-fs.target
+ConditionPathIsDirectory=/sys/devices/system/cpu/cpufreq
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/gts9wifi-power apply
+
+[Install]
+WantedBy=multi-user.target

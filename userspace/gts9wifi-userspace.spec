@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.3.0
+Version:        0.4.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -18,6 +18,8 @@ Requires:       curl
 Requires:       python3
 Requires:       unzip
 Requires:       util-linux
+Requires:       iw
+Requires:       systemd
 
 %description
 Tab9 Extras GNOME Shell extension (v6), the gts9wifi device-control helper
@@ -43,9 +45,11 @@ cp -a . %{buildroot}/
 %post
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
 udevadm control --reload-rules >/dev/null 2>&1 || :
+systemctl daemon-reload >/dev/null 2>&1 || :
 
 %postun
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
+systemctl daemon-reload >/dev/null 2>&1 || :
 
 %files
 %{_bindir}/gts9wifi-update
@@ -56,10 +60,24 @@ glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
 %dir %{_datadir}/gts9wifi/versionlock.d
 %{_datadir}/gts9wifi/versionlock.d/README
 %{_libexecdir}/gts9wifi-device-control
+%{_libexecdir}/gts9wifi-usb-net-off
+%{_bindir}/gts9wifi-power
+%{_unitdir}/gts9wifi-fast-charge-default.service
+%{_unitdir}/gts9wifi-usb-net-off.service
+%dir %{_unitdir}/gts9wifi-usb-net.service.d
+%{_unitdir}/gts9wifi-usb-net.service.d/10-gts9wifi-default-off.conf
+%{_unitdir}/gts9wifi-power.service
 %{_udevrulesdir}/72-gts9wifi-charger-perms.rules
 %config(noreplace) %{_sysconfdir}/NetworkManager/dispatcher.d/90-gts9wifi-no-bgscan
+%config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-usb0-unmanaged.conf
+%config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 
 %changelog
+* Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.4.0-1
+- Default fast charging on and add the one-time default service
+- Disable the USB debug net by default, with a rescue flag file
+- Add gts9wifi-power profiles and Wi-Fi powersave default
+
 * Tue Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.3.0-1
 - Add gts9wifi-update ffmpeg to install and lock the rebuilt ffmpeg-free RPMs
 - Set Firefox media.hardware-video-decoding.force-enabled policy

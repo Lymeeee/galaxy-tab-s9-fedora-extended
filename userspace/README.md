@@ -10,21 +10,25 @@ Noarch RPM with the Phase 1 userspace pieces from the Ubuntu port:
 - `gts9wifi-update ffmpeg`, which installs the rebuilt ffmpeg-free RPMs
   (v4l2m2m H.264/HEVC), verifies their SHA256SUMS, sets Firefox's
   `media.hardware-video-decoding.force-enabled` policy and version-locks them
+- `gts9wifi-power` with powersave/balanced/performance profiles (CPU
+  governor/EPP, GPU devfreq, Wi-Fi powersave), applied at boot
+- fast charging enabled once by default; USB debug network disabled by
+  default (create `/etc/gts9wifi/usb-net-enabled` to restore it)
 
 Build (Fedora container):
 
 ```sh
 mkdir -p ~/rpmbuild/SOURCES
-mkdir -p /tmp/src/gts9wifi-userspace-0.3.0
-cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.3.0/
-tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.3.0.tar.gz gts9wifi-userspace-0.3.0
+mkdir -p /tmp/src/gts9wifi-userspace-0.4.0
+cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.4.0/
+tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.4.0.tar.gz gts9wifi-userspace-0.4.0
 rpmbuild -bb userspace/gts9wifi-userspace.spec
 ```
 
 Install:
 
 ```sh
-sudo dnf install ./gts9wifi-userspace-0.3.0-1.fc44.noarch.rpm
+sudo dnf install ./gts9wifi-userspace-0.4.0-1.fc44.noarch.rpm
 ```
 
 The keyboard firmware is not included. Copy the verified V37 blob to
@@ -39,7 +43,15 @@ sudo gts9wifi-update userspace
 sudo gts9wifi-update ffmpeg
 sudo gts9wifi-update kernel --flash --reboot
 sudo gts9wifi-update rollback
+
+gts9wifi-power status
+sudo gts9wifi-power powersave|balanced|performance
 ```
+
+`userspace` install enables the fast-charge default, the USB debug-net
+off switch, and applies the saved power profile.  The debug link stays
+off across boots; create `/etc/gts9wifi/usb-net-enabled` and reboot to
+get it back.  The old initramfs gadget is unbound at boot either way.
 
 `ffmpeg` defaults to the `ffmpeg-8.1.3-gts9wifi-1` release; override with
 `--tag` if the rebuilt codecs are published elsewhere. It installs only
