@@ -1,0 +1,54 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Install IBus Rime and the rime-ice (雾凇拼音) dictionary for the current user.
+set -eu
+
+[ "$(id -u)" -ne 0 ] || { echo "run as your desktop user, not root" >&2; exit 1; }
+
+if ! rpm -q ibus-rime >/dev/null 2>&1; then
+    pkexec dnf install -y ibus-rime git
+fi
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+url=${RIME_ICE_URL:-https://github.com/iDvel/rime-ice.git}
+if ! git clone --depth 1 "$url" "$tmp/rime-ice"; then
+    echo "failed to clone $url" >&2
+    echo "set RIME_ICE_URL to a reachable mirror and re-run" >&2
+    exit 1
+fi
+
+rime=$HOME/.config/ibus/rime
+if [ -d "$rime" ] && [ -n "$(find "$rime" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+    backup=$rime.bak-$(date +%Y%m%d%H%M%S)
+    mv "$rime" "$backup"
+    echo "existing Rime data backed up to $backup"
+fi
+mkdir -p "$rime"
+cp -a "$tmp/rime-ice/." "$rime/"
+
+python3 - <<'PY'
+import ast
+import subprocess
+
+out = subprocess.check_output(
+    ['gsettings', 'get', 'org.gnome.desktop.input-sources', 'sources'],
+    text=True)
+sources = ast.literal_eval(out.strip())
+if ('ibus', 'rime') not in sources:
+    sources.append(('ibus', 'rime'))
+    subprocess.run(
+        ['gsettings', 'set', 'org.gnome.desktop.input-sources', 'sources',
+         str(sources)],
+        check=True)
+    print('added the Rime input source')
+else:
+    print('the Rime input source is already present')
+PY
+
+pkill -x ibus-daemon 2>/dev/null || true
+ibus-daemon -drx 2>/dev/null || true
+sleep 1
+ibus engine rime 2>/dev/null || true
+echo "Rime/雾凇拼音 installed; use Super+Space to switch input methods."
+echo "If GNOME does not pick it up, log out and back in once."

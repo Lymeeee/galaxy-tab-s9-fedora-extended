@@ -38,6 +38,7 @@ jobs:
               python3 /work/userspace/tests/settings-smoke.py
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-mirrors
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-protect
+              sh -n /work/userspace/tree/usr/libexec/gts9wifi-ime
               desktop-file-validate /work/userspace/tree/usr/share/applications/gts9wifi-settings.desktop
               mkdir -p ~/rpmbuild/SOURCES ~/rpmbuild/RPMS /work/out-userspace
               rm -rf /tmp/src

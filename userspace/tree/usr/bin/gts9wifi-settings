@@ -26,6 +26,7 @@ KEYBOARD_FW_SIZE = 52132
 KEYBOARD_FW_SHA256 = '1b48d88c23523ae205cd960e6d42725268638a15a47d8a5e52854eb01108caa3'
 UPDATE = '/usr/bin/gts9wifi-update'
 PROTECT = '/usr/libexec/gts9wifi-protect'
+IME = '/usr/libexec/gts9wifi-ime'
 DEFAULT_KERNEL_TAG = 'kernel-7.2.0-merge-1'
 POWER_IDS = ['powersave', 'balanced', 'performance']
 MIRROR_IDS = ['ustc', 'tuna']
@@ -252,6 +253,9 @@ class Settings(Adw.Application):
         self.action_row(locale, 'Simplified Chinese',
             'Install the zh_CN language packs, set the system locale and the GNOME region '
             '(log out and back in afterwards).', 'Set 简体中文', self.enable_chinese)
+        self.action_row(locale, 'Rime input method',
+            'Install ibus-rime and 雾凇拼音 (rime-ice) for this user, then add Rime to '
+            'the GNOME input sources.', 'Install', self.install_rime)
         page.add(locale)
 
         mirrors = Adw.PreferencesGroup(
@@ -334,6 +338,13 @@ class Settings(Adw.Application):
             'Switch to Simplified Chinese?',
             'Installs the language packs and sets zh_CN.UTF-8. Log out and back in to apply it.',
             lambda: self.open_terminal(['bash', '-lc', command]))
+
+    def install_rime(self):
+        self.confirm_simple(
+            'Install Rime / 雾凇拼音?',
+            'Installs ibus-rime, clones rime-ice into your Rime directory, adds Rime to '
+            'the GNOME input sources and restarts IBus.',
+            lambda: self.open_terminal([IME]))
 
     def apply_mirrors(self):
         mirror = MIRROR_IDS[self.mirror_row.get_selected()]
