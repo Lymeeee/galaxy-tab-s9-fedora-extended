@@ -9,12 +9,13 @@ import re
 import shlex
 import shutil
 import subprocess
+import threading
 
 import gi
 
 gi.require_version('Adw', '1')
 gi.require_version('Gtk', '4.0')
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 APP_ID = 'io.github.lymeeee.Gts9wifiSettings'
 DEVICE_CONTROL = '/usr/libexec/gts9wifi-device-control'
@@ -117,11 +118,23 @@ class Settings(Adw.Application):
                 if guard['busy']:
                     return
                 value = '1' if row.get_active() else '0'
-                result = run([DEVICE_CONTROL, 'set', control['name'], value])
-                if result is None or result.returncode != 0:
-                    guard['busy'] = True
-                    row.set_active(not row.get_active())
+                guard['busy'] = True
+                row.set_sensitive(False)
+
+                def worker():
+                    result = run([DEVICE_CONTROL, 'set', control['name'], value])
+                    GLib.idle_add(finish, result)
+
+                def finish(result):
                     guard['busy'] = False
+                    row.set_sensitive(True)
+                    if result is None or result.returncode != 0:
+                        guard['busy'] = True
+                        row.set_active(not row.get_active())
+                        guard['busy'] = False
+                    return False
+
+                threading.Thread(target=worker, daemon=True).start()
 
             row.connect('notify::active', toggled)
             groups[control['group']].add(row)
@@ -174,7 +187,73 @@ class Settings(Adw.Application):
         row.connect('notify::selected', changed)
         group.add(row)
         page.add(group)
+        self.add_battery_group(page)
         return page
+
+    def add_battery_group(self, page):
+        battery = Adw.PreferencesGroup(
+            title='Battery',
+            description='Live values from the SM5714 fuel gauge and charger.')
+        self._battery_rows = {}
+        for key, title in (
+                ('status', 'State'),
+                ('power', 'Charging power'),
+                ('voltage', 'Voltage'),
+                ('current', 'Current'),
+                ('temp', 'Temperature'),
+                ('capacity', 'Capacity'),
+                ('input', 'Charger')):
+            battery_row = Adw.ActionRow(title=title, subtitle='…')
+            battery.add(battery_row)
+            self._battery_rows[key] = battery_row
+        page.add(battery)
+        self.update_battery()
+        GLib.timeout_add(1000, self.update_battery)
+
+    def update_battery(self):
+        rows = getattr(self, '_battery_rows', None)
+        if not rows:
+            return False
+        bat = '/sys/class/power_supply/sm5714-battery'
+        usb = '/sys/class/power_supply/sm5714-usb'
+        voltage = current = power = temp = None
+        try:
+            voltage_raw = read(bat + '/voltage_now')
+            current_raw = read(bat + '/current_now')
+            temp_raw = read(bat + '/temp')
+            if voltage_raw:
+                voltage = float(voltage_raw) / 1e6
+            if current_raw:
+                current = float(current_raw) / 1e6
+            if voltage is not None and current is not None:
+                power = voltage * current
+            if temp_raw:
+                temp = float(temp_raw) / 10
+        except ValueError:
+            pass
+        capacity = read(bat + '/capacity')
+        rows['status'].set_subtitle(read(bat + '/status') or '—')
+        rows['capacity'].set_subtitle(f'{capacity} %' if capacity else '—')
+        rows['voltage'].set_subtitle(
+            f'{voltage:.3f} V' if voltage is not None else '—')
+        rows['current'].set_subtitle(
+            f'{current:+.3f} A' if current is not None else '—')
+        rows['power'].set_subtitle(
+            f'{power:+.2f} W' if power is not None else '—')
+        rows['temp'].set_subtitle(
+            f'{temp:.1f} °C' if temp is not None else '—')
+        online = read(usb + '/online')
+        voltage_max = read(usb + '/voltage_max')
+        current_max = read(usb + '/current_max')
+        if online == '1' and voltage_max and current_max:
+            try:
+                rows['input'].set_subtitle('%0.1f V / %0.2f A contract' % (
+                    float(voltage_max) / 1e6, float(current_max) / 1e6))
+            except ValueError:
+                rows['input'].set_subtitle('connected')
+        else:
+            rows['input'].set_subtitle('not connected')
+        return True
 
     def debug_page(self):
         page = Adw.PreferencesPage(title='Debug', icon_name='utilities-terminal-symbolic')
@@ -381,10 +460,15 @@ class Settings(Adw.Application):
         command = (
             'pkexec dnf install -y langpacks-zh_CN glibc-langpack-zh && '
             'pkexec localectl set-locale LANG=zh_CN.UTF-8 && '
+            'pkexec /usr/bin/gdbus call --system --dest org.freedesktop.Accounts '
+            '--object-path /org/freedesktop/Accounts/User$(id -u) '
+            "--method org.freedesktop.Accounts.User.SetLanguage 'zh_CN.UTF-8' && "
             "gsettings set org.gnome.system.locale region 'zh_CN.UTF-8'")
         self.confirm_simple(
             'Switch to Simplified Chinese?',
-            'Installs the language packs and sets zh_CN.UTF-8. Log out and back in to apply it.',
+            'Installs the language packs, sets the system and per-user language '
+            '(AccountsService) and the GNOME region. Log out and back in to apply '
+            'the UI language; some port-specific tools remain English.',
             lambda: self.open_terminal(['bash', '-lc', command]))
 
     def install_rime(self):

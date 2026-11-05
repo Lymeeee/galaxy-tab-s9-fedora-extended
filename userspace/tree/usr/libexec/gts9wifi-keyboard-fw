@@ -1,0 +1,19 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# The pogo driver is built in and probes before the root filesystem is up, so
+# its own request_firmware() for the V37 keyboard blob runs too early and
+# returns -ENOENT.  Retry through the driver's firmware_update attribute once
+# local-fs.target is reached.  If the controller is already V37, the driver
+# reports "already current"; if no keyboard is attached, it returns -ENODEV.
+set -u
+
+found=0
+for f in /sys/bus/i2c/devices/*-002a/firmware_update; do
+	[ -e "$f" ] || continue
+	found=1
+	if ! printf '1\n' >"$f" 2>/dev/null; then
+		echo "gts9wifi-keyboard-fw: firmware_update not needed or failed for $f" >&2
+	fi
+done
+[ "$found" = 1 ] || echo "gts9wifi-keyboard-fw: no STM32 pogo controller found" >&2

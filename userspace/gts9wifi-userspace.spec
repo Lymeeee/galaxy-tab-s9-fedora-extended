@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.12.0
+Version:        0.13.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -53,6 +53,17 @@ cp -a . %{buildroot}/
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
 udevadm control --reload-rules >/dev/null 2>&1 || :
 systemctl daemon-reload >/dev/null 2>&1 || :
+systemctl enable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
+systemctl enable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
+if getent group video >/dev/null 2>&1 && command -v usermod >/dev/null 2>&1; then
+    while IFS=: read -r account _ uid _; do
+        [ "$uid" -ge 1000 ] && [ "$uid" -lt 60000 ] || continue
+        usermod -aG video "$account" >/dev/null 2>&1 || :
+    done < /etc/passwd
+fi
+if [ -x %{_libexecdir}/gts9wifi-wifi-bdf ]; then
+    %{_libexecdir}/gts9wifi-wifi-bdf >/dev/null 2>&1 || :
+fi
 if [ -x %{_libexecdir}/gts9wifi-speaker-routing ]; then
     %{_libexecdir}/gts9wifi-speaker-routing >/dev/null 2>&1 || :
 fi
@@ -66,6 +77,10 @@ fi
 %postun
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
 systemctl daemon-reload >/dev/null 2>&1 || :
+if [ "$1" = 0 ]; then
+    systemctl disable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
+    systemctl disable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
+fi
 if [ "$1" = 0 ] && command -v plymouth-set-default-theme >/dev/null 2>&1; then
     plymouth-set-default-theme spinner >/dev/null 2>&1 || :
 fi
@@ -84,6 +99,9 @@ fi
 %dir %{_datadir}/plymouth/themes/gts9wifi
 %{_datadir}/plymouth/themes/gts9wifi/*
 %{_libexecdir}/gts9wifi-device-control
+%{_libexecdir}/gts9wifi-charge-guard
+%{_libexecdir}/gts9wifi-keyboard-fw
+%{_libexecdir}/gts9wifi-wifi-bdf
 %{_libexecdir}/gts9wifi-privileged
 %{_libexecdir}/gts9wifi-usb-net-off
 %{_libexecdir}/gts9wifi-mirrors
@@ -106,12 +124,22 @@ fi
 %dir %{_unitdir}/gts9wifi-usb-net.service.d
 %{_unitdir}/gts9wifi-usb-net.service.d/10-gts9wifi-default-off.conf
 %{_unitdir}/gts9wifi-power.service
+%{_unitdir}/gts9wifi-charge-guard.service
+%{_unitdir}/gts9wifi-charge-guard.timer
+%{_unitdir}/gts9wifi-keyboard-fw.service
 %{_udevrulesdir}/72-gts9wifi-charger-perms.rules
 %config(noreplace) %{_sysconfdir}/NetworkManager/dispatcher.d/90-gts9wifi-no-bgscan
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-usb0-unmanaged.conf
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 
 %changelog
+* Thu Nov 05 2026 Lymeeee <mr_xunyu@163.com> - 0.13.0-1
+- Anti-alias the Plymouth spinner and add live battery telemetry
+- Add automatic charging bypass at 100 % with a 95 % release
+- Grant the desktop user video-group access for the device controls
+- Retry the keyboard V37 update after the root filesystem is mounted
+- Set the GNOME per-user language when switching to Chinese
+
 * Thu Nov 05 2026 Lymeeee <mr_xunyu@163.com> - 0.12.0-1
 - Fix the CS35L45 right-channel routing (Front/Rear Right to ASP_RX2)
 - Reapply speaker gains and routing after alsa-restore

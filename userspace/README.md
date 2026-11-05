@@ -4,8 +4,16 @@ Noarch RPM with the Phase 1 userspace pieces from the Ubuntu port:
 
 - Tab9 Extras GNOME Shell extension v6 (screen-lock/keyboard controls,
   floating on-screen keyboard button, FOD overlay is a separate phase)
-- `gts9wifi-device-control` with charge_limit / charge_bypass entries
-- charger udev permissions for fast_charge, charge_limit, charge_bypass
+- `gts9wifi-device-control` with charge_limit / charge_bypass entries and a
+  "Bypass when full" policy (100 % -> bypass, 95 % -> release)
+- live battery telemetry (power, voltage, current, temperature) in Tab9 Settings
+- charger udev permissions for fast_charge, charge_limit, charge_bypass; the
+  desktop user is added to the `video` group on install
+- `gts9wifi-wifi-bdf` re-applies the tuned WCN6855 board payload to both
+  selected slots (5 GHz RX fix) after firmware updates
+- `gts9wifi-keyboard-fw.service` retries the V37 keyboard firmware update after
+  the root filesystem is mounted
+- the Chinese setup also sets the per-user GNOME language through AccountsService
 - NetworkManager dispatcher that disables Wi-Fi background scanning
 - `gts9wifi-update ffmpeg`, which installs the rebuilt ffmpeg-free RPMs
   (v4l2m2m H.264/HEVC), verifies their SHA256SUMS, sets Firefox's
@@ -36,16 +44,16 @@ Build (Fedora container):
 
 ```sh
 mkdir -p ~/rpmbuild/SOURCES
-mkdir -p /tmp/src/gts9wifi-userspace-0.11.0
-cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.11.0/
-tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.11.0.tar.gz gts9wifi-userspace-0.11.0
+mkdir -p /tmp/src/gts9wifi-userspace-0.13.0
+cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.13.0/
+tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.13.0.tar.gz gts9wifi-userspace-0.13.0
 rpmbuild -bb userspace/gts9wifi-userspace.spec
 ```
 
 Install:
 
 ```sh
-sudo dnf install ./gts9wifi-userspace-0.11.0-1.fc44.noarch.rpm
+sudo dnf install ./gts9wifi-userspace-0.13.0-1.fc44.noarch.rpm
 ```
 
 The keyboard firmware is not included. Copy the verified V37 blob to

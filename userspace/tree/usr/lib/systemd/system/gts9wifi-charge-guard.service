@@ -1,0 +1,7 @@
+[Unit]
+Description=GTS9 charging bypass at full
+Documentation=file:///usr/libexec/gts9wifi-charge-guard
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gts9wifi-charge-guard

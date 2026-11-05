@@ -42,6 +42,7 @@ Usage: gts9wifi-update <command> [options]
 Commands:
   check                 show installed versions, release assets and boot state
   userspace             install the userspace RPM from the release
+  wifi                  reapply the WCN6855 board data (5 GHz RX fix)
   ffmpeg                install the rebuilt ffmpeg-free (v4l2m2m) RPMs
   fingerprint           install libfprint EL721 + the secure-start runtime
   kernel [--flash]      download/verify the kernel pair; write boot partitions with --flash
@@ -606,6 +607,7 @@ cmd_rollback() {
 case "$cmd" in
     check) cmd_check ;;
     userspace) cmd_userspace ;;
+    wifi) need_root; /usr/libexec/gts9wifi-wifi-bdf ;;
     ffmpeg) cmd_ffmpeg ;;
     fingerprint) cmd_fingerprint ;;
     kernel) cmd_kernel ;;

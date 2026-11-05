@@ -1,0 +1,163 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+"""Install the device-tuned WCN6855 board payload for this tablet.
+
+linux-firmware's board-2.bin has the tuned Lenovo X13s payload (variant
+NTM_TW220) but leaves the plain slots the kernel actually selects at the
+generic board data.  That costs about 45 dB of 5 GHz RX.  This tablet selects
+the plain slot with subsystem-device 0108 and either qmi-chip-id 2 or 18, so
+copy the tuned payload into both plain slots.  Idempotent; the original file
+is kept as board-2.bin.before-gts9wifi.
+"""
+import hashlib
+import lzma
+import os
+import shutil
+import stat
+import struct
+import sys
+
+MAGIC = b"QCA-ATH11K-BOARD\x00"
+BDF = os.environ.get(
+    "GTS9_BDF", "/lib/firmware/ath11k/WCN6855/hw2.1/board-2.bin")
+TUNED_SHA256 = "77b1b9ef636ce8492723aa7c2ff2c42c2e5e81a43967d7f32bfdef93a31bf8c4"
+BASE = ("bus=pci,vendor=17cb,device=1103,"
+        "subsystem-vendor=17cb,subsystem-device=0108")
+TARGETS = {
+    BASE + ",qmi-chip-id=2,qmi-board-id=255",
+    BASE + ",qmi-chip-id=18,qmi-board-id=255",
+}
+
+
+def align4(n):
+    return (n + 3) & ~3
+
+
+def parse(data):
+    magic_len = align4(len(MAGIC))
+    if data[:len(MAGIC)] != MAGIC:
+        raise ValueError("not a QCA-ATH11K-BOARD container")
+    raw_header = data[:magic_len]
+    buf = data[magic_len:]
+    top = []
+    while len(buf) > 8:
+        ie_id, ie_len = struct.unpack("<II", buf[:8])
+        body = buf[8:8 + ie_len]
+        buf = buf[8 + align4(ie_len):]
+        sub = []
+        s = body
+        while len(s) > 8:
+            sid, slen = struct.unpack("<II", s[:8])
+            sbody = s[8:8 + slen]
+            s = s[8 + align4(slen):]
+            sub.append((sid, sbody))
+        top.append((ie_id, sub))
+    return raw_header, top
+
+
+def serialize(raw_header, top):
+    out = bytearray(raw_header)
+    for ie_id, sub in top:
+        body = bytearray()
+        for sid, sbody in sub:
+            body += struct.pack("<II", sid, len(sbody))
+            body += sbody
+            body += b"\x00" * (align4(len(sbody)) - len(sbody))
+        out += struct.pack("<II", ie_id, len(body))
+        out += body
+        out += b"\x00" * (align4(len(body)) - len(body))
+    return bytes(out)
+
+
+def sub_name(sub):
+    for sid, sbody in sub:
+        if sid == 0:
+            try:
+                return sbody.decode("ascii")
+            except UnicodeDecodeError:
+                return None
+    return None
+
+
+def sub_data(sub):
+    for sid, sbody in sub:
+        if sid == 1:
+            return sbody
+    return None
+
+
+def read_bdf():
+    if not os.path.exists(BDF) and os.path.exists(BDF + ".xz"):
+        with lzma.open(BDF + ".xz", "rb") as f:
+            data = f.read()
+        tmp = BDF + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, BDF)
+    if not os.path.exists(BDF):
+        print(f"gts9wifi-wifi-bdf: {BDF} not installed", file=sys.stderr)
+        return None
+    with open(BDF, "rb") as f:
+        return f.read()
+
+
+def sha256(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def main():
+    data = read_bdf()
+    if data is None:
+        return 0
+    try:
+        raw_header, top = parse(data)
+    except (ValueError, struct.error) as error:
+        print(f"gts9wifi-wifi-bdf: {BDF}: {error}", file=sys.stderr)
+        return 1
+
+    tuned = None
+    for _ie_id, sub in top:
+        body = sub_data(sub)
+        if body is not None and sha256(body) == TUNED_SHA256:
+            tuned = body
+            break
+    if tuned is None:
+        print("gts9wifi-wifi-bdf: tuned payload not found; file left unchanged",
+              file=sys.stderr)
+        return 0
+
+    changed = 0
+    for _ie_id, sub in top:
+        if sub_name(sub) not in TARGETS:
+            continue
+        if sha256(sub_data(sub) or b"") == TUNED_SHA256:
+            continue
+        for index, (sid, _body) in enumerate(sub):
+            if sid == 1:
+                sub[index] = (sid, tuned)
+                break
+        changed += 1
+
+    if not changed:
+        print("gts9wifi-wifi-bdf: both selected BDF slots already tuned")
+        return 0
+
+    backup = BDF + ".before-gts9wifi"
+    if not os.path.exists(backup):
+        shutil.copy2(BDF, backup)
+    out = serialize(raw_header, top)
+    tmp = BDF + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(out)
+    original = os.stat(BDF)
+    os.chmod(tmp, stat.S_IMODE(original.st_mode))
+    if os.geteuid() == 0:
+        os.chown(tmp, original.st_uid, original.st_gid)
+    os.replace(tmp, BDF)
+    print(f"gts9wifi-wifi-bdf: tuned payload written to {changed} slot(s); "
+          f"backup {backup}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

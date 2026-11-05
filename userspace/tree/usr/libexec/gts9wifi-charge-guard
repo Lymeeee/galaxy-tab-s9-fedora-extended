@@ -1,0 +1,49 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Keep the pack off the charger once it is full: enable the charger's
+# charge_bypass switch at 100 %, release it at 95 %.  The policy is the
+# "Bypass when full" switch in Tab9 Settings; the latch remembers that this
+# boot already bypassed, so a manual "Charging bypass -> off" at 100 % is not
+# immediately undone.  Run from gts9wifi-charge-guard.timer as root.
+set -u
+
+state=/var/lib/gts9wifi/charge-full-bypass
+latch=/var/lib/gts9wifi/charge-full-bypass.latched
+bat=/sys/class/power_supply/sm5714-battery
+usb=/sys/class/power_supply/sm5714-usb
+bypass=/sys/bus/i2c/devices/6-0049/charge_bypass
+boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null) || boot_id=unknown
+
+policy=$(cat "$state" 2>/dev/null) || policy=1
+case "$policy" in
+0|1) ;;
+*) policy=1 ;;
+esac
+
+set_bypass() {
+	printf '%s\n' "$1" >"$bypass" 2>/dev/null
+}
+
+if [ "$policy" != 1 ]; then
+	if [ -e "$latch" ]; then
+		set_bypass 0 && rm -f "$latch"
+	fi
+	exit 0
+fi
+
+# A latch from an earlier boot is stale: the charger reset its registers.
+if [ -e "$latch" ] && [ "$(cat "$latch" 2>/dev/null)" != "$boot_id" ]; then
+	rm -f "$latch"
+fi
+
+online=$(cat "$usb/online" 2>/dev/null) || exit 0
+capacity=$(cat "$bat/capacity" 2>/dev/null) || exit 0
+case "$online" in 1) ;; *) exit 0 ;; esac
+case "$capacity" in ''|*[!0-9]*) exit 0 ;; esac
+
+if [ "$capacity" -ge 100 ] && [ ! -e "$latch" ]; then
+	set_bypass 1 && printf '%s\n' "$boot_id" >"$latch" 2>/dev/null
+elif [ "$capacity" -le 95 ] && [ -e "$latch" ]; then
+	set_bypass 0 && rm -f "$latch"
+fi
