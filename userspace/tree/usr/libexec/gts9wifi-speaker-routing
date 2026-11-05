@@ -1,0 +1,32 @@
+#!/bin/sh
+# Re-apply the CS35L45 stereo source routing after alsa-restore.
+set -eu
+
+CARD=""
+for idf in /proc/asound/card*/id; do
+    [ -r "$idf" ] || continue
+    case "$(cat "$idf")" in
+        sound|Samsung-Galaxy-Tab-S9)
+            CARD="${idf#/proc/asound/card}"
+            CARD="${CARD%/id}"
+            break
+            ;;
+    esac
+done
+if [ -z "$CARD" ]; then
+    CARD="$(aplay -l 2>/dev/null | sed -n 's/^card \([0-9][0-9]*\): .*\[Samsung-Galaxy-Tab-S9\].*/\1/p' | head -n 1)"
+fi
+[ -n "$CARD" ] || exit 0
+
+amixer -c "$CARD" cset name='Front Left Digital PCM Volume' 428 >/dev/null
+amixer -c "$CARD" cset name='Front Right Digital PCM Volume' 428 >/dev/null
+amixer -c "$CARD" cset name='Rear Left Digital PCM Volume' 428 >/dev/null
+amixer -c "$CARD" cset name='Rear Right Digital PCM Volume' 428 >/dev/null
+amixer -c "$CARD" cset name='Front Left Analog PCM Volume' 3 >/dev/null
+amixer -c "$CARD" cset name='Front Right Analog PCM Volume' 3 >/dev/null
+amixer -c "$CARD" cset name='Rear Left Analog PCM Volume' 3 >/dev/null
+amixer -c "$CARD" cset name='Rear Right Analog PCM Volume' 3 >/dev/null
+amixer -c "$CARD" cset name='Front Left DACPCM Source' ASP_RX1 >/dev/null
+amixer -c "$CARD" cset name='Front Right DACPCM Source' ASP_RX2 >/dev/null
+amixer -c "$CARD" cset name='Rear Left DACPCM Source' ASP_RX1 >/dev/null
+amixer -c "$CARD" cset name='Rear Right DACPCM Source' ASP_RX2 >/dev/null

@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.11.0
+Version:        0.12.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -21,6 +21,7 @@ Requires:       util-linux
 Requires:       iw
 Requires:       systemd
 Requires:       polkit
+Requires:       alsa-utils
 Requires:       plymouth
 Requires:       plymouth-plugin-script
 Requires:       python3-gobject
@@ -52,6 +53,12 @@ cp -a . %{buildroot}/
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
 udevadm control --reload-rules >/dev/null 2>&1 || :
 systemctl daemon-reload >/dev/null 2>&1 || :
+if [ -x %{_libexecdir}/gts9wifi-speaker-routing ]; then
+    %{_libexecdir}/gts9wifi-speaker-routing >/dev/null 2>&1 || :
+fi
+if command -v alsactl >/dev/null 2>&1; then
+    alsactl store >/dev/null 2>&1 || :
+fi
 if command -v plymouth-set-default-theme >/dev/null 2>&1; then
     plymouth-set-default-theme gts9wifi >/dev/null 2>&1 || :
 fi
@@ -84,6 +91,13 @@ fi
 %{_libexecdir}/gts9wifi-ime
 %{_libexecdir}/gts9wifi-power-key
 %{_libexecdir}/gts9wifi-powerkey-mode
+%{_libexecdir}/gts9wifi-speaker-routing
+%dir %{_datadir}/alsa/ucm2/Qualcomm/sm8550/GTS9
+%{_datadir}/alsa/ucm2/Qualcomm/sm8550/GTS9/HiFi.conf
+%{_datadir}/alsa/ucm2/Qualcomm/sm8550/GTS9/Samsung-Galaxy-Tab-S9.conf
+%{_datadir}/alsa/ucm2/conf.d/sm8550/Samsung-Galaxy-Tab-S9.conf
+%dir %{_unitdir}/alsa-restore.service.d
+%{_unitdir}/alsa-restore.service.d/90-gts9wifi-speaker-routing.conf
 %{_userunitdir}/gts9wifi-power-key.service
 %{_udevrulesdir}/72-gts9wifi-power-key.rules
 %{_bindir}/gts9wifi-power
@@ -98,6 +112,10 @@ fi
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 
 %changelog
+* Thu Nov 05 2026 Lymeeee <mr_xunyu@163.com> - 0.12.0-1
+- Fix the CS35L45 right-channel routing (Front/Rear Right to ASP_RX2)
+- Reapply speaker gains and routing after alsa-restore
+
 * Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.11.0-1
 - Port the convertible power-key user service with a settings toggle
 
