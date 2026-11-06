@@ -1530,8 +1530,10 @@
 /*
  * Stock X710 suspend quirks for the eUSB2/DWC3 pair.  Mainline honours the
  * snps quirk properties it knows; the rest are harmless if ignored.
+ * Linux 7.2 folded the dwc3 child into the wrapper, so the quirks live on
+ * usb_1 itself now.
  */
-&usb_1_dwc3 {
+&usb_1 {
 	snps,disable-clk-gating;
 	snps,has-lpm-erratum;
 	snps,is-utmi-l1-suspend;
