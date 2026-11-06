@@ -1430,6 +1430,12 @@
 	perst-gpios = <&tlmm 94 GPIO_ACTIVE_LOW>;
 	pinctrl-0 = <&pcie0_default_state>;
 	pinctrl-names = "default";
+	/* Suspend tuning copied from the stock X710 DT; unverified on mainline. */
+	qcom,aux-clk-freq = <20>;
+	qcom,drv-l1ss-timeout-us = <5000>;
+	qcom,l1-2-th-scale = <2>;
+	qcom,l1-2-th-value = <150>;
+	qcom,no-l0s-supported;
 	status = "okay";
 };
 
@@ -1444,6 +1450,27 @@
 
 	zap-shader {
 		firmware-name = "qcom/a740_zap.mdt";
+	};
+};
+
+/*
+ * SM8550-AC ("for Galaxy") runs the prime core at 3.36 GHz and the Adreno
+ * 740 at 719 MHz.  Mainline's generic SM8550 tables stop at 3.1872 GHz and
+ * 680 MHz; the stock X710 pwrlevel bin carries 719 MHz at RPMh SVS_L2.
+ */
+&cpu7_opp_table {
+	opp-3360000000 {
+		opp-hz = /bits/ 64 <3360000000>;
+		opp-peak-kBps = <(933000 * 16) (3686000 * 4) (1689600 * 32)>;
+	};
+};
+
+&gpu_opp_table {
+	opp-719000000 {
+		opp-hz = /bits/ 64 <719000000>;
+		opp-level = <RPMH_REGULATOR_LEVEL_SVS_L2>;
+		opp-peak-kBps = <16500000>;
+		qcom,opp-acd-level = <0x882e5ffd>;
 	};
 };
 
@@ -1498,6 +1525,19 @@
 
 &usb_1_dwc3_hs {
 	remote-endpoint = <&sm5714_hs_in>;
+};
+
+/*
+ * Stock X710 suspend quirks for the eUSB2/DWC3 pair.  Mainline honours the
+ * snps quirk properties it knows; the rest are harmless if ignored.
+ */
+&usb_1_dwc3 {
+	snps,disable-clk-gating;
+	snps,has-lpm-erratum;
+	snps,is-utmi-l1-suspend;
+	snps,dis_u2_susphy_quirk;
+	snps,ssp-u3-u0-quirk;
+	tx-fifo-resize;
 };
 
 &usb_dp_qmpphy {
