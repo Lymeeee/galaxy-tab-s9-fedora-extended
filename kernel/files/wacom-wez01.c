@@ -306,6 +306,13 @@ static int wacom_wez01_probe(struct i2c_client *client)
 	w->input = input;
 	input->name = "Wacom WEZ01 S Pen";
 	input->id.bustype = BUS_I2C;
+	/*
+	 * libwacom matches integrated tablets on the i2c vendor/product IDs.
+	 * With both left at zero it cannot match the S Pen entry and GNOME
+	 * treats the pen as an external tablet, so its mapping does not follow
+	 * the panel when the display rotates.
+	 */
+	input->id.vendor = 0x056a;	/* Wacom */
 
 	input_set_capability(input, EV_KEY, BTN_TOUCH);
 	input_set_capability(input, EV_KEY, BTN_STYLUS);
