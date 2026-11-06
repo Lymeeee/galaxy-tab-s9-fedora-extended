@@ -5,6 +5,9 @@ import importlib.machinery
 import importlib.util
 import pathlib
 import struct
+import sys
+
+sys.dont_write_bytecode = True
 
 SCRIPT = (
     pathlib.Path(__file__).resolve().parents[1]

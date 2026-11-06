@@ -46,6 +46,7 @@ jobs:
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-keyboard-fw
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-panel-coldboot-check
               desktop-file-validate /work/userspace/tree/usr/share/applications/gts9wifi-settings.desktop
+              find /work/userspace/tree -type d -name __pycache__ -prune -exec rm -rf {} +
               mkdir -p ~/rpmbuild/SOURCES ~/rpmbuild/RPMS /work/out-userspace
               rm -rf /tmp/src
               VERSION=$(sed -n "s/^Version:[[:space:]]*//p" /work/userspace/gts9wifi-userspace.spec | head -1)
