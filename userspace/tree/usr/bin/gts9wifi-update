@@ -295,15 +295,32 @@ cmd_userspace() {
     [ -n "$tag" ] || tag=$DEFAULT_TAG
     need_root
     need_cmd dnf
-    local line name url rpm dir
+    local line name url rpm dir dline dname durl drpm
     line=$(asset '^gts9wifi-userspace-.*\.noarch\.rpm$') ||
         die "no userspace RPM in release $tag"
     IFS=$'\t' read -r name url <<<"$line"
-    [ "$dry" -eq 0 ] || { echo "would install $name from $tag"; return 0; }
+    dline=$(asset '^gts9wifi-dynpart-[0-9].*\.aarch64\.rpm$') || true
+    dname= durl= drpm=
+    if [ -n "$dline" ]; then
+        IFS=$'\t' read -r dname durl <<<"$dline"
+    fi
+    [ "$dry" -eq 0 ] || {
+        echo "would install $name from $tag"
+        [ -n "$dname" ] && echo "would install $dname from $tag"
+        return 0
+    }
     dir="$STATE/cache/$tag"
     rpm=$(download_asset "$name" "$url" "$dir")
+    if [ -n "$dname" ]; then
+        drpm=$(download_asset "$dname" "$durl" "$dir")
+    fi
     echo "installing $name"
-    dnf -y --nogpgcheck install "$rpm"
+    if [ -n "$drpm" ]; then
+        echo "installing $dname"
+        dnf -y --nogpgcheck install "$rpm" "$drpm"
+    else
+        dnf -y --nogpgcheck install "$rpm"
+    fi
     apply_versionlock
     glib-compile-schemas /usr/share/glib-2.0/schemas >/dev/null 2>&1 || true
     udevadm control --reload-rules >/dev/null 2>&1 || true

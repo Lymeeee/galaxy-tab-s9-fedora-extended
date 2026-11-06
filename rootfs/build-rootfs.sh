@@ -435,8 +435,10 @@ done
 #   takes hci0 down.
 # The preset in overlay/usr/lib/systemd/system-preset/85-gts9wifi.preset
 # keeps first-boot preset-all from stripping the enablement above.
-# TODO(phase-1.5): vendor make-dynpart-mappings and enable
-# gts9wifi-android-parts.service + vendor.mount (super -> erofs /vendor).
+# Android dynamic partitions are provided by the gts9wifi-dynpart aarch64
+# RPM: make-dynpart-mappings, gts9wifi-android-parts.service and the vendor
+# mount units.  The userspace updater installs it, and its %post enables the
+# service and vendor.mount (super -> erofs /vendor).
 
 echo ">>> Cleaning"
 rm -rf "$rootfs/var/cache/dnf" "$rootfs/var/cache/rpm" "$rootfs/var/log/dnf*"

@@ -1,0 +1,18 @@
+[Unit]
+Description=Map Android dynamic partitions from super
+ConditionPathExists=/dev/disk/by-partlabel/super
+ConditionPathExists=/usr/bin/make-dynpart-mappings
+DefaultDependencies=no
+After=local-fs.target
+Before=vendor.mount
+Conflicts=umount.target
+Before=umount.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/make-dynpart-mappings /dev/disk/by-partlabel/super
+ExecStartPost=-/usr/bin/udevadm settle --timeout=10
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

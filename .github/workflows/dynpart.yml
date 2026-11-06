@@ -1,0 +1,59 @@
+name: Dynpart RPM
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish gts9wifi-dynpart to"
+        required: false
+        default: "kernel-7.2.0-merge-1"
+        type: string
+  push:
+    branches: [phase1-userspace]
+    paths:
+      - 'dynpart/**'
+      - '.github/workflows/dynpart.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-dynpart:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build aarch64 RPM
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" -w /work \
+            quay.io/fedora/fedora:44 \
+            bash -lc '
+              set -euxo pipefail
+              dnf -y install rpm-build systemd-rpm-macros gcc make \
+                  pkgconf-pkg-config device-mapper-devel libmd-devel \
+                  libblkid-devel tar gzip >/dev/null
+              VERSION=$(sed -n "s/^Version:[[:space:]]*//p" /work/dynpart/gts9wifi-dynpart.spec | head -1)
+              mkdir -p ~/rpmbuild/SOURCES /work/out-dynpart
+              rm -rf /tmp/src
+              mkdir -p "/tmp/src/gts9wifi-dynpart-$VERSION"
+              cp -a /work/dynpart/. "/tmp/src/gts9wifi-dynpart-$VERSION/"
+              rm -f "/tmp/src/gts9wifi-dynpart-$VERSION/gts9wifi-dynpart.spec"
+              tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-dynpart-$VERSION.tar.gz \
+                "gts9wifi-dynpart-$VERSION"
+              rpmbuild -bb /work/dynpart/gts9wifi-dynpart.spec
+              cp ~/rpmbuild/RPMS/aarch64/*.rpm /work/out-dynpart/
+            '
+
+      - name: Publish to the named release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REL: ${{ inputs.release_tag || 'kernel-7.2.0-merge-1' }}
+        run: |
+          [ -n "$REL" ] || { echo "release tag is empty" >&2; exit 1; }
+          gh release view "$REL" >/dev/null 2>&1 || \
+            gh release create "$REL" --title "Experimental Test Build ($REL)" \
+              --prerelease --latest=false --notes "Automated build for $REL"
+          gh release upload "$REL" --clobber out-dynpart/*.rpm

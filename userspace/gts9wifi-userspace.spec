@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.16.2
+Version:        0.17.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -162,6 +162,10 @@ fi
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 
 %changelog
+* Sat Nov 07 2026 Lymeeee <mr_xunyu@163.com> - 0.17.0-1
+- Install the gts9wifi-dynpart aarch64 RPM alongside userspace updates,
+  providing the Android super dynamic-partition mappings and vendor mounts
+
 * Sat Nov 07 2026 Lymeeee <mr_xunyu@163.com> - 0.16.2-1
 - Pre-render the Plymouth theme images at panel size so the boot splash
   is no longer aliased by Plymouth's fixed 2x2 Image.Scale
