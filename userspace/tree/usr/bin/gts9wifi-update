@@ -522,7 +522,7 @@ cmd_kernel() {
     zip=$(download_asset "$kzip_name" "$kzip_url" "$dir")
 
     imgdir=$(mktemp -d /tmp/gts9wifi-bundle.XXXXXX)
-    trap 'rm -rf "$imgdir"' EXIT
+    trap "rm -rf '$imgdir'" EXIT
     unzip -q "$zip" '*.img' SHA256SUMS -d "$imgdir"
     (cd "$imgdir" && sha256sum -c SHA256SUMS)
 
