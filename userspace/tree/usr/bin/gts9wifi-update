@@ -182,15 +182,92 @@ dnf_cmd() {
     if command -v dnf5 >/dev/null 2>&1; then printf 'dnf5\n'; else printf 'dnf\n'; fi
 }
 
-apply_versionlock() {
-    local specs=() line
+protect_is_on() {
+    [ -x /usr/libexec/gts9wifi-protect ] &&
+        [ "$(/usr/libexec/gts9wifi-protect status 2>/dev/null)" = protected ]
+}
+
+lock_specs() {
+    local line
     [ -d "$LOCKDIR" ] || return 0
     while IFS= read -r line; do
         line=${line%%#*}
         line=${line#"${line%%[![:space:]]*}"}
         line=${line%"${line##*[![:space:]]}"}
-        [ -n "$line" ] && specs+=("$line")
+        [ -n "$line" ] && printf '%s\n' "$line"
     done < <(cat "$LOCKDIR"/*.list 2>/dev/null || true)
+}
+
+# Run a dnf install with gts9wifi-protect suspended, then restore it even on
+# failure or interrupt.  The port packages are in its exclude= list, so the
+# install would otherwise be refused.
+guarded_dnf() {
+    if protect_is_on; then
+        echo "port package protection temporarily disabled for this transaction"
+        (
+            trap '/usr/libexec/gts9wifi-protect on >/dev/null 2>&1 || true' EXIT
+            trap 'exit 130' INT TERM
+            /usr/libexec/gts9wifi-protect off >/dev/null 2>&1 ||
+                { echo "could not disable port package protection" >&2; exit 1; }
+            "$@"
+        )
+    else
+        "$@"
+    fi
+}
+
+# Versionlock entries hide the new NEVRA from dnf while the update is staged.
+unlock_port_packages() {
+    local dnf specs=() line
+    [ -d "$LOCKDIR" ] || return 0
+    while IFS= read -r line; do specs+=("$line"); done < <(lock_specs)
+    [ ${#specs[@]} -gt 0 ] || return 0
+    dnf=$(dnf_cmd)
+    "$dnf" versionlock delete "${specs[@]}" >/dev/null 2>&1 ||
+        echo "warning: could not drop versionlocks; update may be refused" >&2
+}
+
+guard_protect_was=0
+guard_locks_dropped=0
+guard_restore() {
+    if [ "${guard_locks_dropped:-0}" -eq 1 ]; then
+        apply_versionlock
+        guard_locks_dropped=0
+    fi
+    if [ "${guard_protect_was:-0}" -eq 1 ]; then
+        /usr/libexec/gts9wifi-protect on >/dev/null 2>&1 ||
+            echo "warning: could not re-enable port package protection" >&2
+        guard_protect_was=0
+    fi
+}
+
+# Open a window for a port update: drop the dnf excludes and versionlocks,
+# then re-apply both after the install.  The trap also restores protection if
+# dnf fails or the command is interrupted.
+update_begin() {
+    if protect_is_on; then
+        if /usr/libexec/gts9wifi-protect off >/dev/null 2>&1; then
+            guard_protect_was=1
+            echo "port package protection temporarily disabled"
+        else
+            echo "warning: could not disable port package protection" >&2
+        fi
+    fi
+    trap 'guard_restore' EXIT
+    trap 'guard_restore; exit 130' INT TERM
+    guard_locks_dropped=1
+    unlock_port_packages
+}
+
+update_end() {
+    guard_restore
+    trap - EXIT INT TERM
+}
+
+apply_versionlock() {
+    local specs=() line
+    [ -d "$LOCKDIR" ] || return 0
+    while IFS= read -r line; do specs+=("$line"); done < <(lock_specs)
     [ ${#specs[@]} -gt 0 ] || return 0
     local dnf
     dnf=$(dnf_cmd)
@@ -315,13 +392,14 @@ cmd_userspace() {
         drpm=$(download_asset "$dname" "$durl" "$dir")
     fi
     echo "installing $name"
+    update_begin
     if [ -n "$drpm" ]; then
         echo "installing $dname"
         dnf -y --nogpgcheck install "$rpm" "$drpm"
     else
         dnf -y --nogpgcheck install "$rpm"
     fi
-    apply_versionlock
+    update_end
     glib-compile-schemas /usr/share/glib-2.0/schemas >/dev/null 2>&1 || true
     udevadm control --reload-rules >/dev/null 2>&1 || true
     systemctl daemon-reload >/dev/null 2>&1 || true
@@ -374,7 +452,6 @@ libavutil-free
 libswresample-free
 libswscale-free
 EOF
-    apply_versionlock
 }
 
 cmd_ffmpeg() {
@@ -413,10 +490,12 @@ cmd_ffmpeg() {
     (cd "$dir" && sha256sum -c --ignore-missing SHA256SUMS) || die "checksum verification failed"
 
     echo "installing ${#rpms[@]} rebuilt FFmpeg packages"
+    update_begin
     dnf -y --nogpgcheck install "${rpms[@]}"
     rpm -q libavcodec-free >/dev/null || die "libavcodec-free is not installed"
     install_firefox_policy
     lock_ffmpeg_packages
+    update_end
     echo "FFmpeg installed and locked; restart Firefox to load the new libavcodec"
 }
 
@@ -467,6 +546,7 @@ cmd_fingerprint() {
         die "fingerprint runtime checksum verification failed"
 
     echo "installing libfprint EL721 and the fingerprint runtime"
+    update_begin
     dnf -y --nogpgcheck install "$lrpm" "$frpm" fprintd fprintd-pam
 
     if [ -d "$LOCKDIR" ]; then
@@ -474,8 +554,8 @@ cmd_fingerprint() {
 libfprint
 gts9wifi-fingerprint
 EOF
-        apply_versionlock
     fi
+    update_end
 
     if [ -n "$calib_dir" ]; then
         install -d -m0700 /var/lib/gts9wifi/fingerprint/firmware
@@ -588,7 +668,7 @@ cmd_kernel() {
             die "kernel RPM install failed"
         }
     else
-        dnf -y --nogpgcheck install "$rpm" || {
+        guarded_dnf dnf -y --nogpgcheck install "$rpm" || {
             [ "$flash" -eq 1 ] && restore_boot "$backup" || true
             restore_modules "$backup"
             die "kernel RPM install failed"
