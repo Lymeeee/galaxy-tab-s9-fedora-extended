@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.15.0
+Version:        0.16.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -30,6 +30,7 @@ Requires:       libadwaita
 Requires:       libwacom-data
 Requires:       bluez
 Requires:       python3-dbus
+Requires:       chrony
 
 %description
 Tab9 Extras GNOME Shell extension (v6), the gts9wifi device-control helper
@@ -59,6 +60,14 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
 systemctl enable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-spen-remote.service >/dev/null 2>&1 || :
+systemctl enable gts9wifi-rtc-time.service >/dev/null 2>&1 || :
+systemctl enable --now gts9wifi-rtc-anchor.timer >/dev/null 2>&1 || :
+# Keep the PMIC counter continuous; the anchor stores its own UTC relation.
+if [ -f /etc/chrony.conf ] && \
+   grep -qE '^[[:space:]]*rtcsync[[:space:]]*$' /etc/chrony.conf; then
+    sed -i 's/^[[:space:]]*rtcsync[[:space:]]*$/# rtcsync disabled by gts9wifi (PMIC RTC anchor)/' /etc/chrony.conf
+    systemctl try-restart chronyd.service >/dev/null 2>&1 || :
+fi
 if getent group video >/dev/null 2>&1 && command -v usermod >/dev/null 2>&1; then
     while IFS=: read -r account _ uid _; do
         [ "$uid" -ge 1000 ] && [ "$uid" -lt 60000 ] || continue
@@ -85,6 +94,8 @@ if [ "$1" = 0 ]; then
     systemctl disable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
     systemctl disable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
     systemctl disable --now gts9wifi-spen-remote.service >/dev/null 2>&1 || :
+    systemctl disable --now gts9wifi-rtc-time.service >/dev/null 2>&1 || :
+    systemctl disable --now gts9wifi-rtc-anchor.timer >/dev/null 2>&1 || :
 fi
 if [ "$1" = 0 ] && command -v plymouth-set-default-theme >/dev/null 2>&1; then
     plymouth-set-default-theme spinner >/dev/null 2>&1 || :
@@ -108,6 +119,7 @@ fi
 %{_libexecdir}/gts9wifi-panel-coldboot-check
 %{_libexecdir}/gts9wifi-bt-provision
 %{_libexecdir}/gts9wifi-spen-remote
+%{_libexecdir}/gts9wifi-rtc-time
 %{_libexecdir}/gts9wifi-charge-guard
 %{_libexecdir}/gts9wifi-keyboard-fw
 %{_libexecdir}/gts9wifi-wifi-bdf
@@ -137,7 +149,11 @@ fi
 %{_unitdir}/gts9wifi-charge-guard.timer
 %{_unitdir}/gts9wifi-keyboard-fw.service
 %{_unitdir}/gts9wifi-spen-remote.service
+%{_unitdir}/gts9wifi-rtc-time.service
+%{_unitdir}/gts9wifi-rtc-anchor.service
+%{_unitdir}/gts9wifi-rtc-anchor.timer
 %{_udevrulesdir}/90-gts9wifi-spen-no-wakeup.rules
+%{_prefix}/lib/modules-load.d/90-gts9wifi-rtc.conf
 %dir %{_unitdir}/gts9wifi-panel-coldboot-recover.service.d
 %{_unitdir}/gts9wifi-panel-coldboot-recover.service.d/10-gts9wifi-fast-path.conf
 %{_udevrulesdir}/72-gts9wifi-charger-perms.rules
@@ -146,6 +162,10 @@ fi
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 
 %changelog
+* Fri Nov 06 2026 Lymeeee <mr_xunyu@163.com> - 0.16.0-1
+- Restore the system clock from the continuing PMIC RTC counter before
+  the network is up, without writing Android's RTC
+
 * Fri Nov 06 2026 Lymeeee <mr_xunyu@163.com> - 0.15.0-1
 - Skip the panel recovery platform-suspend cycle when the driver already
   reported a valid ANA38407 panel ID, and retry the cycle if a wake event

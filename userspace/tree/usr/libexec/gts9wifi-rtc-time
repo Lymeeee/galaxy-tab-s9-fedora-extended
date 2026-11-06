@@ -1,0 +1,124 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+"""Keep the system clock across reboots with the PMIC RTC counter.
+
+The PMIC RTC is shared with Android, so this does not set the RTC itself.
+It stores the UTC/counter relationship after synchronization and restores
+UTC from the continuing counter at the next boot before the network is up.
+"""
+
+import argparse
+import glob
+import json
+import os
+from pathlib import Path
+import subprocess
+import time
+
+STATE = Path('/var/lib/gts9wifi/rtc-anchor.json')
+RESTORED = Path('/run/gts9wifi-rtc-restored')
+COUNTER_GLOB = '/sys/class/rtc/rtc*/since_epoch'
+MIN_UTC = 1735689600  # 2025-01-01
+
+
+def counter_path():
+    deadline = time.monotonic() + 10
+    while True:
+        paths = sorted(glob.glob(COUNTER_GLOB))
+        if paths:
+            return Path(paths[0])
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.1)
+
+
+def restore_value(anchor, counter):
+    delta = counter - int(anchor['counter'])
+    if delta < 0 or delta > 10 * 366 * 86400:
+        raise ValueError('RTC counter reset or implausible elapsed time')
+    value = int(anchor['utc']) + delta
+    if value < MIN_UTC:
+        raise ValueError('No trusted UTC anchor')
+    return value
+
+
+def timedate_synced():
+    try:
+        result = subprocess.run(
+            ['timedatectl', 'show', '-p', 'NTPSynchronized', '--value'],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0 and result.stdout.strip() == 'yes'
+
+
+def chrony_synced():
+    try:
+        result = subprocess.run(
+            ['chronyc', '-n', 'tracking'],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if result.returncode != 0:
+        return False
+    return any(
+        'Leap status' in line and 'Normal' in line
+        for line in result.stdout.splitlines()
+    )
+
+
+def ntp_synced():
+    return timedate_synced() or chrony_synced()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument('--restore', action='store_true')
+    action.add_argument('--save', action='store_true')
+    args = parser.parse_args()
+
+    path = counter_path()
+    if path is None:
+        print('PMIC RTC counter is not available')
+        return
+    counter = int(path.read_text(encoding='ascii'))
+
+    if args.restore:
+        if not STATE.exists():
+            print('UTC anchor will be saved after the first synchronization')
+            return
+        value = restore_value(json.loads(STATE.read_text()), counter)
+        now = time.time()
+        if now >= MIN_UTC and abs(now - value) < 2:
+            RESTORED.touch()
+            print('System clock already matches the RTC anchor')
+            return
+        time.clock_settime(time.CLOCK_REALTIME, value)
+        RESTORED.touch()
+        print('Restored UTC from the continuing PMIC counter')
+        return
+
+    if not ntp_synced() and not RESTORED.exists():
+        print('No trusted UTC to save')
+        return
+    value = time.time()
+    if value < MIN_UTC:
+        raise ValueError('Refusing an invalid UTC anchor')
+    STATE.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    temporary = STATE.with_suffix('.new')
+    temporary.write_text(
+        json.dumps({'counter': counter, 'utc': value}) + '\n',
+        encoding='ascii',
+    )
+    temporary.chmod(0o600)
+    with temporary.open('rb') as stream:
+        os.fsync(stream.fileno())
+    temporary.replace(STATE)
+    print('Saved PMIC RTC/UTC anchor')
+
+
+if __name__ == '__main__':
+    main()

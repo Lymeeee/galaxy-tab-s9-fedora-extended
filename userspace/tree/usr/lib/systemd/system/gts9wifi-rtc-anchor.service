@@ -1,0 +1,8 @@
+[Unit]
+Description=Refresh the PMIC RTC/UTC anchor after time synchronization
+After=chronyd.service time-sync.target
+
+[Service]
+Type=oneshot
+ExecStartPre=-/usr/sbin/modprobe rtc-pm8xxx
+ExecStart=/usr/libexec/gts9wifi-rtc-time --save

@@ -1,0 +1,16 @@
+[Unit]
+Description=Restore the system clock from the PMIC RTC counter anchor
+DefaultDependencies=no
+After=local-fs.target systemd-modules-load.service
+Before=time-set.target time-sync.target chronyd.service shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/usr/sbin/modprobe rtc-pm8xxx
+ExecStart=/usr/libexec/gts9wifi-rtc-time --restore
+ExecStop=/usr/libexec/gts9wifi-rtc-time --save
+
+[Install]
+WantedBy=sysinit.target
