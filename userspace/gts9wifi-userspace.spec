@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.13.0
+Version:        0.14.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -27,6 +27,7 @@ Requires:       plymouth-plugin-script
 Requires:       python3-gobject
 Requires:       gtk4
 Requires:       libadwaita
+Requires:       libwacom-data
 
 %description
 Tab9 Extras GNOME Shell extension (v6), the gts9wifi device-control helper
@@ -90,6 +91,7 @@ fi
 %{_bindir}/gts9wifi-settings
 %{_datadir}/applications/gts9wifi-settings.desktop
 %{_datadir}/icons/hicolor/scalable/apps/gts9wifi-settings.svg
+%{_datadir}/libwacom/samsung-gts9wifi-spen.tablet
 %dir %{_datadir}/gnome-shell/extensions/gnome-gts9wifi@tabs9linux
 %{_datadir}/gnome-shell/extensions/gnome-gts9wifi@tabs9linux/*
 %{_datadir}/glib-2.0/schemas/org.gnome.shell.extensions.gts9wifi.gschema.xml
@@ -133,6 +135,10 @@ fi
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 
 %changelog
+* Fri Nov 06 2026 Lymeeee <mr_xunyu@163.com> - 0.14.0-1
+- Add a libwacom definition so GNOME treats the S Pen as a
+  display-integrated digitizer and maps it to the panel in every rotation
+
 * Thu Nov 05 2026 Lymeeee <mr_xunyu@163.com> - 0.13.0-1
 - Anti-alias the Plymouth spinner and add live battery telemetry
 - Add automatic charging bypass at 100 % with a 95 % release

@@ -36,6 +36,7 @@ jobs:
               python3 -m py_compile /work/userspace/tree/usr/bin/gts9wifi-settings /work/userspace/tree/usr/libexec/gts9wifi-power-key /work/userspace/tree/usr/libexec/gts9wifi-wifi-bdf
               rm -rf /work/userspace/tree/usr/bin/__pycache__ /work/userspace/tree/usr/libexec/__pycache__
               python3 /work/userspace/tests/settings-smoke.py
+              python3 /work/userspace/tests/libwacom-tablet.py
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-mirrors
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-protect
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-ime

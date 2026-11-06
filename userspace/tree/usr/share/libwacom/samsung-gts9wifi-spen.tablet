@@ -1,0 +1,29 @@
+# Samsung Galaxy Tab S9 Wi-Fi (SM-X710), S Pen
+#
+# The Wacom W90xx EMR digitizer sits under the panel and is reached over I2C
+# at address 0x56 by the wacom-wez01 driver.
+#
+# Without this entry libwacom treats an unrecognised tablet as an external
+# one; external tablets are mapped to the desktop and do not follow the
+# screen's orientation.  IntegratedIn=Display is the line that matters: it
+# makes GNOME map the pen to the panel, so it stays correct in portrait.
+#
+# Width and Height are millimetres.  The driver reports 100 units/mm and its
+# calibration bounds are 23575 x 14724, i.e. 235.75 x 147.24 mm.
+#
+# 0000:0000 covers kernels built before wacom-wez01.c reported the Wacom
+# vendor ID; 056a:0000 is the intended ID from that kernel onwards.
+
+[Device]
+Name=Samsung Galaxy Tab S9 S Pen
+ModelName=EJ-PX710
+DeviceMatch=i2c|056a|0000;i2c|0000|0000
+Class=ISDV4
+Width=236
+Height=147
+IntegratedIn=Display;System
+Styli=@generic-no-eraser;
+
+[Features]
+Stylus=true
+Touch=false
