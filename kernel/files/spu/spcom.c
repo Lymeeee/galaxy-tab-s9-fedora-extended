@@ -3735,7 +3735,13 @@ static int spcom_rpdev_cb(struct rpmsg_device *rpdev,
 	rx_item->rx_buf_size = len;
 	rx_item->ch = ch;
 
-	pm_wakeup_ws_event(spcom_dev->ws, SPCOM_PM_PACKET_HANDLE_TIMEOUT, true);
+	/*
+	 * Soft wakeup: a packet may keep the system awake while it is handled,
+	 * but must not abort a suspend already in progress.  With hard=true the
+	 * SPU link coming up during boot aborted the panel recovery's platform
+	 * suspend test (EBUSY), and the same could abort user suspends.
+	 */
+	pm_wakeup_ws_event(spcom_dev->ws, SPCOM_PM_PACKET_HANDLE_TIMEOUT, false);
 	spcom_pr_dbg("%s:got new packet, wakeup requested\n", ch->name);
 
 
