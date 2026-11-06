@@ -84,9 +84,11 @@ api_json() {
     local t=${1:-$tag}
     mkdir -p "$STATE"
     local f="$STATE/release-$t.json"
-    if [ ! -s "$f" ] || [ "${GTS9WIFI_REFRESH:-0}" = 1 ]; then
+    if [ ! -s "$f" ] || [ "${GTS9WIFI_REFRESH:-0}" = 1 ] ||
+        [ -n "$(find "$f" -mmin +5 2>/dev/null)" ]; then
         curl -fsSL --retry 3 --retry-delay 2 \
-            "https://api.github.com/repos/$REPO/releases/tags/$t" -o "$f"
+            "https://api.github.com/repos/$REPO/releases/tags/$t" -o "$f.part" &&
+            mv "$f.part" "$f"
     fi
     printf '%s\n' "$f"
 }
@@ -108,7 +110,10 @@ for item in data.get("assets", []):
     if pat.search(name):
         matches.append((name, item.get("browser_download_url", "")))
 if matches:
-    matches.sort(reverse=True)
+    def version_key(name):
+        return [int(part) if part.isdigit() else part
+                for part in re.split(r"(\d+)", name)]
+    matches.sort(key=lambda item: version_key(item[0]), reverse=True)
     print(matches[0][0] + "\t" + matches[0][1])
 PY
 ) || return 1
@@ -133,7 +138,10 @@ for item in data.get("assets", []):
     if pat.search(name):
         matches.append((name, item.get("browser_download_url", "")))
 if matches:
-    matches.sort(reverse=True)
+    def version_key(name):
+        return [int(part) if part.isdigit() else part
+                for part in re.split(r"(\d+)", name)]
+    matches.sort(key=lambda item: version_key(item[0]), reverse=True)
     print(matches[0][0] + "\t" + matches[0][1])
 PY
 ) || return 1

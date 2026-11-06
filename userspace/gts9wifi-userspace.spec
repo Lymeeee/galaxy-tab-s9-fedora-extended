@@ -138,6 +138,8 @@ fi
 * Fri Nov 06 2026 Lymeeee <mr_xunyu@163.com> - 0.14.0-1
 - Add a libwacom definition so GNOME treats the S Pen as a
   display-integrated digitizer and maps it to the panel in every rotation
+- Pick the newest release asset by version instead of filename order and
+  refresh release metadata older than five minutes
 
 * Thu Nov 05 2026 Lymeeee <mr_xunyu@163.com> - 0.13.0-1
 - Anti-alias the Plymouth spinner and add live battery telemetry
