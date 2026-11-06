@@ -1,0 +1,602 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+"""Pair the docked S Pen over BLE and publish its battery through BlueZ."""
+
+import glob
+import sys
+import time
+from pathlib import Path
+
+import dbus
+import dbus.mainloop.glib
+import dbus.service
+from gi.repository import GLib
+
+BLUEZ = "org.bluez"
+DEVICE_IFACE = "org.bluez.Device1"
+ADAPTER_IFACE = "org.bluez.Adapter1"
+GATT_IFACE = "org.bluez.GattCharacteristic1"
+PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
+MANAGER_IFACE = "org.freedesktop.DBus.ObjectManager"
+BATTERY_IFACE = "org.bluez.BatteryProvider1"
+
+BUS_NAME = "org.gts9wifi.SPenRemote"
+SERVICE_PATH = "/org/gts9wifi/SPenRemote"
+AGENT_PATH = SERVICE_PATH + "/agent"
+BATTERY_ROOT = SERVICE_PATH + "/battery"
+
+DOCK_GLOB = "/sys/bus/i2c/devices/*/pen_docked"
+RESET_GLOB = "/sys/bus/i2c/devices/*/pen_ble_reset"
+SPEN_SERVICES = {
+    "0000fd6c-0000-1000-8000-00805f9b34fb",
+    "0000fef5-0000-1000-8000-00805f9b34fb",
+}
+BATTERY_UUID = "5a87b4ef-3bfa-76a8-e642-92933c31434f"
+MODE_UUID = "aca1ab48-08ba-e79e-ab48-a9b9e6429293"
+
+PAIR_WINDOW_SECONDS = 65
+PAIR_ATTEMPTS = 2
+CONNECT_TIMEOUT_SECONDS = 12
+CONNECT_INTERVAL_SECONDS = 8
+BATTERY_PERIOD_SECONDS = 30
+
+
+def read_sysfs(pattern):
+    for path in glob.glob(pattern):
+        try:
+            return Path(path).read_text(encoding="ascii").strip()
+        except OSError:
+            continue
+    return None
+
+
+def docked():
+    return read_sysfs(DOCK_GLOB) == "1"
+
+
+def reset_path():
+    paths = glob.glob(RESET_GLOB)
+    return Path(paths[0]) if paths else None
+
+
+def is_spen_name(properties):
+    name = str(properties.get("Alias") or properties.get("Name") or "")
+    return name.startswith("SPEN")
+
+
+def is_spen(properties):
+    services = {str(uuid).lower() for uuid in properties.get("UUIDs", [])}
+    return is_spen_name(properties) and SPEN_SERVICES <= services
+
+
+class BatteryObject(dbus.service.Object):
+    def __init__(self, bus_name, provider):
+        super().__init__(bus_name, BATTERY_ROOT + "/pen")
+        self.provider = provider
+
+    @dbus.service.method(PROPERTIES_IFACE, in_signature="s", out_signature="a{sv}")
+    def GetAll(self, interface):
+        return (self.provider.values or {}) if interface == BATTERY_IFACE else {}
+
+    @dbus.service.method(PROPERTIES_IFACE, in_signature="ss", out_signature="v")
+    def Get(self, interface, name):
+        values = self.GetAll(interface)
+        if name not in values:
+            raise dbus.exceptions.DBusException(
+                "Unknown battery property",
+                name="org.freedesktop.DBus.Error.InvalidArgs",
+            )
+        return values[name]
+
+    @dbus.service.signal(PROPERTIES_IFACE, signature="sa{sv}as")
+    def PropertiesChanged(self, interface, values, invalidated):
+        pass
+
+
+class BatteryProvider(dbus.service.Object):
+    """Publish Samsung's custom GATT battery as a BlueZ battery provider."""
+
+    def __init__(self, bus, bus_name):
+        super().__init__(bus_name, BATTERY_ROOT)
+        self.bus = bus
+        self.values = None
+        self.adapter = None
+        self.registered = False
+        self.registering = False
+        self.retry_at = 0
+        self.child = BatteryObject(bus_name, self)
+
+    @dbus.service.method(MANAGER_IFACE, out_signature="a{oa{sa{sv}}}")
+    def GetManagedObjects(self):
+        return (
+            {BATTERY_ROOT + "/pen": {BATTERY_IFACE: self.values}}
+            if self.values is not None
+            else {}
+        )
+
+    @dbus.service.signal(MANAGER_IFACE, signature="oa{sa{sv}}")
+    def InterfacesAdded(self, path, interfaces):
+        pass
+
+    @dbus.service.signal(MANAGER_IFACE, signature="oas")
+    def InterfacesRemoved(self, path, interfaces):
+        pass
+
+    def update(self, device, percentage):
+        if not device or percentage is None or not 0 <= percentage <= 100:
+            if self.values is not None:
+                self.InterfacesRemoved(BATTERY_ROOT + "/pen", [BATTERY_IFACE])
+            self.values = None
+            return
+
+        adapter = str(device).rsplit("/dev_", 1)[0]
+        if not self.registered and not self.registering and \
+                time.monotonic() >= self.retry_at:
+            self.adapter = adapter
+            self.registering = True
+            try:
+                manager = dbus.Interface(
+                    self.bus.get_object(BLUEZ, adapter),
+                    "org.bluez.BatteryProviderManager1",
+                )
+                manager.RegisterBatteryProvider(
+                    BATTERY_ROOT,
+                    reply_handler=self._registered,
+                    error_handler=self._failed,
+                )
+            except dbus.DBusException as error:
+                self._failed(error)
+
+        values = {
+            "Device": dbus.ObjectPath(device),
+            "Percentage": dbus.Byte(percentage),
+            "Source": dbus.String("Samsung S Pen"),
+        }
+        if values == self.values:
+            return
+        previous = self.values
+        if previous is not None and previous["Device"] != values["Device"]:
+            self.InterfacesRemoved(BATTERY_ROOT + "/pen", [BATTERY_IFACE])
+            previous = None
+        self.values = values
+        if previous is None:
+            if self.registered:
+                self.InterfacesAdded(
+                    BATTERY_ROOT + "/pen", {BATTERY_IFACE: values}
+                )
+        else:
+            self.child.PropertiesChanged(BATTERY_IFACE, values, [])
+
+    def _registered(self):
+        self.registering = False
+        self.registered = True
+        if self.values is not None:
+            self.InterfacesAdded(
+                BATTERY_ROOT + "/pen", {BATTERY_IFACE: self.values}
+            )
+
+    def _failed(self, error):
+        self.registering = False
+        self.registered = False
+        self.retry_at = time.monotonic() + 60
+        print(f"S Pen battery provider unavailable: {error}", flush=True)
+
+
+class Agent(dbus.service.Object):
+    def __init__(self, bus_name, service):
+        super().__init__(bus_name, AGENT_PATH)
+        self.service = service
+
+    def _accept(self, device):
+        properties = self.service.devices().get(device)
+        if properties is None or not is_spen(properties) or not docked() or \
+                not (properties.get("Paired", False) or self.service.pairing):
+            raise dbus.DBusException(
+                "Pairing request is not from the docked S Pen",
+                name="org.bluez.Error.Rejected",
+            )
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="", out_signature="")
+    def Release(self):
+        pass
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="s")
+    def RequestPinCode(self, device):
+        self._accept(device)
+        return "0000"
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="u")
+    def RequestPasskey(self, device):
+        self._accept(device)
+        return dbus.UInt32(0)
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="ouq", out_signature="")
+    def DisplayPasskey(self, device, _passkey, _entered):
+        self._accept(device)
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
+    def DisplayPinCode(self, device, _pincode):
+        self._accept(device)
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="ou", out_signature="")
+    def RequestConfirmation(self, device, _passkey):
+        self._accept(device)
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="")
+    def RequestAuthorization(self, device):
+        self._accept(device)
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
+    def AuthorizeService(self, device, _uuid):
+        self._accept(device)
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="", out_signature="")
+    def Cancel(self):
+        pass
+
+
+class Service(dbus.service.Object):
+    def __init__(self, bus):
+        self.bus = bus
+        self.manager = dbus.Interface(
+            bus.get_object(BLUEZ, "/"), MANAGER_IFACE
+        )
+        objects = self.manager.GetManagedObjects()
+        self.adapter_path = next(
+            path for path, interfaces in objects.items()
+            if ADAPTER_IFACE in interfaces
+        )
+        adapter_object = bus.get_object(BLUEZ, self.adapter_path)
+        self.adapter = dbus.Interface(adapter_object, ADAPTER_IFACE)
+        self.adapter_properties = dbus.Interface(adapter_object, PROPERTIES_IFACE)
+        self.agent_manager = dbus.Interface(
+            bus.get_object(BLUEZ, "/org/bluez"), "org.bluez.AgentManager1"
+        )
+        self.bus_name = dbus.service.BusName(BUS_NAME, bus)
+        super().__init__(self.bus_name, SERVICE_PATH)
+        self.agent = Agent(self.bus_name, self)
+        self.battery = BatteryProvider(bus, self.bus_name)
+
+        self.pairing = False
+        self.pairing_deadline = 0.0
+        self.pairing_attempts = 0
+        self.pairing_attempted = False
+        self.next_pair_at = 0.0
+        self.agent_registered = False
+        self.pairable_before = False
+        self.started_discovery = False
+        self.dock_seen = False
+        self.connecting = set()
+        self.connect_failures = {}
+        self.last_connect_at = 0.0
+        self.repairs = 0
+        self.ble_device_path = None
+        self.ble_chars = {}
+        self.ble_notify = set()
+        self.mode_sent = False
+        self.battery_valid = False
+        self.next_battery_at = 0.0
+
+    def devices(self):
+        try:
+            return {
+                path: interfaces[DEVICE_IFACE]
+                for path, interfaces in self.manager.GetManagedObjects().items()
+                if DEVICE_IFACE in interfaces
+            }
+        except dbus.DBusException:
+            return {}
+
+    def paired_spen(self):
+        for path, properties in self.devices().items():
+            if properties.get("Paired", False) and is_spen_name(properties):
+                return path, properties
+        return None, None
+
+    def set_trusted(self, path):
+        properties = self.devices().get(path)
+        if properties is None or properties.get("Trusted", False):
+            return
+        try:
+            dbus.Interface(
+                self.bus.get_object(BLUEZ, path), PROPERTIES_IFACE
+            ).Set(DEVICE_IFACE, "Trusted", dbus.Boolean(True))
+        except dbus.DBusException as error:
+            print(f"Could not trust S Pen: {error.get_dbus_name()}", flush=True)
+
+    def register_agent(self):
+        if self.agent_registered:
+            return
+        self.agent_manager.RegisterAgent(AGENT_PATH, "DisplayYesNo")
+        self.agent_manager.RequestDefaultAgent(AGENT_PATH)
+        self.agent_registered = True
+
+    def begin_pairing(self):
+        path = reset_path()
+        if path is None:
+            print("S Pen reset sysfs is missing; kernel support not ready",
+                  flush=True)
+            self.pairing_attempted = True
+            return
+        self.pairable_before = bool(
+            self.adapter_properties.Get(ADAPTER_IFACE, "Pairable")
+        )
+        self.adapter_properties.Set(ADAPTER_IFACE, "Powered", dbus.Boolean(True))
+        self.adapter_properties.Set(ADAPTER_IFACE, "Pairable", dbus.Boolean(True))
+        try:
+            self.register_agent()
+        except dbus.DBusException as error:
+            print(f"Could not register pairing agent: {error}", flush=True)
+            self.pairing_attempted = True
+            return
+        try:
+            self.adapter.StartDiscovery()
+            self.started_discovery = True
+        except dbus.DBusException as error:
+            if error.get_dbus_name() != "org.bluez.Error.InProgress":
+                print(f"Could not start discovery: {error}", flush=True)
+        try:
+            path.write_text("1\n", encoding="ascii")
+        except OSError as error:
+            print(f"S Pen pairing reset failed: {error}", flush=True)
+            self.finish_pairing()
+            self.pairing_attempted = True
+            return
+        self.pairing = True
+        self.pairing_deadline = time.monotonic() + PAIR_WINDOW_SECONDS
+        self.pairing_attempts += 1
+        print("S Pen dock pairing window started", flush=True)
+
+    def finish_pairing(self):
+        if self.started_discovery:
+            try:
+                self.adapter.StopDiscovery()
+            except dbus.DBusException:
+                pass
+            self.started_discovery = False
+        if self.pairing:
+            try:
+                self.adapter_properties.Set(
+                    ADAPTER_IFACE, "Pairable", dbus.Boolean(self.pairable_before)
+                )
+            except dbus.DBusException:
+                pass
+        self.pairing = False
+        self.pairing_deadline = 0.0
+        if self.agent_registered:
+            try:
+                self.agent_manager.UnregisterAgent(AGENT_PATH)
+            except dbus.DBusException:
+                pass
+            self.agent_registered = False
+
+    def connect(self, path):
+        now = time.monotonic()
+        if path in self.connecting or now < self.last_connect_at:
+            return
+        self.last_connect_at = now + CONNECT_INTERVAL_SECONDS
+        self.connecting.add(path)
+
+        def finished(*_args):
+            self.connecting.discard(path)
+            self.connect_failures.pop(path, None)
+
+        def failed(error):
+            self.connecting.discard(path)
+            name = error.get_dbus_name()
+            if name in {
+                "org.bluez.Error.AlreadyConnected",
+                "org.bluez.Error.InProgress",
+            }:
+                return
+            print(f"S Pen connect failed: {name}", flush=True)
+            failures = self.connect_failures.get(path, 0) + 1
+            self.connect_failures[path] = failures
+            if failures >= 2 and docked():
+                self.repair_bond(path)
+
+        dbus.Interface(
+            self.bus.get_object(BLUEZ, path), DEVICE_IFACE
+        ).Connect(
+            reply_handler=finished,
+            error_handler=failed,
+            timeout=CONNECT_TIMEOUT_SECONDS,
+        )
+
+    def repair_bond(self, path):
+        if self.repairs >= 1:
+            self.pairing_attempted = True
+            print("S Pen bond repair already tried; reinsert the pen to retry",
+                  flush=True)
+            return
+        self.repairs += 1
+        print("Replacing stale S Pen bond", flush=True)
+        self.pairing_attempted = False
+        self.pairing_attempts = 0
+        self.next_pair_at = time.monotonic() + 2
+
+        def removed(*_args):
+            print("Stale S Pen bond removed", flush=True)
+
+        def failed(error):
+            print(f"Could not remove S Pen bond: {error.get_dbus_name()}",
+                  flush=True)
+
+        try:
+            self.adapter.RemoveDevice(
+                dbus.ObjectPath(path),
+                reply_handler=removed,
+                error_handler=failed,
+            )
+        except dbus.DBusException as error:
+            failed(error)
+
+    def consider(self, path, properties):
+        if properties.get("Paired", False):
+            if not is_spen_name(properties):
+                return
+            self.set_trusted(path)
+            if self.pairing:
+                self.finish_pairing()
+            if docked() and not properties.get("Connected", False):
+                self.connect(path)
+            return
+        if is_spen(properties) and self.pairing and docked():
+            self.connect(path)
+
+    def refresh_gatt(self, path, now):
+        try:
+            objects = self.manager.GetManagedObjects()
+        except dbus.DBusException:
+            self.battery.update(None, None)
+            return
+        properties = objects.get(path, {}).get(DEVICE_IFACE, {})
+        if not properties.get("Connected", False) or \
+                not properties.get("ServicesResolved", False):
+            self.battery.update(None, None)
+            self.ble_chars = {}
+            self.ble_notify.clear()
+            self.mode_sent = False
+            self.battery_valid = False
+            return
+
+        if self.ble_device_path != path:
+            self.ble_device_path = path
+            self.ble_chars = {}
+            self.ble_notify.clear()
+            self.mode_sent = False
+            self.battery_valid = False
+            self.next_battery_at = 0.0
+
+        chars = {}
+        for object_path, interfaces in objects.items():
+            if object_path.startswith(path + "/") and GATT_IFACE in interfaces:
+                chars[str(interfaces[GATT_IFACE]["UUID"]).lower()] = object_path
+        self.ble_chars = chars
+
+        if BATTERY_UUID not in chars:
+            self.battery.update(None, None)
+            return
+
+        mode_path = chars.get(MODE_UUID)
+        if mode_path is not None and not self.mode_sent:
+            try:
+                dbus.Interface(
+                    self.bus.get_object(BLUEZ, mode_path), GATT_IFACE
+                ).WriteValue(
+                    dbus.Array([dbus.Byte(0x10)], signature="y"), {}
+                )
+                self.mode_sent = True
+            except dbus.DBusException:
+                pass
+
+        battery_path = chars[BATTERY_UUID]
+        if battery_path not in self.ble_notify:
+            try:
+                dbus.Interface(
+                    self.bus.get_object(BLUEZ, battery_path), GATT_IFACE
+                ).StartNotify()
+                self.ble_notify.add(battery_path)
+            except dbus.DBusException:
+                pass
+
+        if now < self.next_battery_at:
+            return
+        self.next_battery_at = now + BATTERY_PERIOD_SECONDS
+        try:
+            value = dbus.Interface(
+                self.bus.get_object(BLUEZ, battery_path), GATT_IFACE
+            ).ReadValue({})
+        except dbus.DBusException:
+            self.battery_valid = False
+            self.battery.update(None, None)
+            return
+        if value and int(value[0]) <= 100:
+            self.battery_valid = True
+            self.battery.update(path, int(value[0]))
+        else:
+            self.battery_valid = False
+            self.battery.update(None, None)
+
+    def tick(self):
+        now = time.monotonic()
+        is_docked = docked()
+        if not is_docked:
+            if self.pairing:
+                self.finish_pairing()
+            self.dock_seen = False
+            self.pairing_attempted = False
+            self.pairing_attempts = 0
+            self.next_pair_at = 0.0
+            self.repairs = 0
+            self.battery.update(None, None)
+            return True
+
+        if not self.dock_seen:
+            self.dock_seen = True
+            self.pairing_attempted = False
+            self.pairing_attempts = 0
+            self.next_pair_at = 0.0
+
+        paired_path, paired = self.paired_spen()
+        if paired_path is not None:
+            self.consider(paired_path, paired)
+            if self.pairing:
+                self.finish_pairing()
+            if paired.get("Connected", False):
+                self.refresh_gatt(paired_path, now)
+            else:
+                self.battery.update(None, None)
+                if now - self.last_connect_at >= CONNECT_INTERVAL_SECONDS:
+                    self.connect(paired_path)
+            return True
+
+        if self.pairing and now >= self.pairing_deadline:
+            self.finish_pairing()
+            if self.pairing_attempts < PAIR_ATTEMPTS:
+                self.pairing_attempted = False
+                self.next_pair_at = now + 2
+            else:
+                print("S Pen pairing window expired; reinsert the pen to retry",
+                      flush=True)
+                self.pairing_attempted = True
+
+        if not self.pairing and not self.pairing_attempted and \
+                now >= self.next_pair_at:
+            self.begin_pairing()
+
+        if self.pairing:
+            for path, properties in self.devices().items():
+                if is_spen(properties) and not properties.get("Paired", False):
+                    self.connect(path)
+                    break
+
+        self.battery.update(None, None)
+        return True
+
+    def tick_once(self):
+        try:
+            return self.tick()
+        except dbus.DBusException as error:
+            print(f"S Pen pairing tick failed: {error}", flush=True)
+            return True
+
+
+def main():
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+    while True:
+        try:
+            service = Service(dbus.SystemBus())
+            break
+        except (StopIteration, dbus.DBusException) as error:
+            print(f"Waiting for the Bluetooth adapter: {error}", flush=True)
+            time.sleep(3)
+
+    service.tick_once()
+    GLib.timeout_add_seconds(2, service.tick_once)
+    GLib.MainLoop().run()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

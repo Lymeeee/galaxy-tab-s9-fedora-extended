@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.14.0
+Version:        0.15.0
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -28,6 +28,8 @@ Requires:       python3-gobject
 Requires:       gtk4
 Requires:       libadwaita
 Requires:       libwacom-data
+Requires:       bluez
+Requires:       python3-dbus
 
 %description
 Tab9 Extras GNOME Shell extension (v6), the gts9wifi device-control helper
@@ -56,6 +58,7 @@ udevadm control --reload-rules >/dev/null 2>&1 || :
 systemctl daemon-reload >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
 systemctl enable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
+systemctl enable --now gts9wifi-spen-remote.service >/dev/null 2>&1 || :
 if getent group video >/dev/null 2>&1 && command -v usermod >/dev/null 2>&1; then
     while IFS=: read -r account _ uid _; do
         [ "$uid" -ge 1000 ] && [ "$uid" -lt 60000 ] || continue
@@ -81,6 +84,7 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 if [ "$1" = 0 ]; then
     systemctl disable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
     systemctl disable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
+    systemctl disable --now gts9wifi-spen-remote.service >/dev/null 2>&1 || :
 fi
 if [ "$1" = 0 ] && command -v plymouth-set-default-theme >/dev/null 2>&1; then
     plymouth-set-default-theme spinner >/dev/null 2>&1 || :
@@ -101,6 +105,9 @@ fi
 %dir %{_datadir}/plymouth/themes/gts9wifi
 %{_datadir}/plymouth/themes/gts9wifi/*
 %{_libexecdir}/gts9wifi-device-control
+%{_libexecdir}/gts9wifi-panel-coldboot-check
+%{_libexecdir}/gts9wifi-bt-provision
+%{_libexecdir}/gts9wifi-spen-remote
 %{_libexecdir}/gts9wifi-charge-guard
 %{_libexecdir}/gts9wifi-keyboard-fw
 %{_libexecdir}/gts9wifi-wifi-bdf
@@ -129,12 +136,26 @@ fi
 %{_unitdir}/gts9wifi-charge-guard.service
 %{_unitdir}/gts9wifi-charge-guard.timer
 %{_unitdir}/gts9wifi-keyboard-fw.service
+%{_unitdir}/gts9wifi-spen-remote.service
+%{_udevrulesdir}/90-gts9wifi-spen-no-wakeup.rules
+%dir %{_unitdir}/gts9wifi-panel-coldboot-recover.service.d
+%{_unitdir}/gts9wifi-panel-coldboot-recover.service.d/10-gts9wifi-fast-path.conf
 %{_udevrulesdir}/72-gts9wifi-charger-perms.rules
 %config(noreplace) %{_sysconfdir}/NetworkManager/dispatcher.d/90-gts9wifi-no-bgscan
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-usb0-unmanaged.conf
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 
 %changelog
+* Fri Nov 06 2026 Lymeeee <mr_xunyu@163.com> - 0.15.0-1
+- Skip the panel recovery platform-suspend cycle when the driver already
+  reported a valid ANA38407 panel ID, and retry the cycle if a wake event
+  aborts it
+- Remove the fixed two-second delay before the panel check
+- Accept NUL padding after the appended DTB and provision vendor_boot before
+  boot, so one copy cannot hide the other
+- Shrink the Samsung wordmark on the boot splash
+- Pair the docked S Pen over BLE and publish its battery through BlueZ
+
 * Fri Nov 06 2026 Lymeeee <mr_xunyu@163.com> - 0.14.0-1
 - Add a libwacom definition so GNOME treats the S Pen as a
   display-integrated digitizer and maps it to the panel in every rotation

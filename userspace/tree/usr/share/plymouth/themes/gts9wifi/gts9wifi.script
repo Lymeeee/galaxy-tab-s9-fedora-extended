@@ -8,7 +8,7 @@ screen.x = Window.GetX();
 screen.y = Window.GetY();
 
 samsung.image = Image("samsung.png");
-samsung.width = Math.Int(screen.width * 320 / 960);
+samsung.width = Math.Int(screen.width * 280 / 960);
 samsung.height = Math.Int(samsung.image.GetHeight() * samsung.width / samsung.image.GetWidth());
 samsung.sprite = Sprite(samsung.image.Scale(samsung.width, samsung.height));
 

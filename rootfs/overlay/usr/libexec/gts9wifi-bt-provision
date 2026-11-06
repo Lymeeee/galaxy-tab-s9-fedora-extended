@@ -5,10 +5,10 @@
 # setup (HCI_QUIRK_USE_BDADDR_PROPERTY), which makes the kernel bring the
 # controller up already configured with the native address on every boot
 # and every re-registration, with no userspace involved. Patch the
-# property into both DTB copies on disk: the DTB appended to the kernel
-# in boot (the one ABL actually loads, since the dtbo fallback route is
-# in use) and the vendor_boot dtb field. Idempotent; runs every boot so
-# a reflashed boot image gets re-provisioned on its first boot.
+# property into both DTB copies on disk: the vendor_boot dtb field (the copy
+# ABL currently loads) and the DTB appended to the kernel in boot. Idempotent;
+# runs every boot so a reflashed boot image gets re-provisioned on its first
+# boot.
 
 import os
 import re
@@ -63,6 +63,20 @@ def patch_dtb(dtb, bdaddr):
         os.unlink(path)
 
 
+def find_appended_dtb(kernel, ksize):
+    """Return the last FDT in the kernel section, allowing NUL padding."""
+    off = ksize
+    while True:
+        off = kernel.rfind(FDT_MAGIC, 0, off)
+        if off < 0:
+            return None
+        if off + 8 <= ksize:
+            totalsize = struct.unpack_from('>I', kernel, off + 4)[0]
+            if 8 <= totalsize <= ksize - off and \
+                    not any(kernel[off + totalsize:ksize]):
+                return off
+
+
 def provision_boot(bdaddr):
     with open(BOOT, 'r+b') as part:
         head = bytearray(part.read(PAGE))
@@ -71,25 +85,26 @@ def provision_boot(bdaddr):
         ksize = struct.unpack_from('<I', head, 8)[0]
         part.seek(PAGE)
         kernel = part.read(ksize)
-        # the appended DTB is the tail of the kernel section
-        off = ksize
-        while True:
-            off = kernel.rfind(FDT_MAGIC, 0, off)
-            if off < 0:
-                sys.exit('boot: no appended dtb')
-            if off + struct.unpack_from('>I', kernel, off + 4)[0] == ksize:
-                break
+        off = find_appended_dtb(kernel, ksize)
+        if off is None:
+            sys.exit('boot: no appended dtb')
         dtb = patch_dtb(kernel[off:], bdaddr)
         if dtb is None:
             return False
+        new_end = off + len(dtb)
+        if new_end > ksize and page_align(new_end) != page_align(ksize):
+            sys.exit('boot: patched dtb would move the ramdisk')
         size = os.lseek(part.fileno(), 0, os.SEEK_END)
-        if PAGE + off + len(dtb) > size - PAGE:
+        if PAGE + new_end > size - PAGE:
             sys.exit('boot: patched dtb does not fit the partition')
         part.seek(PAGE + off)
         part.write(dtb)
-        struct.pack_into('<I', head, 8, off + len(dtb))
-        part.seek(0)
-        part.write(head)
+        if new_end <= ksize:
+            part.write(b'\x00' * (ksize - new_end))
+        else:
+            struct.pack_into('<I', head, 8, new_end)
+            part.seek(0)
+            part.write(head)
         part.flush()
         os.fsync(part.fileno())
     return True
@@ -142,9 +157,21 @@ def main():
             break
         time.sleep(0.1)
     bdaddr = read_efs_address()
-    changed = provision_boot(bdaddr)
-    changed |= provision_vendor_boot(bdaddr)
-    if changed:
+
+    def attempt(label, fn):
+        try:
+            return fn(bdaddr)
+        except (SystemExit, Exception) as error:
+            print('%s: %s' % (label, error), file=sys.stderr)
+            return None
+
+    # vendor_boot carries the DTB that ABL actually uses; do it first and
+    # never let a failure on the other copy hide this one.
+    vendor = attempt('vendor_boot', provision_vendor_boot)
+    boot = attempt('boot', provision_boot)
+    if vendor is None:
+        sys.exit('vendor_boot provisioning failed')
+    if vendor or boot:
         print('native Bluetooth address provisioned; reboot to apply')
     elif not live_matches(bdaddr):
         print('boot DTBs already provisioned; reboot still pending')

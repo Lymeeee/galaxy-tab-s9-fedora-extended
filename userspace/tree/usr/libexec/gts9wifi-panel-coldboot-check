@@ -1,0 +1,59 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# The panel recovery suspend cycle is only needed when the ANA38407 did not
+# survive Samsung's cold-boot hand-off.  Wait for the panel driver's probe
+# result and skip the cycle when it already reports the expected ID.
+
+set -eu
+
+RECOVER=/usr/libexec/gts9wifi-panel-coldboot-recover
+TAG=gts9wifi-panel-coldboot-check
+
+log()
+{
+	echo "$TAG: $*"
+}
+
+panel_id=""
+if command -v dmesg >/dev/null 2>&1; then
+	attempt=0
+	while [ "$attempt" -lt 40 ]; do
+		panel_id=$(dmesg 2>/dev/null |
+			sed -n 's/.*ana38407 panel id: \([0-9a-fA-F ]*\).*/\1/p' |
+			tail -n 1 || true)
+		[ -n "$panel_id" ] && break
+		sleep 0.2
+		attempt=$((attempt + 1))
+	done
+fi
+
+case "$panel_id" in
+	"80 00 04")
+		log "panel id $panel_id is valid; skipping the recovery cycle"
+		exit 0
+		;;
+	"00 00 00")
+		log "panel id $panel_id is invalid; running the recovery cycle"
+		;;
+	"")
+		log "panel id not found; running the recovery cycle conservatively"
+		;;
+	*)
+		log "unexpected panel id '$panel_id'; running the recovery cycle"
+		;;
+esac
+
+attempt=1
+while [ "$attempt" -le 3 ]; do
+	if "$RECOVER"; then
+		log "recovery cycle completed"
+		exit 0
+	fi
+	log "recovery attempt $attempt failed; retrying"
+	attempt=$((attempt + 1))
+	sleep 1
+done
+
+log "recovery failed after 3 attempts"
+exit 1

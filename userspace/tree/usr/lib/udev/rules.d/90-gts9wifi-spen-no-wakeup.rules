@@ -1,0 +1,5 @@
+# The S Pen power supply reports charge changes every few seconds while the
+# pen sits in its charging cradle.  power_supply_register() makes it a wakeup
+# source, so those reports would keep waking the tablet; keep the status
+# visible but stop it from aborting suspend.
+ACTION=="add", SUBSYSTEM=="power_supply", KERNEL=="gts9wifi-spen", ATTR{power/wakeup}="disabled"
