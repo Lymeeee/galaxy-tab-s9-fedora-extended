@@ -5,7 +5,7 @@ on:
     inputs:
       firmware_url:
         description: "Device firmware payload (GPU/ADSP blobs for the initramfs)"
-        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-2/firmware-samsung-gts9wifi-v2.tar.gz"
+        default: "https://github.com/Lymeeee/gts9wifi-fedora-linux/releases/download/kernel-7.2.0-merge-1/firmware-samsung-gts9wifi-v2.tar.gz"
         type: string
       firmware_sha256:
         description: "sha256 of the firmware payload"
@@ -38,6 +38,13 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Fail in seconds if the payload link is dead instead of after the
+      # 50-minute kernel build.
+      - name: Validate the firmware payload URL
+        run: |
+          curl -sfL --max-time 60 -r 0-1023 -o /dev/null \
+            "${{ inputs.firmware_url }}"
 
       - name: Build kernel RPM, initramfs, boot bundle and TWRP zip
         run: |
