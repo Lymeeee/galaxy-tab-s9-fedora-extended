@@ -12,5 +12,15 @@
       <summary>Button position</summary>
       <description>Position of the button as fractions of the monitor's free area, so it stays in place across rotations.</description>
     </key>
+    <key name="rounded-corners" type="b">
+      <default>true</default>
+      <summary>Rounded screen corners</summary>
+      <description>Mask the four corners of the panel with a black rounded wedge, the way One UI does.</description>
+    </key>
+    <key name="rounded-corner-radius" type="i">
+      <default>32</default>
+      <summary>Corner radius</summary>
+      <description>Corner mask radius in physical pixels at the panel's 2560-pixel width.</description>
+    </key>
   </schema>
 </schemalist>

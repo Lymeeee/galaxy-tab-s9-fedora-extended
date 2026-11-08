@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.3
+Version:        0.17.4
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -135,6 +135,7 @@ fi
 %{_libexecdir}/gts9wifi-powerkey-mode
 %{_libexecdir}/gts9wifi-speaker-routing
 %{_libexecdir}/gts9wifi-speaker-protection
+%{_libexecdir}/gts9wifi-sd-uuid-fix
 %dir %{_datadir}/alsa/ucm2/Qualcomm/sm8550/GTS9
 %{_datadir}/alsa/ucm2/Qualcomm/sm8550/GTS9/HiFi.conf
 %{_datadir}/alsa/ucm2/Qualcomm/sm8550/GTS9/Samsung-Galaxy-Tab-S9.conf
@@ -150,6 +151,7 @@ fi
 %{_unitdir}/gts9wifi-usb-net.service.d/10-gts9wifi-default-off.conf
 %{_unitdir}/gts9wifi-power.service
 %{_unitdir}/gts9wifi-speaker-protection.service
+%{_unitdir}/gts9wifi-sd-uuid-fix@.service
 %{_unitdir}/gts9wifi-charge-guard.service
 %{_unitdir}/gts9wifi-charge-guard.timer
 %{_unitdir}/gts9wifi-keyboard-fw.service
@@ -162,6 +164,7 @@ fi
 %dir %{_unitdir}/gts9wifi-panel-coldboot-recover.service.d
 %{_unitdir}/gts9wifi-panel-coldboot-recover.service.d/10-gts9wifi-fast-path.conf
 %{_udevrulesdir}/72-gts9wifi-charger-perms.rules
+%{_udevrulesdir}/60-gts9wifi-sd-uuid.rules
 %config(noreplace) %{_sysconfdir}/NetworkManager/dispatcher.d/90-gts9wifi-no-bgscan
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-usb0-unmanaged.conf
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf

@@ -18,6 +18,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import {KeyboardButton} from './keyboardButton.js';
 import {OskFocus} from './oskFocus.js';
 import {SleepWarning} from './sleepWarning.js';
+import {CornerMask} from './cornerMask.js';
 
 export default class Gts9wifiExtension extends Extension {
     enable() {
@@ -27,9 +28,13 @@ export default class Gts9wifiExtension extends Extension {
         this._keyboardButton.enable();
         this._sleepWarning = new SleepWarning();
         this._sleepWarning.enable();
+        this._cornerMask = new CornerMask(this.getSettings());
+        this._cornerMask.enable();
     }
 
     disable() {
+        this._cornerMask?.disable();
+        this._cornerMask = null;
         this._sleepWarning?.disable();
         this._sleepWarning = null;
         this._keyboardButton?.disable();

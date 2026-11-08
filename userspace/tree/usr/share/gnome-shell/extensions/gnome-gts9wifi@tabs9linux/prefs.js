@@ -95,6 +95,7 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
         if (boot)
             page.add(boot);
         page.add(this._lockGroup());
+        page.add(this._displayGroup());
         page.add(this._keyboardGroup());
         window.add(page);
     }
@@ -224,6 +225,39 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
                 this._screensaver.set_boolean('ubuntu-lock-on-suspend', !row.active);
         });
         group.add(row);
+        return group;
+    }
+
+    _displayGroup() {
+        const group = new Adw.PreferencesGroup({title: _('Display')});
+
+        const corners = new Adw.SwitchRow({
+            title: _('Rounded screen corners'),
+            subtitle: _('Mask the panel corners with a black rounded wedge, like One UI.'),
+        });
+        this.getSettings().bind('rounded-corners', corners, 'active',
+            Gio.SettingsBindFlags.DEFAULT);
+        group.add(corners);
+
+        const radius = new Adw.SpinRow({
+            title: _('Corner radius'),
+            subtitle: _('Physical pixels at a 2560-pixel panel width.'),
+            adjustment: new Gtk.Adjustment({
+                lower: 8,
+                upper: 64,
+                step_increment: 2,
+                page_increment: 8,
+                value: this.getSettings().get_int('rounded-corner-radius'),
+            }),
+        });
+        // GSettings int <-> SpinRow double needs an explicit conversion.
+        radius.connect('notify::value', () => {
+            const value = Math.round(radius.value);
+            if (this.getSettings().get_int('rounded-corner-radius') !== value)
+                this.getSettings().set_int('rounded-corner-radius', value);
+        });
+        group.add(radius);
+
         return group;
     }
 

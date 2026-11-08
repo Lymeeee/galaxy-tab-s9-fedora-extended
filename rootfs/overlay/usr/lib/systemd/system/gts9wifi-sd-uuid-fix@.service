@@ -1,0 +1,7 @@
+[Unit]
+Description=Fix the duplicate root UUID on SD card %I
+After=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gts9wifi-sd-uuid-fix /dev/%I

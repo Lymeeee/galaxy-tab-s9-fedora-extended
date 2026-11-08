@@ -1,0 +1,47 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Cards written by rootfs/mk-sd-card.sh carry the internal root's UUID and
+# label.  With both devices present, root=UUID and /etc/fstab are ambiguous
+# and the internal system fails to boot.  Give the card a fresh UUID as soon
+# as it is inserted, without touching its contents; the card then mounts
+# normally as removable storage.
+#
+# usage: gts9wifi-sd-uuid-fix <device> [uuid-to-replace]
+# The second argument exists so the logic can be exercised on a loop device
+# without ever matching the live root.
+
+set -u
+
+dev="${1:?usage: gts9wifi-sd-uuid-fix <device> [uuid-to-replace]}"
+target="${2:-d2a235a8-37cd-4bac-be53-16caf2bfdd21}"
+
+[ -b "$dev" ] || exit 0
+
+uuid=$(blkid -s UUID -o value "$dev" 2>/dev/null || true)
+[ "$uuid" = "$target" ] || exit 0
+
+# Never touch the filesystem that is running this system.
+root_src=$(findmnt -no SOURCE / 2>/dev/null || true)
+if [ -n "$root_src" ] && [ "$(readlink -f "$root_src")" = "$(readlink -f "$dev")" ]; then
+	exit 0
+fi
+
+new=$(cat /proc/sys/kernel/random/uuid)
+if ! tune2fs -U "$new" "$dev" >/dev/null 2>&1; then
+	logger -t gts9wifi-sd-fix "cannot change the UUID of $dev"
+	exit 1
+fi
+
+# Keep the card's own fstab pointing at itself, if it has one.
+mnt=$(mktemp -d)
+if mount -o rw "$dev" "$mnt" 2>/dev/null; then
+	if [ -f "$mnt/etc/fstab" ]; then
+		sed -i "s/$uuid/$new/g" "$mnt/etc/fstab"
+	fi
+	umount "$mnt"
+fi
+rmdir "$mnt" 2>/dev/null || true
+
+logger -t gts9wifi-sd-fix "changed $dev UUID $uuid -> $new"
+udevadm trigger --action=change --sysname-match="$(basename "$dev")" 2>/dev/null || true

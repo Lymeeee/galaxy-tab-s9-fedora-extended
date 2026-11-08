@@ -28,6 +28,11 @@ size_gib="${3:-12}"
 # The label matters too: with no root= in the vendor_boot cmdline, the pmOS
 # initramfs finds the root partition by LABEL="pmOS_root" (verified in the
 # initramfs init_functions.sh shipped on this device).
+#
+# NOTE: these UUIDs are the same ones the installed internal root uses, so
+# inserting such a card while booting the internal system is ambiguous.  The
+# userspace package ships gts9wifi-sd-uuid-fix + a udev rule that gives the
+# card a fresh UUID when it is inserted (contents untouched).
 boot_uuid="b7869a36-d9a0-4403-b9fd-e0ebec016b76"
 root_uuid="d2a235a8-37cd-4bac-be53-16caf2bfdd21"
 

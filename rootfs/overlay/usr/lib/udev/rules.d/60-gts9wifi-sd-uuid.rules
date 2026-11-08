@@ -1,0 +1,7 @@
+# A card built by rootfs/mk-sd-card.sh has the internal root's UUID, so
+# root=UUID= and /etc/fstab become ambiguous when it is inserted.  Hide the
+# card from udisks and let gts9wifi-sd-uuid-fix give it a fresh UUID.
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="mmcblk*", \
+	ENV{ID_FS_UUID}=="d2a235a8-37cd-4bac-be53-16caf2bfdd21", \
+	ENV{UDISKS_IGNORE}="1", TAG+="systemd", \
+	ENV{SYSTEMD_WANTS}+="gts9wifi-sd-uuid-fix@%k.service"
