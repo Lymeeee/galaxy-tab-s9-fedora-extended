@@ -24,7 +24,7 @@ on:
         type: string
       firmware_url:
         description: "Device firmware payload (extracted from the stock partitions)"
-        default: "https://github.com/Lymeeee/gts9wifi-fedora-linux/releases/download/kernel-7.2.0-merge-1/firmware-samsung-gts9wifi-v2.tar.gz"
+        default: "https://api.github.com/repos/Lymeeee/gts9wifi-fedora-linux/releases/assets/723491599"
         type: string
       firmware_sha256:
         description: "sha256 of the firmware payload"
@@ -60,7 +60,8 @@ jobs:
       - name: Fetch pinned firmware payload and kernel RPM
         run: |
           mkdir -p _ci
-          curl -sfL "${{ inputs.firmware_url }}" -o _ci/firmware.tar.gz
+          curl -sfL -H "Accept: application/octet-stream" \
+            "${{ inputs.firmware_url }}" -o _ci/firmware.tar.gz
           echo "${{ inputs.firmware_sha256 }}  _ci/firmware.tar.gz" | sha256sum -c -
           curl -sfL "${{ inputs.kernel_rpm_url }}" -o _ci/kernel.rpm
           echo "${{ inputs.kernel_sha256 }}  _ci/kernel.rpm" | sha256sum -c -

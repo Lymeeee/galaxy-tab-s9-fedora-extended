@@ -5,7 +5,7 @@ on:
     inputs:
       firmware_url:
         description: "Device firmware payload (GPU/ADSP blobs for the initramfs)"
-        default: "https://github.com/Lymeeee/gts9wifi-fedora-linux/releases/download/kernel-7.2.0-merge-1/firmware-samsung-gts9wifi-v2.tar.gz"
+        default: "https://api.github.com/repos/Lymeeee/gts9wifi-fedora-linux/releases/assets/723491599"
         type: string
       firmware_sha256:
         description: "sha256 of the firmware payload"
@@ -44,6 +44,7 @@ jobs:
       - name: Validate the firmware payload URL
         run: |
           curl -sfL --max-time 60 -r 0-1023 -o /dev/null \
+            -H "Accept: application/octet-stream" \
             "${{ inputs.firmware_url }}"
 
       - name: Build kernel RPM, initramfs, boot bundle and TWRP zip
@@ -86,7 +87,8 @@ jobs:
               # The Adreno driver is built-in and probes inside the initramfs;
               # stage the device GPU firmware so the first fw request succeeds
               # (gts9wifi.conf install_items pulls these into the image).
-              curl -sfL "$FIRMWARE_URL" -o /tmp/fw.tar.gz
+              curl -sfL -H "Accept: application/octet-stream" \
+                "$FIRMWARE_URL" -o /tmp/fw.tar.gz
               echo "$FIRMWARE_SHA256  /tmp/fw.tar.gz" | sha256sum -c -
               tar xzf /tmp/fw.tar.gz -C /
               cp -a /work/boot/dracut/90gts9wifi-usbnet /usr/lib/dracut/modules.d/
