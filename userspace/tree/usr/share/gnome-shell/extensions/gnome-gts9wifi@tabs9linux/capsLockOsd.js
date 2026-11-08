@@ -9,7 +9,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
 const LED_ROOT = '/sys/class/leds';
-const POLL_MS = 500;
+const POLL_MS = 250;
 
 function readFile(path) {
     try {
