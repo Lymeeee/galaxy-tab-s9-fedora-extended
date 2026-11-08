@@ -3,7 +3,8 @@ Description=Map Android dynamic partitions from super
 ConditionPathExists=/dev/disk/by-partlabel/super
 ConditionPathExists=/usr/bin/make-dynpart-mappings
 DefaultDependencies=no
-After=local-fs.target
+After=local-fs.target systemd-udevd.service
+Wants=systemd-udevd.service
 Before=vendor.mount
 Conflicts=umount.target
 Before=umount.target
@@ -11,7 +12,8 @@ Before=umount.target
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/make-dynpart-mappings /dev/disk/by-partlabel/super
-ExecStartPost=-/usr/bin/udevadm settle --timeout=10
+ExecStartPost=-/usr/bin/udevadm trigger --subsystem-match=block --action=change
+ExecStartPost=-/usr/bin/udevadm settle --timeout=30
 RemainAfterExit=yes
 
 [Install]
