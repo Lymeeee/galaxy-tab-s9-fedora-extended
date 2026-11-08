@@ -1,5 +1,5 @@
 [Unit]
-Description=Stock Android vendor image
+Description=Stock Android vendor partition (super)
 Requires=gts9wifi-android-parts.service
 After=gts9wifi-android-parts.service
 DefaultDependencies=no
@@ -9,7 +9,7 @@ Before=umount.target
 [Mount]
 What=/dev/mapper/vendor
 Where=/vendor
-Type=erofs
+Type=auto
 Options=ro
 
 [Install]

@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-dynpart
-Version:        0.1.0
+Version:        0.1.1
 Release:        1%{?dist}
 Summary:        Android dynamic-partition mapper for the Galaxy Tab S9 Fedora port
 License:        GPL-3.0-only AND Apache-2.0
@@ -14,9 +14,6 @@ BuildRequires:  device-mapper-devel
 BuildRequires:  libmd-devel
 BuildRequires:  libblkid-devel
 BuildRequires:  systemd-rpm-macros
-Requires:       libdevmapper
-Requires:       libmd
-Requires:       libblkid
 Requires:       systemd
 
 %description
@@ -79,6 +76,11 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %{_unitdir}/mnt-vendor-persist.mount
 
 %changelog
+* Sun Nov 08 2026 Lymeeee <mr_xunyu@163.com> - 0.1.1-1
+- udev-synchronise dm creation so systemd sees /dev/mapper/vendor
+- auto-detect the vendor filesystem instead of assuming erofs
+- drop the explicit libdevmapper/libmd/libblkid Requires (rpm sonames)
+
 * Sat Nov 07 2026 Lymeeee <mr_xunyu@163.com> - 0.1.0-1
 - Package make-dynpart-mappings (upstream f883b0b) and the Android parts
   mount units for the Galaxy Tab S9 Fedora port

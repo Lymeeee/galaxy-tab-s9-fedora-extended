@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.1
+Version:        0.17.2
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -56,6 +56,8 @@ cp -a . %{buildroot}/
 %post
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
 udevadm control --reload-rules >/dev/null 2>&1 || :
+# 0.17.2: double-tap-to-wake was removed from the kernel driver.
+rm -f /usr/lib/udev/rules.d/71-gts9wifi-touchscreen-perms.rules
 systemctl daemon-reload >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
 systemctl enable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :

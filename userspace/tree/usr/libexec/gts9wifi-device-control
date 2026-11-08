@@ -11,8 +11,8 @@
 #   set NAME 0|1   write the control now and remember it for the next boot
 #   apply          write every saved value; this is the boot unit's job
 #
-# Nothing here needs privileges: the udev rule opens the touchscreen attribute
-# to group video, and the state directory is handed to that same group, so the
+# Nothing here needs privileges: the controls are world-writable power-supply
+# attributes, and the state directory is handed to the video group, so the
 # session user can run this directly.  The state directory is created here
 # rather than by a tmpfiles.d entry on purpose: this port's root filesystem is
 # owned by the build user, and systemd-tmpfiles refuses to touch any path under
@@ -22,13 +22,9 @@ set -u
 
 state_dir=/var/lib/gts9wifi
 
-# name|group|label|description|default|sysfs path or state:NAME
+# name|group|label|description|default|sysfs path
 CONTROLS='
-double-tap-to-wake|Touchscreen|Double tap to wake|Wake the tablet from suspend by double tapping the screen.|1|/sys/bus/i2c/devices/10-0049/double_tap_to_wake
-fast-charge|Power|Fast charging|Charges the battery faster by drawing more power from your charger. A 5 A USB-C cable is recommended.|1|/sys/bus/i2c/devices/6-0049/fast_charge
-charge-limit|Power|Limit charging to 80 %|Protects the battery: charging stops at 80 % and resumes below 75 %.|0|/sys/bus/i2c/devices/6-0049/charge_limit
-charge-bypass|Power|Charging bypass|On the charger, run the tablet from the cable and leave the battery alone (for long gaming or video sessions).|0|/sys/bus/i2c/devices/6-0049/charge_bypass
-charge-full-bypass|Power|Bypass when full|Once the battery reaches 100 %, stop charging and run from the charger. Charging resumes below 95 %.|1|state:charge-full-bypass
+fast-charge|Power|Fast charging|Charges the battery faster by drawing more power from your charger. A 5 A USB-C cable is recommended.|0|/sys/bus/i2c/devices/6-0049/fast_charge
 '
 
 usage() {
@@ -70,13 +66,6 @@ saved_value() { # saved_value <name> <default>
 	esac
 }
 
-is_state() { # is_state <path>
-	case "$1" in
-	state:*) return 0 ;;
-	*) return 1 ;;
-	esac
-}
-
 command=${1:-list}
 name_arg=${2:-}
 value_arg=${3:-}
@@ -96,20 +85,12 @@ while IFS='|' read -r name group label description default path; do
 
 	case "$command" in
 	list)
-		if is_state "$path"; then
-			value=$(saved_value "$name" "$default")
-		else
-			value=$(live_value "$path" "$default")
-		fi
 		printf '%s\t%s\t%s\t%s\t%s\n' \
-			"$name" "$group" "$label" "$description" "$value"
+			"$name" "$group" "$label" "$description" \
+			"$(live_value "$path" "$default")"
 		;;
 	get)
-		if is_state "$path"; then
-			saved_value "$name" "$default"
-		else
-			live_value "$path" "$default"
-		fi
+		live_value "$path" "$default"
 		;;
 	set)
 		case "$value_arg" in
@@ -119,15 +100,6 @@ while IFS='|' read -r name group label description default path; do
 			exit 2
 			;;
 		esac
-		if is_state "$path"; then
-			ensure_state_dir
-			if ! printf '%s\n' "$value_arg" >"$state_dir/$name" 2>/dev/null; then
-				echo "gts9wifi-device-control: cannot write $state_dir/$name" >&2
-				exit 1
-			fi
-			chmod 0664 "$state_dir/$name" 2>/dev/null || true
-			continue
-		fi
 		if ! printf '%s\n' "$value_arg" >"$path" 2>/dev/null; then
 			echo "gts9wifi-device-control: cannot write $path" >&2
 			exit 1
@@ -137,11 +109,6 @@ while IFS='|' read -r name group label description default path; do
 		chmod 0664 "$state_dir/$name" 2>/dev/null || true
 		;;
 	apply)
-		# State-only controls have no device to wait for.
-		if is_state "$path"; then
-			ensure_state_file "$name" "$default"
-			continue
-		fi
 		# The device the control lives on may still be probing at boot, so
 		# give it a bounded moment to appear before giving up on it.
 		tries=0

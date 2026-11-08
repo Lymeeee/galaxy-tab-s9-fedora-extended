@@ -11,8 +11,8 @@
 #   set NAME 0|1   write the control now and remember it for the next boot
 #   apply          write every saved value; this is the boot unit's job
 #
-# Nothing here needs privileges: the udev rule opens the touchscreen attribute
-# to group video, and the state directory is handed to that same group, so the
+# Nothing here needs privileges: the controls are world-writable power-supply
+# attributes, and the state directory is handed to the video group, so the
 # session user can run this directly.  The state directory is created here
 # rather than by a tmpfiles.d entry on purpose: this port's root filesystem is
 # owned by the build user, and systemd-tmpfiles refuses to touch any path under
@@ -24,7 +24,6 @@ state_dir=/var/lib/gts9wifi
 
 # name|group|label|description|default|sysfs path
 CONTROLS='
-double-tap-to-wake|Touchscreen|Double tap to wake|Wake the tablet from suspend by double tapping the screen.|1|/sys/bus/i2c/devices/10-0049/double_tap_to_wake
 fast-charge|Power|Fast charging|Charges the battery faster by drawing more power from your charger. A 5 A USB-C cable is recommended.|0|/sys/bus/i2c/devices/6-0049/fast_charge
 '
 

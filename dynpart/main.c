@@ -191,6 +191,7 @@ void writeMappingsFromMetadata(LpMetadataHeader *header, LpMetadataPartition *pa
 	uint32_t sector;
 
 	struct dm_task *dmt;
+	uint32_t cookie = 0;
 
 	char buf[39];
 
@@ -212,11 +213,22 @@ void writeMappingsFromMetadata(LpMetadataHeader *header, LpMetadataPartition *pa
 
 		dm_task_set_name(dmt, buf);
 
+		/*
+		 * udev-synchronise the create.  Without a cookie libdevmapper
+		 * marks the uevent as one the subsystem rules must skip, so
+		 * systemd never gets a .device unit for /dev/mapper/vendor and
+		 * vendor.mount fails its device dependency.
+		 */
+		if (!dm_task_set_cookie(dmt, &cookie, 0))
+			fprintf(stderr, "%s: cannot set a udev cookie\n", buf);
+
 		sector = 0;
 		for (uint32_t j = 0; j < le32toh(parts[i].num_extents); j++)
 			sector += addExtentAsTarget(dmt, &extents[j + le32toh(parts[i].first_extent_index)], sector, blockDevices, buf);
 
-		dm_task_run(dmt);
+		if (!dm_task_run(dmt))
+			fprintf(stderr, "%s: cannot create the mapping\n", buf);
+		dm_udev_wait(cookie);
 		dm_task_destroy(dmt);
 	}
 }
