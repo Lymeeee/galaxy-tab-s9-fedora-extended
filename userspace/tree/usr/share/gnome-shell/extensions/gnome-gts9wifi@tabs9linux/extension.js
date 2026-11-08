@@ -13,6 +13,7 @@
 // sleepWarning.js keeps gsd-power's "Automatic suspend" warning from
 // lighting the dark screen (which kept the tablet from ever suspending).
 // topOsd.js backs the transient S Pen dock and Caps Lock notices.
+// brightnessWarning.js warns when the panel leaves its DC dimming range.
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
@@ -23,6 +24,7 @@ import {CornerMask} from './cornerMask.js';
 import {TopOsd} from './topOsd.js';
 import {SpenOsd} from './spenOsd.js';
 import {CapsLockOsd} from './capsLockOsd.js';
+import {BrightnessWarning} from './brightnessWarning.js';
 
 export default class Gts9wifiExtension extends Extension {
     enable() {
@@ -40,9 +42,13 @@ export default class Gts9wifiExtension extends Extension {
         this._spenOsd.enable();
         this._capsLockOsd = new CapsLockOsd(this._topOsd);
         this._capsLockOsd.enable();
+        this._brightnessWarning = new BrightnessWarning();
+        this._brightnessWarning.enable();
     }
 
     disable() {
+        this._brightnessWarning?.disable();
+        this._brightnessWarning = null;
         this._capsLockOsd?.disable();
         this._capsLockOsd = null;
         this._spenOsd?.disable();
