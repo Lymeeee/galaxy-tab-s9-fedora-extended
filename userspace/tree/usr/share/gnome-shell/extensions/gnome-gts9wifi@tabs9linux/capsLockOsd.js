@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: MIT
 //
-// Caps Lock OSD for the pogo keyboard.  The key event itself says nothing
-// reliable about the new state (the seat updates it after the event), so read
-// the keyboard LED that the kernel toggles for us.  The LED device number can
+// Caps Lock OSD for the pogo keyboard.  The Shell's stage does not see the
+// keyboard events a Wayland client receives, so do not try to intercept the
+// key: poll the LED the kernel toggles instead.  The LED device number can
 // change between boots, so look it up by its "::capslock" suffix.
 
-import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
-const CAPS_LOCK_KEYSYM = 0xffe5;
 const LED_ROOT = '/sys/class/leds';
-const SYNC_DELAY_MS = 40;
+const POLL_MS = 250;
 
 function readFile(path) {
     try {
@@ -25,41 +23,40 @@ function readFile(path) {
 export class CapsLockOsd {
     constructor(osd) {
         this._osd = osd;
-        this._capturedId = 0;
+        this._pollId = 0;
         this._ledPath = null;
         this._state = null;
     }
 
     enable() {
-        this._capturedId = global.stage.connect('captured-event',
-            (_actor, event) => this._onEvent(event));
+        this._ledPath = this._findLed();
         this._state = this._readLed();
+        this._pollId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, POLL_MS, () => {
+            this._poll();
+            return GLib.SOURCE_CONTINUE;
+        });
     }
 
     disable() {
-        if (this._capturedId) {
-            global.stage.disconnect(this._capturedId);
-            this._capturedId = 0;
+        if (this._pollId) {
+            GLib.source_remove(this._pollId);
+            this._pollId = 0;
         }
         this._ledPath = null;
+        this._state = null;
     }
 
-    _onEvent(event) {
-        if (event.type() !== Clutter.EventType.KEY_PRESS ||
-            event.get_key_symbol() !== CAPS_LOCK_KEYSYM)
-            return Clutter.EVENT_PROPAGATE;
-
-        GLib.timeout_add(GLib.PRIORITY_DEFAULT, SYNC_DELAY_MS, () => {
-            this._sync();
-            return GLib.SOURCE_REMOVE;
-        });
-        return Clutter.EVENT_PROPAGATE;
-    }
-
-    _sync() {
+    _poll() {
         const state = this._readLed();
-        if (state === null || state === this._state)
+        if (state === null)
             return;
+        if (this._state === null) {
+            this._state = state;
+            return;
+        }
+        if (state === this._state)
+            return;
+
         this._state = state;
         this._osd.show('input-keyboard-symbolic',
             state ? 'Caps Lock 开' : 'Caps Lock 关', null, 1400);

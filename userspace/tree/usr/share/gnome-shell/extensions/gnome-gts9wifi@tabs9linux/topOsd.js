@@ -13,7 +13,7 @@ import cairo from 'cairo';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-const BAR_WIDTH = 180;
+const BAR_WIDTH = 160;
 const BAR_HEIGHT = 6;
 const SHOW_MS = 1800;
 const FADE_IN_MS = 120;
@@ -32,17 +32,15 @@ export class TopOsd {
 
     enable() {
         this._icon = new St.Icon({
-            icon_size: 28,
-            style: 'color: #ffffff;',
+            icon_size: 32,
             y_align: Clutter.ActorAlign.CENTER,
         });
-        this._label = new St.Label({
-            style: 'color: #ffffff; font-weight: bold; font-size: 15px;',
-        });
+        this._label = new St.Label({});
         this._bar = new St.DrawingArea({
             width: BAR_WIDTH,
             height: BAR_HEIGHT,
             visible: false,
+            style_class: 'level',
             y_align: Clutter.ActorAlign.CENTER,
         });
         this._bar.connect('repaint', area => this._drawBar(area));
@@ -59,10 +57,8 @@ export class TopOsd {
             vertical: false,
             visible: false,
             opacity: 0,
-            style: 'background-color: rgba(20, 20, 22, 0.92); ' +
-                'border-radius: 20px; padding: 10px 18px; ' +
-                'border: 1px solid rgba(255, 255, 255, 0.08); ' +
-                'spacing: 14px;',
+            style_class: 'osd-window',
+            style: 'margin-bottom: 0;',
         });
         this._actor.add_child(this._icon);
         this._actor.add_child(text);
@@ -153,7 +149,7 @@ export class TopOsd {
         cr.paint();
         cr.setOperator(cairo.Operator.SOURCE);
 
-        cr.setSourceRGBA(1, 1, 1, 0.25);
+        cr.setSourceRGBA(1, 1, 1, 0.1);
         this._roundedRect(cr, 0, 0, width, height, radius);
         cr.fill();
 
