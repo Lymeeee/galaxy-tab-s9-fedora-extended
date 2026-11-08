@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.19
+Version:        0.17.20
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -61,6 +61,17 @@ udevadm trigger --subsystem-match=block >/dev/null 2>&1 || :
 # 0.17.2: double-tap-to-wake was removed from the kernel driver.
 rm -f /usr/lib/udev/rules.d/71-gts9wifi-touchscreen-perms.rules
 systemctl daemon-reload >/dev/null 2>&1 || :
+# The dynpart mount units depend on a mapper device unit this kernel never
+# creates; mount the mapper directly from the userspace helper instead.
+systemctl disable vendor.mount vendor-dsp.mount vendor-firmware_mnt.mount \
+    >/dev/null 2>&1 || :
+systemctl stop vendor.mount vendor-dsp.mount vendor-firmware_mnt.mount \
+    >/dev/null 2>&1 || :
+systemctl reset-failed vendor.mount vendor-dsp.mount \
+    vendor-firmware_mnt.mount >/dev/null 2>&1 || :
+if [ -x %{_libexecdir}/gts9wifi-android-mounts ]; then
+    %{_libexecdir}/gts9wifi-android-mounts >/dev/null 2>&1 || :
+fi
 systemctl enable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
 systemctl enable gts9wifi-speaker-protection.service >/dev/null 2>&1 || :
 systemctl enable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
@@ -127,6 +138,7 @@ fi
 %{_libexecdir}/gts9wifi-bt-provision
 %{_libexecdir}/gts9wifi-spen-remote
 %{_libexecdir}/gts9wifi-device-name
+%{_libexecdir}/gts9wifi-android-mounts
 %{_libexecdir}/gts9wifi-rtc-time
 %{_libexecdir}/gts9wifi-charge-guard
 %{_libexecdir}/gts9wifi-keyboard-fw
@@ -176,6 +188,8 @@ fi
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-usb0-unmanaged.conf
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 %config(noreplace) %{_sysconfdir}/systemd/zram-generator.conf.d/10-gts9wifi-zstd.conf
+%dir %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d
+%config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 
 %changelog
 * Sat Nov 07 2026 Lymeeee <mr_xunyu@163.com> - 0.17.1-1

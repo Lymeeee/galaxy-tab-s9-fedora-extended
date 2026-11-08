@@ -30,7 +30,7 @@ PROTECT = '/usr/libexec/gts9wifi-protect'
 IME = '/usr/libexec/gts9wifi-ime'
 POWERKEY = '/usr/libexec/gts9wifi-powerkey-mode'
 DEFAULT_KERNEL_TAG = 'kernel-7.2.0-merge-1'
-POWER_IDS = ['powersave', 'balanced', 'performance']
+POWER_IDS = ['powersave', 'sticky', 'balanced', 'performance']
 MIRROR_IDS = ['ustc', 'tuna']
 MIRROR_HOSTS = {
     'ustc': 'mirrors.ustc.edu.cn',
@@ -162,7 +162,8 @@ class Settings(Adw.Application):
             title='Profile',
             description='CPU governor/EPP, GPU devfreq and Wi-Fi powersave. '
                         'Changes authenticate through pkexec.')
-        labels = Gtk.StringList.new(['Power saver', 'Balanced', 'Performance'])
+        labels = Gtk.StringList.new(
+            ['Power saver', 'Sticky', 'Balanced', 'Performance'])
         current = read(POWER_PROFILE) or 'balanced'
         if current not in POWER_IDS:
             current = 'balanced'

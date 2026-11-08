@@ -104,8 +104,9 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
         if (!privilegedAvailable())
             return null;
 
-        const ids = ['powersave', 'balanced', 'performance'];
-        const names = [_('Power saver'), _('Balanced'), _('Performance')];
+        const ids = ['powersave', 'sticky', 'balanced', 'performance'];
+        const names = [_('Power saver'), _('Sticky'), _('Balanced'),
+            _('Performance')];
         const model = new Gtk.StringList();
         names.forEach(name => model.append(name));
 

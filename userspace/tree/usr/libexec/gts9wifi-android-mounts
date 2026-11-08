@@ -1,0 +1,33 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Mount the Android partitions directly after the dynpart mapper has created
+# /dev/mapper/vendor.  The generated mount units depend on a device unit for
+# the /dev/mapper/vendor symlink that this kernel never creates, so mount the
+# mapper device itself instead.
+
+set -u
+
+mkdir -p /vendor /vendor/dsp /vendor/firmware_mnt /mnt/vendor/persist
+
+if [ -e /dev/mapper/vendor ] && ! mountpoint -q /vendor; then
+    mount -o ro /dev/mapper/vendor /vendor || echo "vendor mount failed"
+fi
+
+if [ -e /dev/disk/by-partlabel/dsp ] && ! mountpoint -q /vendor/dsp; then
+    mount /dev/disk/by-partlabel/dsp /vendor/dsp || echo "dsp mount failed"
+fi
+
+for dev in apnhlos firmware_mnt; do
+    if [ -e "/dev/disk/by-partlabel/$dev" ] &&
+        ! mountpoint -q /vendor/firmware_mnt; then
+        mount -t vfat "/dev/disk/by-partlabel/$dev" \
+            /vendor/firmware_mnt || echo "firmware_mnt mount failed"
+    fi
+done
+
+if [ -e /dev/disk/by-partlabel/persist ] &&
+    ! mountpoint -q /mnt/vendor/persist; then
+    mount /dev/disk/by-partlabel/persist /mnt/vendor/persist ||
+        echo "persist mount failed"
+fi
