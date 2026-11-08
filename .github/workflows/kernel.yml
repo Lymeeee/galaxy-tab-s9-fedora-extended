@@ -52,7 +52,8 @@ jobs:
               dnf -y install make gcc clang lld llvm bc flex bison perl \
                   openssl openssl-devel elfutils-libelf-devel python3 tar xz \
                   zstd rpm-build ccache dtc findutils dwarves dracut \
-                  cpio lz4 iproute >/dev/null
+                  cpio lz4 iproute pkgconf-pkg-config cairo-devel \
+                  pango-devel fontconfig-devel >/dev/null
 
               # --- kernel ---
               mkdir -p /tmp/kcache
@@ -82,7 +83,16 @@ jobs:
               curl -sfL "$FIRMWARE_URL" -o /tmp/fw.tar.gz
               echo "$FIRMWARE_SHA256  /tmp/fw.tar.gz" | sha256sum -c -
               tar xzf /tmp/fw.tar.gz -C /
-              cp -a /work/boot/dracut/90gts9wifi-usbnet /usr/lib/dracut/modules.d/
+              # Off-mode charging screen: binary, fonts and dracut module.
+              install -d /usr/share/gts9wifi /usr/share/fonts/gts9wifi
+              install -m0644 /work/charger/fonts.conf /usr/share/gts9wifi/fonts.conf
+              install -m0644 /work/charger/fonts/*.ttf /usr/share/fonts/gts9wifi/
+              gcc -O2 -Wall -Wextra -o /usr/libexec/gts9wifi-lpcharge \
+                  /work/charger/gts9wifi-lpcharge.c \
+                  $(pkg-config --cflags --libs cairo pangocairo) -lm
+              cp -a /work/boot/dracut/90gts9wifi-usbnet \
+                  /work/boot/dracut/95gts9wifi-lpcharge \
+                  /usr/lib/dracut/modules.d/
               cp /work/boot/dracut/dracut.conf.d/gts9wifi.conf /usr/lib/dracut/dracut.conf.d/
               dracut --kver "$KVER" --force /tmp/initramfs.img
 
