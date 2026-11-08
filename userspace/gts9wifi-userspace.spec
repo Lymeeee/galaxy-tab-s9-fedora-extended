@@ -134,6 +134,7 @@ fi
 %{_libexecdir}/gts9wifi-power-key
 %{_libexecdir}/gts9wifi-powerkey-mode
 %{_libexecdir}/gts9wifi-speaker-routing
+%{_libexecdir}/gts9wifi-speaker-protection
 %dir %{_datadir}/alsa/ucm2/Qualcomm/sm8550/GTS9
 %{_datadir}/alsa/ucm2/Qualcomm/sm8550/GTS9/HiFi.conf
 %{_datadir}/alsa/ucm2/Qualcomm/sm8550/GTS9/Samsung-Galaxy-Tab-S9.conf
@@ -148,6 +149,7 @@ fi
 %dir %{_unitdir}/gts9wifi-usb-net.service.d
 %{_unitdir}/gts9wifi-usb-net.service.d/10-gts9wifi-default-off.conf
 %{_unitdir}/gts9wifi-power.service
+%{_unitdir}/gts9wifi-speaker-protection.service
 %{_unitdir}/gts9wifi-charge-guard.service
 %{_unitdir}/gts9wifi-charge-guard.timer
 %{_unitdir}/gts9wifi-keyboard-fw.service
