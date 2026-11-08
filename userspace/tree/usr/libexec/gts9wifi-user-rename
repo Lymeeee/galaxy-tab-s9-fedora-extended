@@ -1,0 +1,99 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# One-shot rename of the port's default fedora account to lyme.  It runs
+# before GDM when /var/lib/gts9wifi/rename-to-lyme exists; usermod cannot
+# rename an account with an active session, so this must happen at boot.
+# Account databases are backed up first and the marker is consumed even on
+# failure so a bad rename cannot loop the boot.
+
+set -eu
+
+OLD=fedora
+NEW=lyme
+STATE=/var/lib/gts9wifi
+MARKER=$STATE/rename-to-lyme
+LOG=/var/log/gts9wifi-user-rename.log
+
+log() {
+    printf '%s %s\n' "$(date -Is)" "$*" >>"$LOG"
+}
+
+[ -e "$MARKER" ] || exit 0
+
+mkdir -p "$STATE"
+backup=$STATE/rename-backup-$(date +%Y%m%d-%H%M%S)
+mkdir -p "$backup"
+for file in /etc/passwd /etc/shadow /etc/group /etc/gshadow \
+    /etc/subuid /etc/subgid /etc/gdm/custom.conf \
+    "/var/lib/AccountsService/users/$OLD"; do
+    [ -e "$file" ] && cp -a "$file" "$backup/"
+done
+rm -f "$MARKER"
+log "backup: $backup"
+
+old_exists=$(getent passwd "$OLD" >/dev/null 2>&1 && echo yes || echo no)
+new_exists=$(getent passwd "$NEW" >/dev/null 2>&1 && echo yes || echo no)
+if [ "$old_exists" = no ] && [ "$new_exists" = yes ]; then
+    log "already renamed to $NEW"
+    exit 0
+fi
+if [ "$old_exists" = no ] || [ "$new_exists" = yes ]; then
+    log "unexpected account state: old=$old_exists new=$new_exists; abort"
+    exit 1
+fi
+if [ -e "/home/$NEW" ]; then
+    log "/home/$NEW already exists; abort"
+    exit 1
+fi
+if loginctl list-users --no-legend 2>/dev/null |
+    awk '{print $2}' | grep -qx "$OLD"; then
+    log "active session for $OLD; abort"
+    exit 1
+fi
+
+groupmod -n "$NEW" "$OLD"
+usermod -l "$NEW" -d "/home/$NEW" -m "$OLD"
+
+# usermod rewrites the primary group but not every membership list.
+for file in /etc/group /etc/gshadow; do
+    sed -i "s/:$OLD$/:$NEW/; s/:$OLD,/:$NEW,/; s/,$OLD,/,$NEW,/" "$file"
+done
+sed -i "s/^$OLD:/$NEW:/" /etc/subuid /etc/subgid
+
+if grep -q "^AutomaticLogin=$OLD$" /etc/gdm/custom.conf; then
+    sed -i "s/^AutomaticLogin=$OLD$/AutomaticLogin=$NEW/" /etc/gdm/custom.conf
+fi
+
+if [ -e "/var/lib/AccountsService/users/$OLD" ]; then
+    mv "/var/lib/AccountsService/users/$OLD" \
+        "/var/lib/AccountsService/users/$NEW"
+fi
+if [ -e "/var/lib/AccountsService/users/$NEW" ]; then
+    sed -i "s#/home/$OLD#/home/$NEW#g" \
+        "/var/lib/AccountsService/users/$NEW"
+fi
+
+if [ -e "/var/spool/mail/$OLD" ]; then
+    mv "/var/spool/mail/$OLD" "/var/spool/mail/$NEW"
+fi
+
+# Absolute home paths in the text configuration users actually run; keep the
+# boot-time scan bounded instead of walking the whole home directory.
+if [ -d "/home/$NEW" ]; then
+    for dir in .config .local/share .mozilla .ssh .claude; do
+        [ -d "/home/$NEW/$dir" ] || continue
+        grep -rIl --exclude-dir=cache --exclude-dir=Cache \
+            --exclude-dir=Trash "/home/$OLD" "/home/$NEW/$dir" 2>/dev/null |
+        while IFS= read -r file; do
+            sed -i "s#/home/$OLD#/home/$NEW#g" "$file" || true
+        done
+    done
+    for file in .bashrc .zshrc .profile .p10k.zsh .gitconfig \
+        .gtkrc-2.0 .face; do
+        [ -f "/home/$NEW/$file" ] || continue
+        sed -i "s#/home/$OLD#/home/$NEW#g" "/home/$NEW/$file" || true
+    done
+fi
+
+log "renamed $OLD to $NEW; home /home/$NEW"

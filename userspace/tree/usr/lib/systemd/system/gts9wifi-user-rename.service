@@ -1,0 +1,14 @@
+[Unit]
+Description=Rename the default fedora account to lyme on request
+ConditionPathExists=/var/lib/gts9wifi/rename-to-lyme
+After=local-fs.target systemd-logind.service
+Before=systemd-user-sessions.service display-manager.service gdm.service
+RequiresMountsFor=/home
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gts9wifi-user-rename
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
