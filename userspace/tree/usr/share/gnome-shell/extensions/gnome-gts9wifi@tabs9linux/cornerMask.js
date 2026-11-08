@@ -62,7 +62,7 @@ export class CornerMask {
                 width: monitor.width,
                 height: monitor.height,
             });
-            area.connect('repaint', (actor, cr) => this._draw(actor, cr));
+            area.connect('repaint', actor => this._draw(actor));
             this._actors.push(area);
             Main.uiGroup.add_child(area);
             Main.uiGroup.set_child_above_sibling(area, null);
@@ -86,7 +86,8 @@ export class CornerMask {
             actor.queue_repaint();
     }
 
-    _draw(area, cr) {
+    _draw(area) {
+        const cr = area.get_context();
         const [width, height] = area.get_surface_size();
         const radius = Math.max(4, Math.round(width * this._settings.get_int('rounded-corner-radius') / REFERENCE_WIDTH));
 
@@ -120,5 +121,6 @@ export class CornerMask {
         cr.closePath();
 
         cr.fill();
+        cr.$dispose();
     }
 }
