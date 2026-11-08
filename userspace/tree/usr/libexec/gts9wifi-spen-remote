@@ -20,7 +20,6 @@ PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
 MANAGER_IFACE = "org.freedesktop.DBus.ObjectManager"
 BATTERY_IFACE = "org.bluez.BatteryProvider1"
 
-BUS_NAME = "org.gts9wifi.SPenRemote"
 SERVICE_PATH = "/org/gts9wifi/SPenRemote"
 AGENT_PATH = SERVICE_PATH + "/agent"
 BATTERY_ROOT = SERVICE_PATH + "/battery"
@@ -70,8 +69,8 @@ def is_spen(properties):
 
 
 class BatteryObject(dbus.service.Object):
-    def __init__(self, bus_name, provider):
-        super().__init__(bus_name, BATTERY_ROOT + "/pen")
+    def __init__(self, conn, provider):
+        super().__init__(conn, BATTERY_ROOT + "/pen")
         self.provider = provider
 
     @dbus.service.method(PROPERTIES_IFACE, in_signature="s", out_signature="a{sv}")
@@ -96,15 +95,15 @@ class BatteryObject(dbus.service.Object):
 class BatteryProvider(dbus.service.Object):
     """Publish Samsung's custom GATT battery as a BlueZ battery provider."""
 
-    def __init__(self, bus, bus_name):
-        super().__init__(bus_name, BATTERY_ROOT)
+    def __init__(self, bus):
+        super().__init__(bus, BATTERY_ROOT)
         self.bus = bus
         self.values = None
         self.adapter = None
         self.registered = False
         self.registering = False
         self.retry_at = 0
-        self.child = BatteryObject(bus_name, self)
+        self.child = BatteryObject(bus, self)
 
     @dbus.service.method(MANAGER_IFACE, out_signature="a{oa{sa{sv}}}")
     def GetManagedObjects(self):
@@ -183,8 +182,8 @@ class BatteryProvider(dbus.service.Object):
 
 
 class Agent(dbus.service.Object):
-    def __init__(self, bus_name, service):
-        super().__init__(bus_name, AGENT_PATH)
+    def __init__(self, conn, service):
+        super().__init__(conn, AGENT_PATH)
         self.service = service
 
     def _accept(self, device):
@@ -252,10 +251,9 @@ class Service(dbus.service.Object):
         self.agent_manager = dbus.Interface(
             bus.get_object(BLUEZ, "/org/bluez"), "org.bluez.AgentManager1"
         )
-        self.bus_name = dbus.service.BusName(BUS_NAME, bus)
-        super().__init__(self.bus_name, SERVICE_PATH)
-        self.agent = Agent(self.bus_name, self)
-        self.battery = BatteryProvider(bus, self.bus_name)
+        super().__init__(bus, SERVICE_PATH)
+        self.agent = Agent(bus, self)
+        self.battery = BatteryProvider(bus)
 
         self.pairing = False
         self.pairing_deadline = 0.0
