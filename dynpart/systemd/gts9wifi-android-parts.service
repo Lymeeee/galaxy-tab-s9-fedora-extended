@@ -12,7 +12,7 @@ Before=umount.target
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/make-dynpart-mappings /dev/disk/by-partlabel/super
-ExecStartPost=-/usr/bin/udevadm trigger --subsystem-match=block --action=change
+ExecStartPost=-/usr/bin/udevadm trigger --subsystem-match=block --action=add
 ExecStartPost=-/usr/bin/udevadm settle --timeout=30
 RemainAfterExit=yes
 
