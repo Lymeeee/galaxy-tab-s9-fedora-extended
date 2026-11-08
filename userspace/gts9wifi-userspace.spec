@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.15
+Version:        0.17.16
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -66,7 +66,6 @@ systemctl enable gts9wifi-speaker-protection.service >/dev/null 2>&1 || :
 systemctl enable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-spen-remote.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-device-name.service >/dev/null 2>&1 || :
-systemctl enable gts9wifi-user-rename.service >/dev/null 2>&1 || :
 systemctl enable gts9wifi-rtc-time.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-rtc-anchor.timer >/dev/null 2>&1 || :
 # Keep the PMIC counter continuous; the anchor stores its own UTC relation.
@@ -102,7 +101,6 @@ if [ "$1" = 0 ]; then
     systemctl disable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
     systemctl disable --now gts9wifi-spen-remote.service >/dev/null 2>&1 || :
     systemctl disable --now gts9wifi-device-name.service >/dev/null 2>&1 || :
-    systemctl disable gts9wifi-user-rename.service >/dev/null 2>&1 || :
     systemctl disable --now gts9wifi-rtc-time.service >/dev/null 2>&1 || :
     systemctl disable --now gts9wifi-rtc-anchor.timer >/dev/null 2>&1 || :
 fi
@@ -129,7 +127,6 @@ fi
 %{_libexecdir}/gts9wifi-bt-provision
 %{_libexecdir}/gts9wifi-spen-remote
 %{_libexecdir}/gts9wifi-device-name
-%{_libexecdir}/gts9wifi-user-rename
 %{_libexecdir}/gts9wifi-rtc-time
 %{_libexecdir}/gts9wifi-charge-guard
 %{_libexecdir}/gts9wifi-keyboard-fw
@@ -165,7 +162,6 @@ fi
 %{_unitdir}/gts9wifi-keyboard-fw.service
 %{_unitdir}/gts9wifi-spen-remote.service
 %{_unitdir}/gts9wifi-device-name.service
-%{_unitdir}/gts9wifi-user-rename.service
 %{_unitdir}/gts9wifi-rtc-time.service
 %{_unitdir}/gts9wifi-rtc-anchor.service
 %{_unitdir}/gts9wifi-rtc-anchor.timer
