@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-dynpart
-Version:        0.1.1
+Version:        0.1.2
 Release:        1%{?dist}
 Summary:        Android dynamic-partition mapper for the Galaxy Tab S9 Fedora port
 License:        GPL-3.0-only AND Apache-2.0
