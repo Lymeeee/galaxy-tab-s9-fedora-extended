@@ -3,9 +3,8 @@
  * STMicroelectronics FTS1BA90A touchscreen driver.
  *
  * The register protocol comes from Samsung's GPL-2.0 downstream sec_ts/fts
- * driver for the Galaxy Tab S9 (SM-X710). Coordinate reporting and the
- * double-tap-to-wake gesture are implemented; the controller runs its
- * factory-flashed firmware.
+ * driver for the Galaxy Tab S9 (SM-X710). Coordinate reporting is implemented;
+ * the controller runs its factory-flashed firmware.
  */
 
 #include <linux/delay.h>
@@ -15,7 +14,7 @@
 #include <linux/input/touchscreen.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
-#include <linux/pm_wakeup.h>
+#include <linux/mutex.h>
 #include <linux/regulator/consumer.h>
 #include <linux/unaligned.h>
 #include <linux/wacom_wez01.h>
@@ -27,25 +26,6 @@
 #define FTS_READ_ALL_EVENT		0x61
 #define FTS_CLEAR_ALL_EVENT		0x62
 #define FTS_SET_SCAN_MODE		0xa0
-
-/*
- * Low-power mode and the double-tap-to-wake gesture. The controller keeps
- * scanning with both rails up instead of powering down, which is what makes a
- * tap visible to a suspended system; the cost is standby current.
- */
-#define FTS_SET_GET_OPMODE		0x31
-#define FTS_WRITE_WAKEUP_GESTURE	0x39
-
-#define FTS_OPMODE_NORMAL		0x00
-#define FTS_OPMODE_LOWPOWER		0x01
-
-/* The firmware's gesture configuration block ("sponge"). */
-#define FTS_SPONGE_READ_WRITE		0xaa
-#define FTS_SPONGE_NOTIFY		0xc0
-#define FTS_SPONGE_OFFSET_MODE		0x00
-#define FTS_MODE_DOUBLETAP_WAKEUP	BIT(5)
-
-#define FTS_WAKEUP_GESTURE_DOUBLETAP	0x02
 
 #define FTS_CHIP_ID0			0x39
 #define FTS_CHIP_ID1			0x36
@@ -64,16 +44,6 @@
 /* event id in byte 0 bits [1:0] */
 #define FTS_EV_COORDINATE		0
 #define FTS_EV_STATUS			1
-#define FTS_EV_GESTURE			2
-
-/*
- * A gesture frame is only a double tap to wake when all four fields agree.
- * Low-power mode keeps scanning, so other gesture ids (AOD double tap, single
- * tap, swipe up) reach us too and must not wake anything.
- */
-#define FTS_GESTURE_SAMSUNG_FEATURE	1
-#define FTS_SPONGE_EVENT_DOUBLETAP	1
-#define FTS_GESTURE_ID_DOUBLETAP_WAKEUP	1
 
 #define FTS_EV_ERROR_REPORT		0xf3
 
@@ -103,8 +73,22 @@ struct fts1ba90a {
 	struct touchscreen_properties prop;
 	struct regulator *avdd;
 	struct regulator *vddio;
-	bool dtw_enabled;	/* user toggle; the gesture is armed per suspend */
-	bool lpm_suspended;	/* suspended with rails up and the gesture armed */
+	/*
+	 * Under-display fingerprint (EL721) area, in raw controller
+	 * coordinates.  While fod_enabled, a finger that lands inside the
+	 * rectangle is not reported as a touch; it drives fod_state instead
+	 * (the interface the EL721 libfprint driver reads).  The rectangle is
+	 * tracked here, from ordinary contacts, so nothing depends on the
+	 * firmware's own FOD gesture codes.
+	 */
+	struct mutex fod_lock;
+	bool fod_enabled;
+	bool fod_rect_valid;
+	u16 fod_rect[4];	/* x1 y1 x2 y2 */
+	int fod_slot;		/* contact held in the area, or -1 */
+	enum { FTS_FOD_IDLE, FTS_FOD_PRESSED, FTS_FOD_RELEASED } fod_state;
+	unsigned int fod_x, fod_y;
+	u64 fod_seq;
 	u8 events[FTS_FIFO_MAX * FTS_EVENT_SIZE];
 };
 
@@ -263,118 +247,42 @@ static void fts1ba90a_power_off(void *data)
 }
 
 /*
- * Ask the controller to change power mode and read the mode back. The mode
- * register latches a few milliseconds after the write, so poll it; a firmware
- * that does not echo the value is not fatal, it only means the wake gesture is
- * unproven for this suspend.
+ * Route a contact to the fingerprint area.  Returns true when the contact
+ * belongs to it and must not be reported as a touch.  Called from the IRQ
+ * thread with the slot already selected.
  */
-static int fts1ba90a_set_opmode(struct fts1ba90a *ts, u8 mode)
+static bool fts1ba90a_fod_contact(struct fts1ba90a *ts, unsigned int slot,
+				  unsigned int action, unsigned int x,
+				  unsigned int y)
 {
-	u8 cmd[2] = { FTS_SET_GET_OPMODE, mode };
-	u8 readback = 0xff;
-	int ret, retry;
+	bool held, changed = false;
 
-	for (retry = 0; retry < 3; retry++) {
-		ret = fts1ba90a_write(ts, cmd, sizeof(cmd));
-		if (ret)
-			return ret;
-
-		msleep(5);
-
-		ret = fts1ba90a_read(ts, cmd, 1, &readback, 1);
-		if (!ret && readback == mode)
-			return 0;
+	mutex_lock(&ts->fod_lock);
+	held = ts->fod_slot == (int)slot;
+	if (held && action == FTS_ACTION_RELEASE) {
+		ts->fod_slot = -1;
+		ts->fod_state = FTS_FOD_RELEASED;
+		ts->fod_seq++;
+		changed = true;
+	} else if (held) {
+		ts->fod_x = x;
+		ts->fod_y = y;
+	} else if (action == FTS_ACTION_PRESS && ts->fod_enabled &&
+		   ts->fod_rect_valid && ts->fod_slot < 0 &&
+		   x >= ts->fod_rect[0] && x <= ts->fod_rect[2] &&
+		   y >= ts->fod_rect[1] && y <= ts->fod_rect[3]) {
+		ts->fod_slot = slot;
+		ts->fod_state = FTS_FOD_PRESSED;
+		ts->fod_x = x;
+		ts->fod_y = y;
+		ts->fod_seq++;
+		held = changed = true;
 	}
+	mutex_unlock(&ts->fod_lock);
 
-	dev_warn(&ts->client->dev,
-		 "power mode read-back mismatch: wrote %#x, read %#x\n",
-		 mode, readback);
-
-	return -EAGAIN;
-}
-
-/*
- * Tell the firmware which low-power gestures it should watch for. The block is
- * written and then committed with a notify command; a firmware without the
- * gesture library simply ignores both.
- */
-static int fts1ba90a_write_sponge_mode(struct fts1ba90a *ts, u8 mode)
-{
-	u8 cmd[4];
-	int ret;
-
-	cmd[0] = FTS_SPONGE_READ_WRITE;
-	cmd[1] = (FTS_SPONGE_OFFSET_MODE >> 8) & 0xff;
-	cmd[2] = FTS_SPONGE_OFFSET_MODE & 0xff;
-	cmd[3] = mode;
-
-	ret = fts1ba90a_write(ts, cmd, sizeof(cmd));
-	if (ret)
-		return ret;
-
-	cmd[0] = FTS_SPONGE_NOTIFY;
-
-	return fts1ba90a_write(ts, cmd, 3);
-}
-
-/*
- * Arm double tap to wake: keep the rails up, enter low-power mode and enable
- * the double-tap gesture. Two one-byte writes do the arming (0x31 = 1, then
- * 0x39 = 2); the rails stay powered, so this is deliberately not power_off().
- */
-static int fts1ba90a_arm_gesture(struct fts1ba90a *ts)
-{
-	u8 cmd[2] = { FTS_WRITE_WAKEUP_GESTURE, FTS_WAKEUP_GESTURE_DOUBLETAP };
-	int ret;
-
-	ret = fts1ba90a_write_sponge_mode(ts, FTS_MODE_DOUBLETAP_WAKEUP);
-	if (ret)
-		dev_warn(&ts->client->dev,
-			 "failed to set the gesture mode: %d\n", ret);
-
-	ret = fts1ba90a_set_opmode(ts, FTS_OPMODE_LOWPOWER);
-	if (ret && ret != -EAGAIN)
-		return ret;
-	if (ret)
-		dev_warn(&ts->client->dev,
-			 "low-power mode not confirmed, arming anyway\n");
-
-	return fts1ba90a_write(ts, cmd, sizeof(cmd));
-}
-
-/*
- * Undo the arming on the way out of a low-power suspend. Returns whether the
- * controller confirmed that it is scanning normally again.
- */
-static int fts1ba90a_disarm_gesture(struct fts1ba90a *ts)
-{
-	u8 cmd[2] = { FTS_WRITE_WAKEUP_GESTURE, 0x00 };
-	int ret;
-
-	ret = fts1ba90a_write(ts, cmd, sizeof(cmd));
-	if (ret)
-		dev_warn(&ts->client->dev,
-			 "failed to clear the wake gesture: %d\n", ret);
-
-	ret = fts1ba90a_write_sponge_mode(ts, 0);
-	if (ret)
-		dev_warn(&ts->client->dev,
-			 "failed to clear the gesture mode: %d\n", ret);
-
-	return fts1ba90a_set_opmode(ts, FTS_OPMODE_NORMAL);
-}
-
-/*
- * Low-power frames are gesture events: eid 2, the Samsung gesture feature, the
- * double-tap type and finally the wake gesture id. Only that last combination
- * means "the user double tapped".
- */
-static bool fts1ba90a_is_double_tap(const u8 *ev)
-{
-	return (ev[0] & 0x3) == FTS_EV_GESTURE &&
-	       ((ev[0] >> 6) & 0x3) == FTS_GESTURE_SAMSUNG_FEATURE &&
-	       ((ev[0] >> 2) & 0xf) == FTS_SPONGE_EVENT_DOUBLETAP &&
-	       ev[1] == FTS_GESTURE_ID_DOUBLETAP_WAKEUP;
+	if (changed)
+		sysfs_notify(&ts->client->dev.kobj, NULL, "fod_state");
+	return held;
 }
 
 static void fts1ba90a_report_touch(struct fts1ba90a *ts, const u8 *ev)
@@ -409,6 +317,12 @@ static void fts1ba90a_report_touch(struct fts1ba90a *ts, const u8 *ev)
 	input_mt_slot(ts->input, slot);
 
 	action = ev[0] >> 6;
+	x = (ev[1] << 4) | (ev[3] >> 4);
+	y = (ev[2] << 4) | (ev[3] & 0xf);
+
+	if (fts1ba90a_fod_contact(ts, slot, action, x, y))
+		return;
+
 	if (action == FTS_ACTION_RELEASE) {
 		input_mt_report_slot_inactive(ts->input);
 		return;
@@ -417,8 +331,6 @@ static void fts1ba90a_report_touch(struct fts1ba90a *ts, const u8 *ev)
 	if (action != FTS_ACTION_PRESS && action != FTS_ACTION_MOVE)
 		return;
 
-	x = (ev[1] << 4) | (ev[3] >> 4);
-	y = (ev[2] << 4) | (ev[3] & 0xf);
 	z = ev[6] & 0x3f;
 
 	input_mt_report_slot_state(ts->input, MT_TOOL_FINGER, true);
@@ -444,32 +356,25 @@ static void fts1ba90a_suppress_touch(struct fts1ba90a *ts)
 	input_sync(ts->input);
 }
 
-static void fts1ba90a_report_wake(struct fts1ba90a *ts)
-{
-	input_report_key(ts->input, KEY_WAKEUP, 1);
-	input_sync(ts->input);
-	input_report_key(ts->input, KEY_WAKEUP, 0);
-	input_sync(ts->input);
-
-	/*
-	 * The frame is only read once the system is running again, so the key by
-	 * itself does not hold it awake. Account the wake and keep it from
-	 * re-suspending before userspace has seen the key.
-	 */
-	pm_wakeup_event(&ts->client->dev, 200);
-
-	dev_info(&ts->client->dev, "double tap to wake\n");
-}
+static void fts1ba90a_read_events(struct fts1ba90a *ts);
 
 static irqreturn_t fts1ba90a_irq_handler(int irq, void *dev_id)
 {
 	struct fts1ba90a *ts = dev_id;
+
+	fts1ba90a_read_events(ts);
+
+	return IRQ_HANDLED;
+}
+
+static void fts1ba90a_read_events(struct fts1ba90a *ts)
+{
 	u8 cmd = FTS_READ_ONE_EVENT;
 	int count, i, ret;
 
 	ret = fts1ba90a_read(ts, &cmd, 1, ts->events, FTS_EVENT_SIZE);
 	if (ret)
-		return IRQ_HANDLED;
+		return;
 
 	/* remaining FIFO depth rides in byte 7 of every event */
 	count = (ts->events[7] & 0x3f) + 1;
@@ -488,11 +393,6 @@ static irqreturn_t fts1ba90a_irq_handler(int irq, void *dev_id)
 	for (i = 0; i < count; i++) {
 		const u8 *ev = ts->events + i * FTS_EVENT_SIZE;
 
-		if (fts1ba90a_is_double_tap(ev)) {
-			fts1ba90a_report_wake(ts);
-			continue;
-		}
-
 		if (wacom_wez01_should_suppress_touch()) {
 			fts1ba90a_suppress_touch(ts);
 			break;
@@ -504,8 +404,6 @@ static irqreturn_t fts1ba90a_irq_handler(int irq, void *dev_id)
 		input_mt_sync_frame(ts->input);
 		input_sync(ts->input);
 	}
-
-	return IRQ_HANDLED;
 }
 
 static void fts1ba90a_report_version(struct fts1ba90a *ts)
@@ -535,41 +433,109 @@ static void fts1ba90a_report_version(struct fts1ba90a *ts)
 }
 
 /*
- * The user-facing switch. There is no upstream Linux control for this and no
- * standard device-tree property, so the port exposes its own attribute; the
- * feature stays off until something enables it because the controller keeps
- * scanning with both rails powered for the whole suspend.
+ * Fingerprint-area interface, the same as the S9 Ultra port's Goodix one so
+ * the EL721 libfprint driver works unchanged:
+ *   fod_rect    "x1 y1 x2 y2" in raw controller coordinates
+ *   fod_enable  1 while a fingerprint operation runs
+ *   fod_state   "idle|pressed|released x y sequence" (sysfs_notify on change)
+ * Disabling releases a held contact as a fingerprint release; the finger is
+ * not handed back to the input stack.
  */
-static ssize_t double_tap_to_wake_show(struct device *dev,
-				       struct device_attribute *attr, char *buf)
+static ssize_t fod_rect_show(struct device *dev, struct device_attribute *attr,
+			     char *buf)
 {
 	struct fts1ba90a *ts = dev_get_drvdata(dev);
+	ssize_t count;
 
-	return sysfs_emit(buf, "%d\n", ts->dtw_enabled);
+	mutex_lock(&ts->fod_lock);
+	count = sysfs_emit(buf, "%u %u %u %u\n", ts->fod_rect[0],
+			   ts->fod_rect[1], ts->fod_rect[2], ts->fod_rect[3]);
+	mutex_unlock(&ts->fod_lock);
+	return count;
 }
 
-static ssize_t double_tap_to_wake_store(struct device *dev,
-					struct device_attribute *attr,
-					const char *buf, size_t count)
+static ssize_t fod_rect_store(struct device *dev, struct device_attribute *attr,
+			      const char *buf, size_t count)
 {
 	struct fts1ba90a *ts = dev_get_drvdata(dev);
-	bool enabled;
+	unsigned int v[4];
+
+	if (sscanf(buf, "%u %u %u %u", &v[0], &v[1], &v[2], &v[3]) != 4 ||
+	    v[0] >= v[2] || v[1] >= v[3] || v[2] > FTS_MAX_X || v[3] > FTS_MAX_Y)
+		return -EINVAL;
+
+	mutex_lock(&ts->fod_lock);
+	ts->fod_rect[0] = v[0];
+	ts->fod_rect[1] = v[1];
+	ts->fod_rect[2] = v[2];
+	ts->fod_rect[3] = v[3];
+	ts->fod_rect_valid = true;
+	mutex_unlock(&ts->fod_lock);
+	return count;
+}
+static DEVICE_ATTR_RW(fod_rect);
+
+static ssize_t fod_enable_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	struct fts1ba90a *ts = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%d\n", ts->fod_enabled);
+}
+
+static ssize_t fod_enable_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct fts1ba90a *ts = dev_get_drvdata(dev);
+	bool enabled, changed = false;
 	int ret;
 
 	ret = kstrtobool(buf, &enabled);
 	if (ret)
 		return ret;
 
-	ts->dtw_enabled = enabled;
-	dev_info(dev, "double tap to wake %s\n",
-		 enabled ? "enabled" : "disabled");
+	mutex_lock(&ts->fod_lock);
+	ts->fod_enabled = enabled;
+	if (!enabled && ts->fod_slot >= 0) {
+		ts->fod_slot = -1;
+		ts->fod_state = FTS_FOD_RELEASED;
+		ts->fod_seq++;
+		changed = true;
+	} else if (enabled && ts->fod_slot < 0) {
+		ts->fod_state = FTS_FOD_IDLE;
+	}
+	mutex_unlock(&ts->fod_lock);
 
+	if (changed)
+		sysfs_notify(&dev->kobj, NULL, "fod_state");
 	return count;
 }
-static DEVICE_ATTR_RW(double_tap_to_wake);
+static DEVICE_ATTR_RW(fod_enable);
+
+static ssize_t fod_state_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	static const char *const names[] = {
+		[FTS_FOD_IDLE] = "idle",
+		[FTS_FOD_PRESSED] = "pressed",
+		[FTS_FOD_RELEASED] = "released",
+	};
+	struct fts1ba90a *ts = dev_get_drvdata(dev);
+	ssize_t count;
+
+	mutex_lock(&ts->fod_lock);
+	count = sysfs_emit(buf, "%s %u %u %llu\n", names[ts->fod_state],
+			   ts->fod_x, ts->fod_y, ts->fod_seq);
+	mutex_unlock(&ts->fod_lock);
+	return count;
+}
+static DEVICE_ATTR_RO(fod_state);
 
 static struct attribute *fts1ba90a_attrs[] = {
-	&dev_attr_double_tap_to_wake.attr,
+	&dev_attr_fod_rect.attr,
+	&dev_attr_fod_enable.attr,
+	&dev_attr_fod_state.attr,
 	NULL,
 };
 
@@ -596,6 +562,10 @@ static int fts1ba90a_probe(struct i2c_client *client)
 
 	ts->client = client;
 	i2c_set_clientdata(client, ts);
+	ts->fod_slot = -1;
+	ret = devm_mutex_init(dev, &ts->fod_lock);
+	if (ret)
+		return ret;
 
 	ts->avdd = devm_regulator_get(dev, "avdd");
 	if (IS_ERR(ts->avdd))
@@ -614,9 +584,6 @@ static int fts1ba90a_probe(struct i2c_client *client)
 	ts->input = input;
 	input->name = "FTS1BA90A Touchscreen";
 	input->id.bustype = BUS_I2C;
-
-	/* libinput ignores keys the device never declared. */
-	input_set_capability(input, EV_KEY, KEY_WAKEUP);
 
 	input_set_abs_params(input, ABS_MT_POSITION_X, 0, FTS_MAX_X, 0, 0);
 	input_set_abs_params(input, ABS_MT_POSITION_Y, 0, FTS_MAX_Y, 0, 0);
@@ -655,15 +622,9 @@ static int fts1ba90a_probe(struct i2c_client *client)
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to register input\n");
 
-	/*
-	 * Register as a wake source: the low-power gesture can then be armed for
-	 * a suspend, and device_may_wakeup() gates it.
-	 */
-	device_init_wakeup(dev, true);
-
 	ret = devm_device_add_group(dev, &fts1ba90a_attr_group);
 	if (ret)
-		return dev_err_probe(dev, ret, "failed to create the wake toggle\n");
+		return dev_err_probe(dev, ret, "failed to create the fingerprint area\n");
 
 	return 0;
 }
@@ -671,33 +632,20 @@ static int fts1ba90a_probe(struct i2c_client *client)
 static int fts1ba90a_suspend(struct device *dev)
 {
 	struct fts1ba90a *ts = dev_get_drvdata(dev);
-	int ret;
 
-	if (!ts->dtw_enabled || !device_may_wakeup(dev))
-		goto power_off;
-
-	ret = enable_irq_wake(ts->client->irq);
-	if (ret) {
-		dev_warn(dev, "irq %d cannot wake the system: %d\n",
-			 ts->client->irq, ret);
-		goto power_off;
+	/*
+	 * A fingerprint operation does not survive suspend: end it so no
+	 * contact stays held and the reader sees fod_enable 0 on resume.
+	 */
+	mutex_lock(&ts->fod_lock);
+	ts->fod_enabled = false;
+	if (ts->fod_slot >= 0) {
+		ts->fod_slot = -1;
+		ts->fod_state = FTS_FOD_RELEASED;
+		ts->fod_seq++;
 	}
+	mutex_unlock(&ts->fod_lock);
 
-	/* Release anything still down before the controller stops reporting. */
-	fts1ba90a_suppress_touch(ts);
-
-	ret = fts1ba90a_arm_gesture(ts);
-	if (ret) {
-		dev_warn(dev, "failed to arm double tap to wake: %d\n", ret);
-		disable_irq_wake(ts->client->irq);
-		goto power_off;
-	}
-
-	ts->lpm_suspended = true;
-
-	return 0;
-
-power_off:
 	disable_irq(ts->client->irq);
 	fts1ba90a_power_off(ts);
 
@@ -708,29 +656,6 @@ static int fts1ba90a_resume(struct device *dev)
 {
 	struct fts1ba90a *ts = dev_get_drvdata(dev);
 	int ret;
-
-	if (ts->lpm_suspended) {
-		ts->lpm_suspended = false;
-
-		disable_irq_wake(ts->client->irq);
-
-		ret = fts1ba90a_disarm_gesture(ts);
-		if (ret) {
-			/*
-			 * The controller did not confirm that it left low-power
-			 * mode; re-initialise rather than leave the tablet with no
-			 * touch input.
-			 */
-			dev_warn(dev,
-				 "low-power mode not cleared (%d), re-initialising\n",
-				 ret);
-			ret = fts1ba90a_start(ts);
-			if (ret)
-				dev_err(dev, "failed to re-initialise: %d\n", ret);
-		}
-
-		return 0;
-	}
 
 	ret = fts1ba90a_power_on(ts);
 	if (ret)
