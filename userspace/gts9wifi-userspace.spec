@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.6
+Version:        0.17.7
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -31,6 +31,7 @@ Requires:       libwacom-data
 Requires:       bluez
 Requires:       python3-dbus
 Requires:       chrony
+Requires:       zram-generator
 
 %description
 Tab9 Extras GNOME Shell extension (v6), the gts9wifi device-control helper
@@ -168,6 +169,7 @@ fi
 %config(noreplace) %{_sysconfdir}/NetworkManager/dispatcher.d/90-gts9wifi-no-bgscan
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-usb0-unmanaged.conf
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
+%config(noreplace) %{_sysconfdir}/systemd/zram-generator.conf.d/10-gts9wifi-zstd.conf
 
 %changelog
 * Sat Nov 07 2026 Lymeeee <mr_xunyu@163.com> - 0.17.1-1
