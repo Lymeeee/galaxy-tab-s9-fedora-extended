@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+#
+# Keep the internal UFS and the Android dynamic partitions out of udisks2 and
+# GNOME Files.  The root filesystem is already mounted, so hiding the UFS does
+# not affect it; SD cards (mmcblk) and USB sticks keep their usual ID_PATH and
+# stay visible.
+
+SUBSYSTEM=="block", ENV{ID_PATH}=="platform-*ufshc*", ENV{UDISKS_IGNORE}="1"
+
+SUBSYSTEM=="block", ENV{DM_NAME}=="vendor", ENV{UDISKS_IGNORE}="1"
+SUBSYSTEM=="block", ENV{DM_NAME}=="product", ENV{UDISKS_IGNORE}="1"
+SUBSYSTEM=="block", ENV{DM_NAME}=="system", ENV{UDISKS_IGNORE}="1"
+SUBSYSTEM=="block", ENV{DM_NAME}=="system_ext", ENV{UDISKS_IGNORE}="1"
+SUBSYSTEM=="block", ENV{DM_NAME}=="odm", ENV{UDISKS_IGNORE}="1"
+SUBSYSTEM=="block", ENV{DM_NAME}=="system_dlkm", ENV{UDISKS_IGNORE}="1"
+SUBSYSTEM=="block", ENV{DM_NAME}=="vendor_dlkm", ENV{UDISKS_IGNORE}="1"
