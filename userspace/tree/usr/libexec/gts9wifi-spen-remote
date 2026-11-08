@@ -32,6 +32,7 @@ SPEN_SERVICES = {
 }
 BATTERY_UUID = "5a87b4ef-3bfa-76a8-e642-92933c31434f"
 MODE_UUID = "aca1ab48-08ba-e79e-ab48-a9b9e6429293"
+BATTERY_STATE = "/run/gts9wifi/spen-battery"
 
 PAIR_WINDOW_SECONDS = 65
 PAIR_ATTEMPTS = 2
@@ -51,6 +52,15 @@ def read_sysfs(pattern):
 
 def docked():
     return read_sysfs(DOCK_GLOB) == "1"
+
+
+def publish_battery_state(percentage):
+    try:
+        path = Path(BATTERY_STATE)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{percentage}\n", encoding="ascii")
+    except OSError:
+        pass
 
 
 def reset_path():
@@ -128,6 +138,7 @@ class BatteryProvider(dbus.service.Object):
             self.values = None
             return
 
+        publish_battery_state(percentage)
         adapter = str(device).rsplit("/dev_", 1)[0]
         if not self.registered and not self.registering and \
                 time.monotonic() >= self.retry_at:

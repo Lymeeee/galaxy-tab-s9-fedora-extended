@@ -12,6 +12,7 @@
 // keyboardButton.js adds a floating button for apps that never ask for it.
 // sleepWarning.js keeps gsd-power's "Automatic suspend" warning from
 // lighting the dark screen (which kept the tablet from ever suspending).
+// topOsd.js backs the transient S Pen dock and Caps Lock notices.
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
@@ -19,6 +20,9 @@ import {KeyboardButton} from './keyboardButton.js';
 import {OskFocus} from './oskFocus.js';
 import {SleepWarning} from './sleepWarning.js';
 import {CornerMask} from './cornerMask.js';
+import {TopOsd} from './topOsd.js';
+import {SpenOsd} from './spenOsd.js';
+import {CapsLockOsd} from './capsLockOsd.js';
 
 export default class Gts9wifiExtension extends Extension {
     enable() {
@@ -30,9 +34,21 @@ export default class Gts9wifiExtension extends Extension {
         this._sleepWarning.enable();
         this._cornerMask = new CornerMask(this.getSettings());
         this._cornerMask.enable();
+        this._topOsd = new TopOsd();
+        this._topOsd.enable();
+        this._spenOsd = new SpenOsd(this._topOsd);
+        this._spenOsd.enable();
+        this._capsLockOsd = new CapsLockOsd(this._topOsd);
+        this._capsLockOsd.enable();
     }
 
     disable() {
+        this._capsLockOsd?.disable();
+        this._capsLockOsd = null;
+        this._spenOsd?.disable();
+        this._spenOsd = null;
+        this._topOsd?.disable();
+        this._topOsd = null;
         this._cornerMask?.disable();
         this._cornerMask = null;
         this._sleepWarning?.disable();
