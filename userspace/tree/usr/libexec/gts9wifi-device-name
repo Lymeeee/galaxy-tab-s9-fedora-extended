@@ -1,0 +1,122 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Apply the port's default device name.  Only fields that still match the
+# shipped defaults are replaced; anything the user renamed is left alone.
+
+set -eu
+
+OLD_STATIC=gts9-fedora
+NEW_STATIC=galaxy-tab-s9
+NEW_PRETTY='Galaxy Tab S9'
+LOG=/var/log/gts9wifi-device-name.log
+
+log() {
+    printf '%s %s\n' "$(date -Is)" "$*" >>"$LOG"
+}
+
+status=$(LC_ALL=C hostnamectl 2>/dev/null) || exit 0
+current_static=$(printf '%s\n' "$status" |
+    sed -n 's/^ *Static hostname: //p' | head -n 1)
+current_pretty=$(printf '%s\n' "$status" |
+    sed -n 's/^ *Pretty hostname: //p' | head -n 1)
+
+changed_static=0
+case "$current_static" in
+    ''|"$OLD_STATIC")
+        if [ "$current_static" != "$NEW_STATIC" ]; then
+            if hostnamectl set-hostname "$NEW_STATIC" >>"$LOG" 2>&1; then
+                changed_static=1
+                log "static hostname: $current_static -> $NEW_STATIC"
+            else
+                log "static hostname update failed"
+            fi
+        fi
+        ;;
+esac
+
+case "$current_pretty" in
+    ''|"$OLD_STATIC"|'Samsung Galaxy Tab S9 Wi-Fi'|'Galaxy Tab S9 Wi-Fi')
+        if [ "$current_pretty" != "$NEW_PRETTY" ]; then
+            if hostnamectl --pretty set-hostname "$NEW_PRETTY" >>"$LOG" 2>&1; then
+                log "pretty hostname: $current_pretty -> $NEW_PRETTY"
+            else
+                log "pretty hostname update failed"
+            fi
+        fi
+        ;;
+esac
+
+# The Device Name field in Settings -> About is the pretty hostname; the
+# Hardware Model field comes from /etc/machine-info when the kernel does not
+# provide a DMI override.
+if [ -f /etc/machine-info ]; then
+    model=$(sed -n 's/^HARDWARE_MODEL="\(.*\)"$/\1/p' /etc/machine-info |
+        head -n 1)
+    case "$model" in
+        ''|'Galaxy Tab S9 Wi-Fi'|'Samsung Galaxy Tab S9 Wi-Fi')
+            if [ "$model" != "$NEW_PRETTY" ]; then
+                if grep -q '^HARDWARE_MODEL=' /etc/machine-info; then
+                    sed -i "s/^HARDWARE_MODEL=.*/HARDWARE_MODEL=\"$NEW_PRETTY\"/" \
+                        /etc/machine-info
+                else
+                    printf 'HARDWARE_MODEL="%s"\n' "$NEW_PRETTY" \
+                        >>/etc/machine-info
+                fi
+                systemctl restart systemd-hostnamed.service \
+                    >/dev/null 2>&1 || true
+                log "hardware model: $model -> $NEW_PRETTY"
+            fi
+            ;;
+    esac
+fi
+
+if grep -q "$OLD_STATIC" /etc/hosts 2>/dev/null; then
+    sed -i "s/$OLD_STATIC/$NEW_STATIC/g" /etc/hosts
+    log "hosts: replaced $OLD_STATIC"
+fi
+
+is_default_bt() {
+    case "$1" in
+        ''|"$OLD_STATIC"|'Samsung Galaxy Tab S9 Wi-Fi'|'Galaxy Tab S9 Wi-Fi'|"$NEW_PRETTY")
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+show=
+i=0
+while [ "$i" -lt 10 ]; do
+    show=$(bluetoothctl show 2>/dev/null || true)
+    printf '%s\n' "$show" | grep -q '^Controller ' && break
+    i=$((i + 1))
+    sleep 1
+done
+
+if printf '%s\n' "$show" | grep -q '^Controller '; then
+    name=$(printf '%s\n' "$show" |
+        sed -n 's/^[[:space:]]*Name: //p' | head -n 1)
+    alias=$(printf '%s\n' "$show" |
+        sed -n 's/^[[:space:]]*Alias: //p' | head -n 1)
+    if is_default_bt "$name" && is_default_bt "$alias"; then
+        if [ "$alias" != "$NEW_PRETTY" ]; then
+            if bluetoothctl system-alias "$NEW_PRETTY" >/dev/null 2>&1; then
+                log "bluetooth alias: $alias -> $NEW_PRETTY (local name $name)"
+            else
+                log "bluetooth alias update failed (local name $name)"
+            fi
+        fi
+    else
+        log "bluetooth name left as user set: name=$name alias=$alias"
+    fi
+fi
+
+if [ "$changed_static" = 1 ] &&
+    systemctl is-active --quiet avahi-daemon.service 2>/dev/null; then
+    systemctl try-restart avahi-daemon.service >/dev/null 2>&1 || true
+fi
+
+log "device name check complete"

@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply the Galaxy Tab S9 default device name
+After=systemd-hostnamed.service bluetooth.service
+Wants=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gts9wifi-device-name
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

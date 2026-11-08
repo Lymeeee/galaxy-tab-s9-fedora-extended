@@ -281,7 +281,7 @@ cat > "$rootfs/etc/fstab" <<EOF
 UUID=$root_uuid /     ext4 defaults 0 0
 UUID=$boot_uuid /boot ext2 defaults,nodev,nosuid,noexec 0 0
 EOF
-echo "gts9-fedora" > "$rootfs/etc/hostname"
+echo "galaxy-tab-s9" > "$rootfs/etc/hostname"
 if [ -f "$rootfs/etc/selinux/config" ]; then
     sed -i 's/^SELINUX=.*/SELINUX=permissive/' "$rootfs/etc/selinux/config"
 else
