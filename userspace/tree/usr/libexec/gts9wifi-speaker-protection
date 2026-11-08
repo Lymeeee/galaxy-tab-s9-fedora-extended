@@ -1,0 +1,24 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Samsung ships the CS35L45 speaker-protection DSP program and the Tab S9
+# tuning on the vendor partition.  Stage them for the kernel and arm the four
+# amplifiers so the protection runs with its calibrated coefficients.
+
+set -u
+
+for f in cs35l45-dsp1-spk-prot.wmfw cs35l45-dsp1-spk-prot.bin; do
+	[ -e "/lib/firmware/$f" ] && continue
+	[ -e "/vendor/firmware/$f" ] || continue
+	cp "/vendor/firmware/$f" "/lib/firmware/$f" 2>/dev/null || true
+done
+
+i=0
+while [ "$i" -lt 20 ] && ! amixer -c 0 info >/dev/null 2>&1; do
+	sleep 0.5
+	i=$((i + 1))
+done
+
+for amp in "Front Left" "Front Right" "Rear Left" "Rear Right"; do
+	amixer -c 0 cset name="$amp DSP1 Preload Switch" on >/dev/null 2>&1 || true
+done

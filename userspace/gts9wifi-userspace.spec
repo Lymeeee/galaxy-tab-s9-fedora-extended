@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.2
+Version:        0.17.3
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -60,6 +60,7 @@ udevadm control --reload-rules >/dev/null 2>&1 || :
 rm -f /usr/lib/udev/rules.d/71-gts9wifi-touchscreen-perms.rules
 systemctl daemon-reload >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
+systemctl enable gts9wifi-speaker-protection.service >/dev/null 2>&1 || :
 systemctl enable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-spen-remote.service >/dev/null 2>&1 || :
 systemctl enable gts9wifi-rtc-time.service >/dev/null 2>&1 || :

@@ -1,0 +1,12 @@
+[Unit]
+Description=Load the CS35L45 speaker-protection DSP firmware
+After=vendor.mount sound.target
+Wants=vendor.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/gts9wifi-speaker-protection
+
+[Install]
+WantedBy=multi-user.target
