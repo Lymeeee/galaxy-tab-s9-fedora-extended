@@ -317,3 +317,9 @@ CONFIG_QCOM_SPSS_UTILS=m
 CONFIG_QCOM_SPSS_IRQ=m
 CONFIG_DMABUF_HEAPS_SP_HLOS=m
 CONFIG_KEYBOARD_SAMSUNG_STM32_POGO=y
+
+# Multi-gen LRU: track pages in several generations instead of the two-list
+# active/inactive LRU, which cuts reclaim scanning and gives better hot/cold
+# decisions under memory pressure (the 8 GiB tablet swaps into zram).
+CONFIG_LRU_GEN=y
+CONFIG_LRU_GEN_ENABLED=y
