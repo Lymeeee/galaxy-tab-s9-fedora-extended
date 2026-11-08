@@ -49,20 +49,20 @@ export class TopOsd {
 
         const text = new St.BoxLayout({
             vertical: true,
-            spacing: 4,
             y_align: Clutter.ActorAlign.CENTER,
+            style: 'spacing: 4px;',
         });
         text.add_child(this._label);
         text.add_child(this._bar);
 
         this._actor = new St.BoxLayout({
             vertical: false,
-            spacing: 14,
             visible: false,
             opacity: 0,
             style: 'background-color: rgba(20, 20, 22, 0.92); ' +
                 'border-radius: 20px; padding: 10px 18px; ' +
-                'border: 1px solid rgba(255, 255, 255, 0.08);',
+                'border: 1px solid rgba(255, 255, 255, 0.08); ' +
+                'spacing: 14px;',
         });
         this._actor.add_child(this._icon);
         this._actor.add_child(text);
