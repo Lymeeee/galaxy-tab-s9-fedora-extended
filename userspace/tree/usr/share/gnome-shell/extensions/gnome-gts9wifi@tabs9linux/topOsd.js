@@ -17,7 +17,7 @@ export class TopOsd {
 
     show(iconName, text, level = null) {
         const monitor = Main.layoutManager.primaryIndex ?? 0;
-        Main.osdWindowManager.show(monitor, Gio.ThemedIcon.new(iconName),
+        Main.osdWindowManager.showOne(monitor, Gio.ThemedIcon.new(iconName),
             text, level ?? -1, 100);
     }
 }
