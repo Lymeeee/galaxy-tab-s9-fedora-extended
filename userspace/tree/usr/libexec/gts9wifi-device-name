@@ -109,6 +109,14 @@ if printf '%s\n' "$show" | grep -q '^Controller '; then
                 log "bluetooth alias update failed (local name $name)"
             fi
         fi
+        if [ "$name" != "$NEW_PRETTY" ] && command -v btmgmt >/dev/null 2>&1; then
+            if timeout 8 btmgmt --timeout 5 name "$NEW_PRETTY" \
+                </dev/null >/dev/null 2>&1; then
+                log "bluetooth local name: $name -> $NEW_PRETTY"
+            else
+                log "bluetooth local name update failed (was $name)"
+            fi
+        fi
     else
         log "bluetooth name left as user set: name=$name alias=$alias"
     fi

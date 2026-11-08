@@ -58,7 +58,7 @@ export class SpenOsd {
         if (!docked) {
             const text = battery === null
                 ? 'S Pen 已拔出' : `S Pen 已拔出 · 上次 ${battery}%`;
-            this._osd.show('input-tablet-symbolic', text, battery);
+            this._osd.show('document-edit-symbolic', text, battery);
             return;
         }
 
@@ -71,7 +71,7 @@ export class SpenOsd {
             this._osd.show('battery-level-100-charging-symbolic',
                 `S Pen 已入坞 · 充电中${suffix}`, battery);
         } else {
-            this._osd.show('input-tablet-symbolic',
+            this._osd.show('document-edit-symbolic',
                 `S Pen 已入坞${suffix}`, battery);
         }
     }
