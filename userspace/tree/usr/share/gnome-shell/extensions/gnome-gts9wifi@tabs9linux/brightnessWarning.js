@@ -2,8 +2,8 @@
 //
 // Warn when the panel is dimmed below the point where the backlight leaves
 // DC dimming.  The kernel backlight percentage is what the user sees on the
-// brightness slider, so watch the sysfs value directly; notify only when the
-// value crosses below 36% and not more than once a minute.
+// brightness slider, so watch the sysfs value directly; notify once per low
+// excursion, re-arming after the level returns above 36%.
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -26,14 +26,13 @@ function readFile(path) {
 export class BrightnessWarning {
     constructor() {
         this._dir = null;
-        this._last = null;
+        this._armed = true;
         this._lastNotify = -Infinity;
         this._pollId = 0;
     }
 
     enable() {
         this._dir = this._findBacklight();
-        this._last = this._readPercent();
         this._pollId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, POLL_MS, () => {
             this._poll();
             return GLib.SOURCE_CONTINUE;
@@ -46,21 +45,20 @@ export class BrightnessWarning {
             this._pollId = 0;
         }
         this._dir = null;
-        this._last = null;
     }
 
     _poll() {
         const percent = this._readPercent();
         if (percent === null)
             return;
-        if (this._last === null) {
-            this._last = percent;
+        if (percent >= THRESHOLD) {
+            this._armed = true;
             return;
         }
-        const previous = this._last;
-        this._last = percent;
-        if (previous >= THRESHOLD && percent < THRESHOLD)
-            this._notify();
+        if (!this._armed)
+            return;
+        this._armed = false;
+        this._notify();
     }
 
     _notify() {
@@ -76,8 +74,7 @@ export class BrightnessWarning {
             new GLib.Variant('(susssasa{sv}i)', [
                 'gts9wifi', 0, 'dialog-warning-symbolic',
                 '亮度警告', TEXT, [],
-                new GLib.Variant('a{sv}',
-                    {urgency: new GLib.Variant('y', 2)}),
+                {urgency: new GLib.Variant('y', 2)},
                 10000,
             ]),
             null, Gio.DBusCallFlags.NONE, -1, null, null);
