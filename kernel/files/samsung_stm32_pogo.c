@@ -134,8 +134,10 @@ static const char *samsung_pogo_model_name(u8 protocol_model,
 	/* Mirror stm32_read_version() from Samsung's X910 source. */
 	if (protocol_model == 0xd1 || protocol_model == 0xd2)
 		return "Book Cover Keyboard (EF-DX900)";
-	if (protocol_model == 0x03 || protocol_model == POGO_MODEL_EF_DX925 ||
-	    protocol_model == 0xd5)
+	/* Protocol model 0x03 is the 11-inch EF-DX720 on the X710. */
+	if (protocol_model == 0x03)
+		return "Book Cover Keyboard (EF-DX720)";
+	if (protocol_model == POGO_MODEL_EF_DX925 || protocol_model == 0xd5)
 		return "Book Cover Keyboard with AI Key (EF-DX925)";
 	if (protocol_model == POGO_MODEL_EF_DX920)
 		return "Book Cover Keyboard Slim with AI Key (EF-DX920)";
@@ -605,15 +607,17 @@ static int samsung_pogo_enable_power(struct samsung_pogo *pogo)
 		if (!ret)
 			ret = samsung_pogo_booster_write(pogo, MAX77816_CONFIG1,
 						     MAX77816_LIMIT_3P1A);
+		if (ret) {
+			samsung_pogo_power_off_locked(pogo);
+			goto out_unlock;
+		}
+		dev_info(&pogo->client->dev,
+			 "MAX77816 output enabled (config2=%#x, config1=%#x)\n",
+			 MAX77816_OUTPUT_ENABLE, MAX77816_LIMIT_3P1A);
+	} else {
+		dev_info(&pogo->client->dev,
+			 "pogo power enabled (direct PMIC mode)\n");
 	}
-	if (ret) {
-		samsung_pogo_power_off_locked(pogo);
-		goto out_unlock;
-	}
-
-	dev_info(&pogo->client->dev,
-		 "MAX77816 output enabled (config2=%#x, config1=%#x)\n",
-		 MAX77816_OUTPUT_ENABLE, MAX77816_LIMIT_3P1A);
 out_unlock:
 	mutex_unlock(&pogo->power_lock);
 	return ret;

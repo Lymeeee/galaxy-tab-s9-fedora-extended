@@ -334,7 +334,7 @@
 	gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-names = "default";
-		pinctrl-0 = <&volume_up_n>, <&hall_cover_n>;
+		pinctrl-0 = <&volume_up_n>, <&hall_cover_n>, <&hall_wacom_n>;
 
 		key-volume-up {
 			label = "Volume Up";
@@ -356,6 +356,21 @@
 			linux,input-type = <EV_SW>;
 			linux,code = <SW_LID>;
 			gpios = <&tlmm 107 GPIO_ACTIVE_LOW>;
+			debounce-interval = <50>;
+			wakeup-source;
+		};
+
+		/*
+		 * The stock hall_ic node has a second hall ("hall_wacom") on
+		 * TLMM GPIO203.  The keyboard cover's magnet targets one of
+		 * the two halls; expose both as SW_LID so logind suspends
+		 * whichever one the cover actually triggers.
+		 */
+		switch-lid-wacom {
+			label = "Book Cover Keyboard";
+			linux,input-type = <EV_SW>;
+			linux,code = <SW_LID>;
+			gpios = <&tlmm 203 GPIO_ACTIVE_LOW>;
 			debounce-interval = <50>;
 			wakeup-source;
 		};
@@ -811,6 +826,14 @@
 
 	hall_cover_n: hall-cover-n-state {
 		pins = "gpio107";
+		function = "gpio";
+		drive-strength = <2>;
+		input-enable;
+		bias-disable;
+	};
+
+	hall_wacom_n: hall-wacom-n-state {
+		pins = "gpio203";
 		function = "gpio";
 		drive-strength = <2>;
 		input-enable;
