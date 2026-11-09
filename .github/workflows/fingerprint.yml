@@ -47,8 +47,12 @@ jobs:
         run: |
           [ -n "$REL" ] || { echo "release tag is empty" >&2; exit 1; }
           gh release view "$REL" >/dev/null 2>&1 || \
-            gh release create "$REL" --title "Experimental Test Build ($REL)" \
+            gh release create "$REL" --target "$GITHUB_SHA" \
+              --title "libfprint 1.94.100 (EL721)" \
               --prerelease --latest=false \
               --notes "Fedora 44 libfprint rebuilt with the EgisTec EL721 platform driver."
           gh release upload "$REL" --clobber \
             out-fingerprint/*.rpm out-fingerprint/SHA256SUMS out-fingerprint/BUILD-METADATA.txt
+          gh release view "$REL" --json assets --jq '.assets[].name' \
+            | grep -E '(debuginfo|debugsource|-devel-|-tests-)' \
+            | while read -r old; do gh release delete-asset "$REL" "$old" --yes; done || true
