@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.23
+Version:        0.17.24
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -192,6 +192,11 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 
 %changelog
+* Mon Nov 09 2026 Lymeeee <mr_xunyu@163.com> - 0.17.24-1
+- Fix the Shell 50 OSD level bar: pass null instead of -1 so only the
+  S Pen battery popup shows a bar, and clamp it to 0-100
+- Drop the meaningless Caps Lock level bar
+
 * Sat Nov 07 2026 Lymeeee <mr_xunyu@163.com> - 0.17.1-1
 - Temporarily lift gts9wifi-protect excludes and versionlocks while the
   updater installs userspace, FFmpeg, fingerprint or kernel packages, and
