@@ -3,7 +3,7 @@
 // Off-mode charging screen for the Galaxy Tab S9 Fedora port.  This runs
 // from the dracut initramfs when ABL passes lpcharge=1: it draws directly on
 // /dev/fb0, blanks the backlight after 10 s, wakes on a short power press and
-// continues the normal boot after a 5 s hold.
+// continues the normal boot after a 3 s hold.
 //
 // Text is rendered with FreeType directly from the bundled font subsets.
 // Pango/fontconfig are deliberately not used: inside the initramfs the
@@ -44,7 +44,7 @@
 #define FONT_CJK "Noto Sans CJK SC"
 #define FONT_UI_PATH "/usr/share/fonts/gts9wifi/AdwaitaSans-GTS9.ttf"
 #define FONT_CJK_PATH "/usr/share/fonts/gts9wifi/NotoSansCJKSC-GTS9.ttf"
-#define HOLD_SECONDS 5.0
+#define HOLD_SECONDS 3.0
 #define BLANK_SECONDS 10.0
 
 static const double FG[3] = {0.94, 0.95, 0.97};
@@ -419,7 +419,7 @@ static void draw_ui(cairo_t *cr, const struct reading *r)
     draw_text(cr, "充电中", 68, cx, cy - 200, ACCENT, 1, FONT_CJK);
     draw_text(cr, percent, 200, cx, cy + 10, FG, 1, FONT_UI);
     draw_text(cr, power, 72, cx, cy + 190, ACCENT, 1, FONT_UI);
-    draw_text(cr, "长按电源键5秒以开机", 30, CANVAS_W / 2.0, 1420, FG, 1,
+    draw_text(cr, "长按电源键3秒以开机", 30, CANVAS_W / 2.0, 1420, FG, 1,
         FONT_CJK);
     draw_text(cr, values, 28, CANVAS_W / 2.0, 1480, FG, 1, FONT_UI);
     cairo_new_path(cr);
