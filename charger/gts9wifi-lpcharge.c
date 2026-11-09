@@ -672,7 +672,7 @@ int main(int argc, char **argv)
             fds[i].events = POLLIN;
             fds[i].revents = 0;
         }
-        ret = poll(fds, keys.count, 100);
+        ret = poll(fds, keys.count, 50);
         if (ret > 0) {
             for (i = 0; i < keys.count; i++) {
                 struct input_event ev;
@@ -715,15 +715,16 @@ int main(int argc, char **argv)
             panel_blank(&fb, FB_BLANK_POWERDOWN);
             kmsg("gts9wifi-lpcharge: blank");
         }
-        if (now - last_draw >= 1.0) {
+        if (screen_on && now - last_draw >= 0.25) {
             read_reading(&r);
             render_fb(&fb, &r);
             last_draw = now;
-            if (now - last_log >= 30.0) {
-                kmsg("gts9wifi-lpcharge: data pct=%d v=%.1f a=%.1f w=%.1f t=%.1f",
-                    r.percent, r.volts, r.amps, r.watts, r.temp);
-                last_log = now;
-            }
+        }
+        if (now - last_log >= 30.0) {
+            read_reading(&r);
+            kmsg("gts9wifi-lpcharge: data pct=%d v=%.1f a=%.1f w=%.1f t=%.1f",
+                r.percent, r.volts, r.amps, r.watts, r.temp);
+            last_log = now;
         }
     }
 
