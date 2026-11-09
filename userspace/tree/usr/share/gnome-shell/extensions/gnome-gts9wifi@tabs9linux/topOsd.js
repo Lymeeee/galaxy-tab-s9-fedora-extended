@@ -17,7 +17,11 @@ export class TopOsd {
 
     show(iconName, text, level = null) {
         const monitor = Main.layoutManager.primaryIndex ?? 0;
+        // Shell 50 shows the level bar whenever the value is not null; a
+        // negative sentinel (such as the old -1) drew a broken empty bar.
+        const value = Number.isFinite(level)
+            ? Math.max(0, Math.min(100, level)) : null;
         Main.osdWindowManager.showOne(monitor, Gio.ThemedIcon.new(iconName),
-            text, level ?? -1, 100);
+            text, value, 100);
     }
 }

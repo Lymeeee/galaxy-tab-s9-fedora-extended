@@ -59,7 +59,7 @@ export class CapsLockOsd {
 
         this._state = state;
         this._osd.show('input-keyboard-symbolic',
-            state ? 'Caps Lock 开' : 'Caps Lock 关', null, 1400);
+            state ? 'Caps Lock 开' : 'Caps Lock 关');
     }
 
     _readLed() {
