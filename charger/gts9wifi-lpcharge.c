@@ -18,6 +18,7 @@
 #include <cairo/cairo.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include FT_SYNTHESIS_H
 #include <linux/fb.h>
 #include <linux/input.h>
 #include <linux/input-event-codes.h>
@@ -281,7 +282,6 @@ static void draw_text(cairo_t *cr, const char *text, double size,
     int count = 0;
     int i;
 
-    (void)bold;
     if (!primary)
         primary = fallback;
     if (!primary)
@@ -307,6 +307,8 @@ static void draw_text(cairo_t *cr, const char *text, double size,
         }
         if (FT_Load_Glyph(face, index, FT_LOAD_DEFAULT) != 0)
             continue;
+        if (bold)
+            FT_GlyphSlot_Embolden(face->glyph);
         runs[count].face = face;
         runs[count].index = index;
         count++;
@@ -325,10 +327,13 @@ static void draw_text(cairo_t *cr, const char *text, double size,
         int stride;
         int y;
 
-        if (FT_Load_Glyph(runs[i].face, runs[i].index,
-                FT_LOAD_DEFAULT | FT_LOAD_RENDER) != 0)
+        if (FT_Load_Glyph(runs[i].face, runs[i].index, FT_LOAD_DEFAULT) != 0)
             continue;
         slot = runs[i].face->glyph;
+        if (bold)
+            FT_GlyphSlot_Embolden(slot);
+        if (FT_Render_Glyph(slot, FT_RENDER_MODE_NORMAL) != 0)
+            continue;
         if (slot->bitmap.pixel_mode == FT_PIXEL_MODE_GRAY &&
             slot->bitmap.width && slot->bitmap.rows) {
             glyph = cairo_image_surface_create(CAIRO_FORMAT_A8,
