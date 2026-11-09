@@ -24,10 +24,10 @@ state_dir=/var/lib/gts9wifi
 
 # name|group|label|description|default|sysfs path or state:NAME
 CONTROLS='
-fast-charge|Power|Fast charging|Charges the battery faster by drawing more power from your charger. A 5 A USB-C cable is recommended.|1|/sys/bus/i2c/devices/6-0049/fast_charge
-charge-limit|Power|Limit charging to 80 %|Protects the battery: charging stops at 80 % and resumes below 75 %.|0|/sys/bus/i2c/devices/6-0049/charge_limit
-charge-bypass|Power|Charging bypass|On the charger, run the tablet from the cable and leave the battery alone (for long gaming or video sessions).|0|/sys/bus/i2c/devices/6-0049/charge_bypass
-charge-full-bypass|Power|Bypass when full|Once the battery reaches 100 %, stop charging and run from the charger. Charging resumes below 95 %.|1|state:charge-full-bypass
+fast-charge|电源|快速充电|从充电器抽取更高功率以加快充电，建议使用 5A USB-C 线。|1|/sys/bus/i2c/devices/6-0049/fast_charge
+charge-limit|电源|充电上限 80%|保护电池：充到 80% 停止，低于 75% 恢复充电。|0|/sys/bus/i2c/devices/6-0049/charge_limit
+charge-bypass|电源|充电旁路|接充电器时直接用数据线供电、不使用电池（适合长时间游戏或视频）。|0|/sys/bus/i2c/devices/6-0049/charge_bypass
+charge-full-bypass|电源|充满后旁路|电池达到 100% 后停止充电，改用充电器供电；低于 95% 恢复充电。|1|state:charge-full-bypass
 '
 
 usage() {

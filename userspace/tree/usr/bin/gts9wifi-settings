@@ -37,6 +37,14 @@ MIRROR_HOSTS = {
     'tuna': 'mirrors.tuna.tsinghua.edu.cn',
 }
 
+STATUS_ZH = {
+    'Charging': '充电中',
+    'Discharging': '放电中',
+    'Full': '已充满',
+    'Not charging': '未充电',
+    'Unknown': '未知',
+}
+
 
 def run(args, timeout=10):
     try:
@@ -49,7 +57,7 @@ def rpm(name):
     result = run(['rpm', '-q', '--qf', '%{VERSION}-%{RELEASE}', name])
     if result is not None and result.returncode == 0:
         return result.stdout.strip()
-    return 'not installed'
+    return '未安装'
 
 
 def read(path):
@@ -81,7 +89,7 @@ class Settings(Adw.Application):
         self._status_rows = {}
 
     def activate(self, app):
-        window = Adw.PreferencesWindow(application=app, title='Tab9 Settings')
+        window = Adw.PreferencesWindow(application=app, title='Tab9 设置')
         window.set_default_size(540, 820)
         self.window = window
         window.add(self.device_page())
@@ -93,13 +101,13 @@ class Settings(Adw.Application):
         window.present()
 
     def device_page(self):
-        page = Adw.PreferencesPage(title='Device', icon_name='preferences-system-symbolic')
+        page = Adw.PreferencesPage(title='设备', icon_name='preferences-system-symbolic')
         controls = self.controls()
         if not controls:
             group = Adw.PreferencesGroup()
             group.add(Adw.ActionRow(
-                title='No device controls',
-                subtitle='gts9wifi-device-control was not found.'))
+                title='没有设备控制项',
+                subtitle='未找到 gts9wifi-device-control。'))
             page.add(group)
             return page
         groups = {}
@@ -157,18 +165,18 @@ class Settings(Adw.Application):
         return controls
 
     def power_page(self):
-        page = Adw.PreferencesPage(title='Power', icon_name='battery-symbolic')
+        page = Adw.PreferencesPage(title='电源', icon_name='battery-symbolic')
         group = Adw.PreferencesGroup(
-            title='Profile',
-            description='CPU governor/EPP, GPU devfreq and Wi-Fi powersave. '
-                        'Changes authenticate through pkexec.')
+            title='性能模式',
+            description='CPU 调频/EPP、GPU 调频和 Wi-Fi 省电策略。'
+                        '修改时会通过 pkexec 认证。')
         labels = Gtk.StringList.new(
-            ['Power saver', 'Sticky', 'Balanced', 'Performance'])
+            ['省电', '粘性', '均衡', '性能'])
         current = read(POWER_PROFILE) or 'balanced'
         if current not in POWER_IDS:
             current = 'balanced'
         row = Adw.ComboRow(
-            title='Power profile', model=labels,
+            title='性能模式', model=labels,
             selected=POWER_IDS.index(current))
         guard = {'busy': False}
 
@@ -193,17 +201,17 @@ class Settings(Adw.Application):
 
     def add_battery_group(self, page):
         battery = Adw.PreferencesGroup(
-            title='Battery',
-            description='Live values from the SM5714 fuel gauge and charger.')
+            title='电池',
+            description='来自 SM5714 电量计和充电器的实时数据。')
         self._battery_rows = {}
         for key, title in (
-                ('status', 'State'),
-                ('power', 'Charging power'),
-                ('voltage', 'Voltage'),
-                ('current', 'Current'),
-                ('temp', 'Temperature'),
-                ('capacity', 'Capacity'),
-                ('input', 'Charger')):
+                ('status', '状态'),
+                ('power', '充电功率'),
+                ('voltage', '电压'),
+                ('current', '电流'),
+                ('temp', '温度'),
+                ('capacity', '电量'),
+                ('input', '充电器')):
             battery_row = Adw.ActionRow(title=title, subtitle='…')
             battery.add(battery_row)
             self._battery_rows[key] = battery_row
@@ -233,7 +241,8 @@ class Settings(Adw.Application):
         except ValueError:
             pass
         capacity = read(bat + '/capacity')
-        rows['status'].set_subtitle(read(bat + '/status') or '—')
+        status = read(bat + '/status')
+        rows['status'].set_subtitle(STATUS_ZH.get(status, status) or '—')
         rows['capacity'].set_subtitle(f'{capacity} %' if capacity else '—')
         rows['voltage'].set_subtitle(
             f'{voltage:.3f} V' if voltage is not None else '—')
@@ -248,22 +257,22 @@ class Settings(Adw.Application):
         current_max = read(usb + '/current_max')
         if online == '1' and voltage_max and current_max:
             try:
-                rows['input'].set_subtitle('%0.1f V / %0.2f A contract' % (
+                rows['input'].set_subtitle('%0.1f V / %0.2f A 供电合同' % (
                     float(voltage_max) / 1e6, float(current_max) / 1e6))
             except ValueError:
-                rows['input'].set_subtitle('connected')
+                rows['input'].set_subtitle('已连接')
         else:
-            rows['input'].set_subtitle('not connected')
+            rows['input'].set_subtitle('未连接')
         return True
 
     def debug_page(self):
-        page = Adw.PreferencesPage(title='Debug', icon_name='utilities-terminal-symbolic')
+        page = Adw.PreferencesPage(title='调试', icon_name='utilities-terminal-symbolic')
         group = Adw.PreferencesGroup(
-            title='USB debug network',
-            description='USB gadget at 172.16.42.1 for SSH. '
-                        'Leave it off for daily use; it keeps the UDC powered.')
+            title='USB 调试网络',
+            description='通过 172.16.42.1 的 USB 网卡提供 SSH。'
+                        '日常使用建议关闭；开启后会持续给 UDC 供电。')
         row = Adw.SwitchRow(
-            title='Enable USB debug network',
+            title='启用 USB 调试网络',
             active=os.path.exists(USB_NET_FLAG))
         guard = {'busy': False}
 
@@ -283,36 +292,36 @@ class Settings(Adw.Application):
         return page
 
     def setup_page(self):
-        page = Adw.PreferencesPage(title='Setup', icon_name='applications-system-symbolic')
+        page = Adw.PreferencesPage(title='配置', icon_name='applications-system-symbolic')
 
-        applications = Adw.PreferencesGroup(title='Applications')
+        applications = Adw.PreferencesGroup(title='应用')
         installed = shutil.which('easyeffects') is not None
         self.action_row(applications, 'EasyEffects',
-            'PipeWire system-wide equalizer, compressor and limiter.',
-            'Open' if installed else 'Install & Open',
+            'PipeWire 全局均衡器、压缩器和限制器。',
+            '打开' if installed else '安装并打开',
             self.open_easyeffects)
         page.add(applications)
 
         repositories = Adw.PreferencesGroup(
-            title='Repositories',
-            description='Copr is not mirrored by USTC/TUNA; it is enabled directly.'
+            title='软件仓库',
+            description='USTC/TUNA 不镜像 Copr，将直接从官方启用。'
         )
         self.action_row(repositories, 'RPM Fusion',
-            'Free and nonfree release repositories.', 'Enable',
+            'Free 与 nonfree 发行版软件仓库。', '启用',
             self.enable_rpmfusion)
-        self.copr_entry = Adw.EntryRow(title='Copr project (owner/project)')
+        self.copr_entry = Adw.EntryRow(title='Copr 项目（owner/project）')
         repositories.add(self.copr_entry)
-        self.action_row(repositories, 'Copr repository',
-            'Installs dnf5-plugins if needed, then enables the project above.',
-            'Enable', self.enable_copr)
+        self.action_row(repositories, 'Copr 仓库',
+            '如有需要会安装 dnf5-plugins，然后启用上面的项目。',
+            '启用', self.enable_copr)
         page.add(repositories)
 
-        protection = Adw.PreferencesGroup(title='Protection')
+        protection = Adw.PreferencesGroup(title='保护')
         self.protect_row = Adw.SwitchRow(
-            title='Protect port packages and Fedora release',
-            subtitle='Excludes packages this port replaces, the Fedora kernel/firmware '
-                     'and fedora-release/repos, and pins releasever. Explicit '
-                     'system-upgrade is still possible.',
+            title='保护移植包和 Fedora 发行版',
+            subtitle='排除本移植替换的软件包、Fedora 内核/固件以及 '
+                     'fedora-release/repos，并固定 releasever。仍可显式执行 '
+                     'system-upgrade。',
             active=self.protect_enabled())
         guard = {'busy': False}
 
@@ -330,42 +339,42 @@ class Settings(Adw.Application):
         protection.add(self.protect_row)
         page.add(protection)
 
-        powerkey = Adw.PreferencesGroup(title='Power key')
+        powerkey = Adw.PreferencesGroup(title='电源键')
         self.powerkey_row = Adw.SwitchRow(
-            title='Convertible power-key mode',
-            subtitle='Short press locks and suspends; hold opens the power menu. '
-                     'Sets CHASSIS=convertible and needs a re-login for gsd-media-keys.',
+            title='二合一电源键模式',
+            subtitle='短按锁定并挂起；长按打开电源菜单。'
+                     '会设置 CHASSIS=convertible，gsd-media-keys 需要重新登录后生效。',
             active=os.path.exists('/etc/gts9wifi/power-key-enabled'))
         self.powerkey_row.connect('notify::active', self.powerkey_toggled)
         powerkey.add(self.powerkey_row)
         page.add(powerkey)
 
-        locale = Adw.PreferencesGroup(title='Language')
-        self.action_row(locale, 'Simplified Chinese',
-            'Install the zh_CN language packs, set the system locale and the GNOME region '
-            '(log out and back in afterwards).', 'Set 简体中文', self.enable_chinese)
-        self.action_row(locale, 'Rime input method',
-            'Install ibus-rime and 雾凇拼音 (rime-ice) for this user, then add Rime to '
-            'the GNOME input sources.', 'Install', self.install_rime)
+        locale = Adw.PreferencesGroup(title='语言')
+        self.action_row(locale, '简体中文',
+            '安装 zh_CN 语言包，设置系统语言和 GNOME 区域'
+            '（之后需要注销再登录）。', '设为简体中文', self.enable_chinese)
+        self.action_row(locale, 'Rime 输入法',
+            '为此用户安装 ibus-rime 和雾凇拼音（rime-ice），并把 Rime 添加到'
+            ' GNOME 输入源。', '安装', self.install_rime)
         page.add(locale)
 
         mirrors = Adw.PreferencesGroup(
-            title='Mirrors',
-            description='USTC mirrors Fedora, RPM Fusion and Flathub; TUNA mirrors Fedora '
-                        'and RPM Fusion. Repository files are backed up before the first change.'
+            title='镜像源',
+            description='USTC 镜像 Fedora、RPM Fusion 和 Flathub；TUNA 镜像 Fedora'
+                        ' 和 RPM Fusion。首次修改前会备份仓库文件。'
         )
         self.mirror_row = Adw.ComboRow(
-            title='Mirror',
+            title='镜像',
             model=Gtk.StringList.new(['USTC', 'TUNA']),
             selected=0)
         mirrors.add(self.mirror_row)
-        self.action_row(mirrors, 'Switch package mirrors',
-            'Rewrites Fedora and RPM Fusion repo files and switches Flathub when the '
-            'chosen mirror provides it; then cleans the dnf cache.',
-            'Apply', self.apply_mirrors)
-        self.action_row(mirrors, 'Restore repository files',
-            'Restores the repository backup taken before the first mirror switch.',
-            'Restore', self.restore_mirrors)
+        self.action_row(mirrors, '切换软件源镜像',
+            '重写 Fedora 和 RPM Fusion 仓库文件，并在所选镜像提供 Flathub 时切换；'
+            '随后清理 dnf 缓存。',
+            '应用', self.apply_mirrors)
+        self.action_row(mirrors, '恢复仓库文件',
+            '恢复首次切换镜像前的仓库备份。',
+            '恢复', self.restore_mirrors)
         page.add(mirrors)
         return page
 
@@ -398,9 +407,9 @@ class Settings(Adw.Application):
                      'power-button-action', 'nothing'], timeout=10)
                 run(['systemctl', '--user', 'restart',
                      'org.gnome.SettingsDaemon.MediaKeys.service'], timeout=20)
-                self.alert('Log out and back in',
-                    'CHASSIS is now convertible; gsd-media-keys may need a re-login '
-                    'before the power button stops acting on key-down.')
+                self.alert('请注销后重新登录',
+                    'CHASSIS 现在是 convertible；可能需要重新登录后'
+                    '电源键才会按预期工作。')
         else:
             run(['systemctl', '--user', 'disable', '--now',
                  'gts9wifi-power-key.service'], timeout=30)
@@ -414,26 +423,26 @@ class Settings(Adw.Application):
             self._powerkey_busy = True
             row.set_active(os.path.exists('/etc/gts9wifi/power-key-enabled'))
             self._powerkey_busy = False
-            self.alert('Power-key mode failed',
-                'Could not change the mode; check the polkit prompt or the user service.')
+            self.alert('电源键模式设置失败',
+                '无法切换模式；请检查 polkit 提示或用户服务。')
 
     def open_easyeffects(self):
         if shutil.which('easyeffects'):
             try:
                 subprocess.Popen(['easyeffects'])
             except OSError as error:
-                self.alert('Cannot start EasyEffects', str(error))
+                self.alert('无法启动 EasyEffects', str(error))
             return
         self.confirm_simple(
-            'Install EasyEffects?',
-            'Installs the Fedora EasyEffects package, then opens it.',
+            '安装 EasyEffects？',
+            '安装 Fedora 的 EasyEffects 软件包，然后打开它。',
             lambda: self.open_terminal([
                 'bash', '-lc',
                 'pkexec dnf install -y easyeffects && easyeffects']))
 
     def enable_rpmfusion(self):
         if rpm('rpmfusion-free-release') != 'not installed':
-            self.alert('RPM Fusion is already enabled', 'The release packages are installed.')
+            self.alert('RPM Fusion 已启用', '发行版软件包已安装。')
             return
         host = self.mirror_host()
         command = (
@@ -441,20 +450,20 @@ class Settings(Adw.Application):
             f'https://{host}/rpmfusion/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm '
             f'https://{host}/rpmfusion/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm')
         self.confirm_simple(
-            'Enable RPM Fusion?',
-            'Installs the RPM Fusion release packages from %s.' % host,
+            '启用 RPM Fusion？',
+            '从 %s 安装 RPM Fusion 发行版软件包。' % host,
             lambda: self.open_terminal(['bash', '-lc', command]))
 
     def enable_copr(self):
         project = self.copr_entry.get_text().strip()
         if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', project):
-            self.alert('Invalid Copr project', 'Use the form owner/project.')
+            self.alert('Copr 项目无效', '请使用 owner/project 的形式。')
             return
         command = ('pkexec dnf install -y dnf5-plugins && '
                    'pkexec dnf copr enable -y ' + shlex.quote(project))
         self.confirm_simple(
-            'Enable Copr repository?',
-            'Enables %s. Copr is not mirrored by USTC/TUNA.' % project,
+            '启用 Copr 仓库？',
+            '启用 %s。USTC/TUNA 不镜像 Copr。' % project,
             lambda: self.open_terminal(['bash', '-lc', command]))
 
     def enable_chinese(self):
@@ -466,81 +475,81 @@ class Settings(Adw.Application):
             "--method org.freedesktop.Accounts.User.SetLanguage 'zh_CN.UTF-8' && "
             "gsettings set org.gnome.system.locale region 'zh_CN.UTF-8'")
         self.confirm_simple(
-            'Switch to Simplified Chinese?',
-            'Installs the language packs, sets the system and per-user language '
-            '(AccountsService) and the GNOME region. Log out and back in to apply '
-            'the UI language; some port-specific tools remain English.',
+            '切换到简体中文？',
+            '安装语言包，设置系统和用户语言'
+            '（AccountsService）以及 GNOME 区域。注销并重新登录后'
+            '界面语言生效；部分移植工具仍为英文。',
             lambda: self.open_terminal(['bash', '-lc', command]))
 
     def install_rime(self):
         self.confirm_simple(
-            'Install Rime / 雾凇拼音?',
-            'Installs ibus-rime, clones rime-ice into your Rime directory, adds Rime to '
-            'the GNOME input sources and restarts IBus.',
+            '安装 Rime / 雾凇拼音？',
+            '安装 ibus-rime，将 rime-ice 克隆到你的 Rime 目录，把 Rime 添加到'
+            ' GNOME 输入源并重启 IBus。',
             lambda: self.open_terminal([IME]))
 
     def apply_mirrors(self):
         mirror = MIRROR_IDS[self.mirror_row.get_selected()]
         self.confirm_simple(
-            'Switch package mirrors?',
-            'Rewrites the Fedora and RPM Fusion repository files and cleans the dnf cache. '
-            'A backup is kept; use Restore to go back.',
+            '切换软件源镜像？',
+            '重写 Fedora 和 RPM Fusion 仓库文件并清理 dnf 缓存。'
+            '会保留备份；可用“恢复”还原。',
             lambda: self.open_terminal(['pkexec', '/usr/libexec/gts9wifi-mirrors', mirror]))
 
     def restore_mirrors(self):
         self.confirm_simple(
-            'Restore repository files?',
-            'Restores the repository backup taken before the first mirror switch.',
+            '恢复仓库文件？',
+            '恢复首次切换镜像前的仓库备份。',
             lambda: self.open_terminal(['pkexec', '/usr/libexec/gts9wifi-mirrors', '--restore']))
 
     def advanced_page(self):
-        page = Adw.PreferencesPage(title='Advanced', icon_name='dialog-warning-symbolic')
+        page = Adw.PreferencesPage(title='高级', icon_name='dialog-warning-symbolic')
 
         components = Adw.PreferencesGroup(
-            title='Components',
-            description='Opens a terminal with pkexec; the update tool verifies its own downloads.')
-        self.action_row(components, 'Userspace package',
-            'Install the latest userspace controls and update tool.',
-            'Install', lambda: self.confirm_simple(
-                'Update userspace?',
-                'Installs the userspace RPM from the release and applies the power defaults.',
+            title='组件',
+            description='会打开带 pkexec 的终端；更新工具会自行校验下载内容。')
+        self.action_row(components, '用户态软件包',
+            '安装最新的用户态控制项和更新工具。',
+            '安装', lambda: self.confirm_simple(
+                '更新用户态软件包？',
+                '从 release 安装用户态 RPM 并应用电源默认设置。',
                 lambda: self.open_terminal(['pkexec', UPDATE, 'userspace'])))
-        self.action_row(components, 'FFmpeg codecs',
-            'Install the rebuilt ffmpeg-free RPMs and the Firefox hardware-video policy.',
-            'Install', lambda: self.confirm_simple(
-                'Install FFmpeg codecs?',
-                'Downloads and verifies the ffmpeg-free runtime RPMs.',
+        self.action_row(components, 'FFmpeg 编解码器',
+            '安装重建的 ffmpeg-free RPM 和 Firefox 硬件视频策略。',
+            '安装', lambda: self.confirm_simple(
+                '安装 FFmpeg 编解码器？',
+                '下载并校验 ffmpeg-free 运行时 RPM。',
                 lambda: self.open_terminal(['pkexec', UPDATE, 'ffmpeg'])))
-        self.action_row(components, 'Fingerprint stack',
-            'Install libfprint EL721 and the secure-start runtime.',
-            'Install', lambda: self.confirm_simple(
-                'Install the fingerprint stack?',
-                'Installs both EL721 packages and enables the mount/fingerprint units. '
-                'Calibration and authselect still need the documented follow-up.',
+        self.action_row(components, '指纹组件',
+            '安装 libfprint EL721 和安全启动运行时。',
+            '安装', lambda: self.confirm_simple(
+                '安装指纹组件？',
+                '安装两个 EL721 软件包并启用挂载/指纹服务。'
+                '校准和 authselect 仍需按文档后续处理。',
                 lambda: self.open_terminal(['pkexec', UPDATE, 'fingerprint'])))
         page.add(components)
 
         kernel = Adw.PreferencesGroup(
-            title='Kernel and boot',
-            description='Boot partitions are written only after the typed confirmation below.')
-        self.kernel_tag = Adw.EntryRow(title='Kernel release tag')
+            title='内核与启动',
+            description='只有在下方的输入确认后才会写入 boot 分区。')
+        self.kernel_tag = Adw.EntryRow(title='内核 release 标签')
         self.kernel_tag.set_text(DEFAULT_KERNEL_TAG)
         kernel.add(self.kernel_tag)
-        self.action_row(kernel, 'Update kernel + boot bundle',
-            'Downloads and verifies the pair, backs up boot, writes four partitions, verifies readback and installs the RPM.',
-            'Flash...', self.flash_kernel, destructive=True)
-        self.action_row(kernel, 'Rollback boot partitions',
-            'Restores the latest gts9wifi boot backup and its modules.',
-            'Rollback...', self.rollback_boot, destructive=True)
+        self.action_row(kernel, '更新内核 + 启动包',
+            '下载并校验内核对，备份 boot，写入四个分区，回读校验并安装 RPM。',
+            '刷写…', self.flash_kernel, destructive=True)
+        self.action_row(kernel, '回滚 boot 分区',
+            '恢复最近一次 gts9wifi boot 备份及其模块。',
+            '回滚…', self.rollback_boot, destructive=True)
         page.add(kernel)
 
         keyboard = Adw.PreferencesGroup(
-            title='Keyboard',
-            description='The file is only installed here; the pogo driver writes the MCU on the next boot when it is not V37.')
+            title='键盘',
+            description='这里只负责安装固件文件；如果尚未是 V37，pogo 驱动会在下次启动时写入 MCU。')
         self.keyboard_row = Adw.ActionRow(
-            title='STM32 V37 firmware',
+            title='STM32 V37 固件',
             subtitle=self.keyboard_subtitle())
-        install = Gtk.Button(label='Install file...')
+        install = Gtk.Button(label='安装文件…')
         install.connect('clicked', lambda _button: self.choose_keyboard_firmware())
         self.keyboard_row.add_suffix(install)
         keyboard.add(self.keyboard_row)
@@ -562,18 +571,18 @@ class Settings(Adw.Application):
         if keyboard.get('flash_version'):
             return 'flash_version=%s app_version=%s' % (
                 keyboard.get('flash_version'), keyboard.get('app_version', '?'))
-        return 'controller not detected'
+        return '未检测到控制器'
 
     def alert(self, heading, body):
         dialog = Adw.AlertDialog(heading=heading, body=body)
-        dialog.add_response('close', 'Close')
+        dialog.add_response('close', '关闭')
         dialog.set_default_response('close')
         dialog.present(self.window)
 
     def confirm_simple(self, heading, body, callback):
         dialog = Adw.AlertDialog(heading=heading, body=body)
-        dialog.add_response('cancel', 'Cancel')
-        dialog.add_response('ok', 'Continue')
+        dialog.add_response('cancel', '取消')
+        dialog.add_response('ok', '继续')
         dialog.set_response_appearance('ok', Adw.ResponseAppearance.SUGGESTED)
 
         def response(_dialog, answer):
@@ -585,10 +594,10 @@ class Settings(Adw.Application):
 
     def confirm_typed(self, heading, body, word, callback):
         dialog = Adw.AlertDialog(heading=heading, body=body)
-        entry = Gtk.Entry(placeholder_text='type %s to confirm' % word)
+        entry = Gtk.Entry(placeholder_text='输入 %s 以确认' % word)
         dialog.set_extra_child(entry)
-        dialog.add_response('cancel', 'Cancel')
-        dialog.add_response('ok', 'Continue')
+        dialog.add_response('cancel', '取消')
+        dialog.add_response('ok', '继续')
         dialog.set_response_appearance('ok', Adw.ResponseAppearance.DESTRUCTIVE)
 
         def response(_dialog, answer):
@@ -601,24 +610,24 @@ class Settings(Adw.Application):
     def flash_kernel(self):
         tag = self.kernel_tag.get_text().strip()
         if not tag or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-' for c in tag):
-            self.alert('Invalid tag', 'Use latest or a dated kernel tag such as kernel-7.2.0-20261109.67.')
+            self.alert('标签无效', '请使用 latest 或形如 kernel-7.2.0-20261109.67 的日期标签。')
             return
         self.confirm_typed(
-            'Flash kernel and boot bundle?',
-            'This writes boot, init_boot, vendor_boot and dtbo, then installs the matching kernel RPM. '
-            'The tool verifies the download and keeps a rollback backup. Tag: %s' % tag,
+            '刷写内核和启动包？',
+            '这会写入 boot、init_boot、vendor_boot 和 dtbo，然后安装匹配的内核 RPM。'
+            '工具会校验下载并保留回滚备份。标签：%s' % tag,
             'FLASH',
             lambda: self.open_terminal(['pkexec', UPDATE, 'kernel', '--tag', tag, '--flash']))
 
     def rollback_boot(self):
         self.confirm_typed(
-            'Rollback boot partitions?',
-            'Restores the latest boot-partition backup and its kernel modules, then asks you to reboot.',
+            '回滚 boot 分区？',
+            '恢复最近的 boot 分区备份和内核模块，然后提示你重启。',
             'ROLLBACK',
             lambda: self.open_terminal(['pkexec', UPDATE, 'rollback']))
 
     def choose_keyboard_firmware(self):
-        dialog = Gtk.FileDialog(title='Select stm32_gts9family.bin')
+        dialog = Gtk.FileDialog(title='选择 stm32_gts9family.bin')
         dialog.open(self.window, None, self.keyboard_file_chosen)
 
     def keyboard_file_chosen(self, dialog, result):
@@ -632,23 +641,23 @@ class Settings(Adw.Application):
         try:
             data = open(path, 'rb').read()
         except OSError as error:
-            self.alert('Cannot read file', str(error))
+            self.alert('无法读取文件', str(error))
             return
         if len(data) != KEYBOARD_FW_SIZE or hashlib.sha256(data).hexdigest() != KEYBOARD_FW_SHA256:
-            self.alert('Wrong firmware',
-                'Expected the 52132-byte V37 stm32_gts9family.bin with SHA-256 %s.' % KEYBOARD_FW_SHA256)
+            self.alert('固件不正确',
+                '需要 52132 字节、SHA-256 为 %s 的 V37 stm32_gts9family.bin。' % KEYBOARD_FW_SHA256)
             return
         self.confirm_typed(
-            'Install keyboard V37 firmware?',
-            'The file is copied to /lib/firmware/keyboard_stm/. The pogo driver will write the MCU '
-            'on the next boot if it is not already V37; that write is persistent.',
+            '安装键盘 V37 固件？',
+            '文件会复制到 /lib/firmware/keyboard_stm/。pogo 驱动会在下次启动时'
+            '写入 MCU（如果尚未是 V37）；该写入是永久的。',
             'MCU',
             lambda: self.open_terminal([
                 'pkexec', '/usr/bin/install', '-D', '-m0644', path, KEYBOARD_FW]))
 
     def open_terminal(self, argv):
         command = ' '.join(shlex.quote(arg) for arg in argv)
-        script = '%s; rc=$?; echo; read -r -p "Press Enter to close..." _; exit $rc' % command
+        script = '%s; rc=$?; echo; read -r -p "按回车关闭…" _; exit $rc' % command
         candidates = [
             ('ptyxis', ['--']),
             ('kgx', ['--']),
@@ -659,28 +668,28 @@ class Settings(Adw.Application):
             if shutil.which(term):
                 subprocess.Popen([term, *args, 'bash', '-lc', script])
                 return
-        self.alert('No terminal found', 'Run this command manually:\n' + command)
+        self.alert('未找到终端', '请手动运行以下命令：\n' + command)
 
     def status_page(self):
-        page = Adw.PreferencesPage(title='Status', icon_name='dialog-information-symbolic')
-        group = Adw.PreferencesGroup(title='System')
+        page = Adw.PreferencesPage(title='状态', icon_name='dialog-information-symbolic')
+        group = Adw.PreferencesGroup(title='系统')
         refresh = Gtk.Button.new_from_icon_name('view-refresh-symbolic')
-        refresh.set_tooltip_text('Refresh')
+        refresh.set_tooltip_text('刷新')
         refresh.connect('clicked', lambda _button: self.update_status())
-        header = Adw.ActionRow(title='Device and firmware status')
+        header = Adw.ActionRow(title='设备与固件状态')
         header.add_suffix(refresh)
         group.add(header)
         for key, title in [
-            ('kernel', 'Kernel'),
-            ('userspace', 'Userspace package'),
+            ('kernel', '内核'),
+            ('userspace', '用户态软件包'),
             ('libfprint', 'libfprint'),
-            ('fingerprint', 'Fingerprint runtime'),
-            ('esfp', 'Fingerprint device'),
-            ('keyboard', 'Keyboard controller'),
-            ('keyboard_fw', 'Keyboard firmware file'),
-            ('ffmpeg', 'FFmpeg codecs'),
-            ('vendor', 'Android /vendor'),
-            ('usbnet', 'USB debug network'),
+            ('fingerprint', '指纹运行时'),
+            ('esfp', '指纹设备'),
+            ('keyboard', '键盘控制器'),
+            ('keyboard_fw', '键盘固件文件'),
+            ('ffmpeg', 'FFmpeg 编解码器'),
+            ('vendor', 'Android /vendor 分区'),
+            ('usbnet', 'USB 调试网络'),
         ]:
             row = Adw.ActionRow(title=title, subtitle='…')
             group.add(row)
@@ -696,21 +705,21 @@ class Settings(Adw.Application):
         rows['libfprint'].set_subtitle(rpm('libfprint'))
         rows['fingerprint'].set_subtitle(rpm('gts9wifi-fingerprint'))
         rows['esfp'].set_subtitle(
-            '/dev/esfp0 present' if os.path.exists('/dev/esfp0') else 'not detected')
+            '/dev/esfp0 存在' if os.path.exists('/dev/esfp0') else '未检测到')
         keyboard = keyboard_status()
         if keyboard.get('flash_version'):
             rows['keyboard'].set_subtitle(
                 'flash_version=%s app_version=%s' % (
                     keyboard.get('flash_version'), keyboard.get('app_version', '?')))
         else:
-            rows['keyboard'].set_subtitle('controller not detected')
+            rows['keyboard'].set_subtitle('未检测到控制器')
         rows['keyboard_fw'].set_subtitle(
-            'installed' if os.path.exists(KEYBOARD_FW) else 'not installed (V37 blob)')
+            '已安装' if os.path.exists(KEYBOARD_FW) else '未安装（V37 固件）')
         rows['ffmpeg'].set_subtitle(rpm('libavcodec-free'))
         rows['vendor'].set_subtitle(
-            'mounted read-only' if os.path.ismount('/vendor') else 'not mounted')
+            '已只读挂载' if os.path.ismount('/vendor') else '未挂载')
         rows['usbnet'].set_subtitle(
-            'enabled (flag set)' if os.path.exists(USB_NET_FLAG) else 'disabled (default)')
+            '已启用（标志文件存在）' if os.path.exists(USB_NET_FLAG) else '已禁用（默认）')
 
 
 def main():

@@ -1,6 +1,6 @@
 [Desktop Entry]
-Name=Tab9 Settings
-Comment=Galaxy Tab S9 Wi-Fi controls, power profiles and device status
+Name=Tab9 设置
+Comment=Galaxy Tab S9 Wi-Fi 硬件控制、性能模式与设备状态
 Exec=gts9wifi-settings
 Icon=gts9wifi-settings
 Terminal=false

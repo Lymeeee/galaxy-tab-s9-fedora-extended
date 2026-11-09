@@ -37,7 +37,7 @@ function runPrivileged(args) {
 export default class Gts9wifiPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const page = new Adw.PreferencesPage({
-            title: _('Device controls'),
+            title: _('设备控制'),
             icon_name: 'preferences-system-symbolic',
         });
 
@@ -45,8 +45,8 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
         if (controls.length === 0) {
             const group = new Adw.PreferencesGroup();
             group.add(new Adw.ActionRow({
-                title: _('No device controls found'),
-                subtitle: _('This extension only does anything on the Galaxy Tab S9 Wi-Fi (SM-X710) Linux ports.'),
+                title: _('未找到设备控制项'),
+                subtitle: _('此扩展仅在 Galaxy Tab S9 Wi-Fi（SM-X710）的 Linux 移植上生效。'),
             }));
             page.add(group);
             window.add(page);
@@ -105,8 +105,8 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
             return null;
 
         const ids = ['powersave', 'sticky', 'balanced', 'performance'];
-        const names = [_('Power saver'), _('Sticky'), _('Balanced'),
-            _('Performance')];
+        const names = [_('省电'), _('粘性'), _('均衡'),
+            _('性能')];
         const model = new Gtk.StringList();
         names.forEach(name => model.append(name));
 
@@ -116,10 +116,10 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
                 GLib.file_get_contents('/var/lib/gts9wifi/power-profile')[1]).trim();
         } catch {}
 
-        const group = new Adw.PreferencesGroup({title: _('Power')});
+        const group = new Adw.PreferencesGroup({title: _('电源')});
         const row = new Adw.ComboRow({
-            title: _('Power profile'),
-            subtitle: _('CPU governor/EPP, GPU devfreq and Wi-Fi powersave. Each change asks for authentication.'),
+            title: _('性能模式'),
+            subtitle: _('CPU 调频/EPP、GPU 调频和 Wi-Fi 省电策略。每次修改都会请求认证。'),
             model,
             selected: Math.max(0, ids.indexOf(current)),
         });
@@ -138,10 +138,10 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
 
         const enabled = GLib.file_test('/etc/gts9wifi/usb-net-enabled',
             GLib.FileTest.EXISTS);
-        const group = new Adw.PreferencesGroup({title: _('Debug')});
+        const group = new Adw.PreferencesGroup({title: _('调试')});
         const row = new Adw.SwitchRow({
-            title: _('USB debug network'),
-            subtitle: _('The USB gadget at 172.16.42.1 for SSH when the system does not boot. It keeps the USB device controller powered, so leave it off for daily use.'),
+            title: _('USB 调试网络'),
+            subtitle: _('系统无法启动时，通过 172.16.42.1 的 USB 网卡提供 SSH。它会持续给 USB 设备控制器供电，日常使用建议关闭。'),
             active: enabled,
         });
 
@@ -190,10 +190,10 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
             current = new TextDecoder().decode(GLib.file_get_contents(choice)[1]).trim();
         } catch {}
 
-        const group = new Adw.PreferencesGroup({title: _('Boot')});
+        const group = new Adw.PreferencesGroup({title: _('启动')});
         const row = new Adw.ComboRow({
-            title: _('Boot animation'),
-            subtitle: _('Shown from the moment the screen comes on until the login screen.'),
+            title: _('开机动画'),
+            subtitle: _('从亮屏开始显示，直到登录界面。'),
             model: labels,
             selected: Math.max(0, ids.indexOf(current)),
         });
@@ -212,12 +212,12 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
     // idle, Ubuntu's ubuntu-lock-on-suspend the suspend; gts9wifi-power-key
     // reads lock-enabled and does not lock before suspending when it is off.
     _lockGroup() {
-        const group = new Adw.PreferencesGroup({title: _('Screen lock')});
+        const group = new Adw.PreferencesGroup({title: _('屏幕锁定')});
         this._screensaver = new Gio.Settings({schema_id: 'org.gnome.desktop.screensaver'});
         // Off by default (GNOME's default: lock-enabled true).
         const row = new Adw.SwitchRow({
-            title: _('Wake without the password'),
-            subtitle: _('The password is asked once, at login: after that the power key and the screen timeout only turn the screen off, and waking goes straight back to the desktop.'),
+            title: _('唤醒无需密码'),
+            subtitle: _('只在登录时询问一次密码：之后电源键和熄屏超时只会关闭屏幕，唤醒后直接回到桌面。'),
         });
         this._screensaver.bind('lock-enabled', row, 'active',
             Gio.SettingsBindFlags.DEFAULT | Gio.SettingsBindFlags.INVERT_BOOLEAN);
@@ -230,19 +230,19 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
     }
 
     _displayGroup() {
-        const group = new Adw.PreferencesGroup({title: _('Display')});
+        const group = new Adw.PreferencesGroup({title: _('显示')});
 
         const corners = new Adw.SwitchRow({
-            title: _('Rounded screen corners'),
-            subtitle: _('Mask the panel corners with a black rounded wedge, like One UI.'),
+            title: _('屏幕圆角遮罩'),
+            subtitle: _('用黑色圆角楔形遮住面板四角，类似 One UI。'),
         });
         this.getSettings().bind('rounded-corners', corners, 'active',
             Gio.SettingsBindFlags.DEFAULT);
         group.add(corners);
 
         const radius = new Adw.SpinRow({
-            title: _('Corner radius'),
-            subtitle: _('Physical pixels at a 2560-pixel panel width.'),
+            title: _('圆角半径'),
+            subtitle: _('以 2560 像素面板宽度为基准的物理像素。'),
             adjustment: new Gtk.Adjustment({
                 lower: 8,
                 upper: 64,
@@ -263,10 +263,10 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
     }
 
     _keyboardGroup() {
-        const group = new Adw.PreferencesGroup({title: _('Keyboard')});
+        const group = new Adw.PreferencesGroup({title: _('键盘')});
         const row = new Adw.SwitchRow({
-            title: _('Floating keyboard button'),
-            subtitle: _('A draggable button that opens the on-screen keyboard, for apps that do not open it on their own (X11 apps, Wine).'),
+            title: _('浮动键盘按钮'),
+            subtitle: _('可拖动的按钮，用于打开屏幕键盘，适合不会自行唤出键盘的应用（X11 应用、Wine）。'),
         });
         this.getSettings().bind('keyboard-button', row, 'active',
             Gio.SettingsBindFlags.DEFAULT);
