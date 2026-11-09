@@ -108,6 +108,17 @@ struct backlight {
     int maximum;
 };
 
+struct fbdev {
+    int fd;
+    unsigned char *map;
+    size_t length;
+    int width;
+    int height;
+    int stride;
+    cairo_surface_t *surface;
+    cairo_t *cr;
+};
+
 static double mono_seconds(void)
 {
     struct timespec ts;
@@ -154,6 +165,21 @@ static int write_int(const char *path, int value)
     if (fd < 0)
         return -1;
     if (write(fd, buf, len) != len) {
+        close(fd);
+        return -1;
+    }
+    close(fd);
+    return 0;
+}
+
+static int write_text(const char *path, const char *value)
+{
+    size_t len = strlen(value);
+    int fd = open(path, O_WRONLY);
+
+    if (fd < 0)
+        return -1;
+    if (write(fd, value, len) != (ssize_t)len) {
         close(fd);
         return -1;
     }
@@ -441,35 +467,61 @@ static void setup_backlight(struct backlight *bl)
     write_int(bl->brightness, bl->saved);
 }
 
-static int find_power_key(void)
+#define MAX_KEY_DEVS 8
+
+struct key_devs {
+    int fd[MAX_KEY_DEVS];
+    int count;
+};
+
+static void find_power_keys(struct key_devs *keys)
 {
     DIR *dir = opendir("/sys/class/input");
     struct dirent *entry;
-    int fd = -1;
 
-    if (dir) {
-        while ((entry = readdir(dir)) != NULL) {
-            char namepath[320], devpath[320], name[128];
+    memset(keys, 0, sizeof(*keys));
+    if (!dir)
+        return;
+    while ((entry = readdir(dir)) != NULL) {
+        unsigned char bits[(KEY_MAX + 7) / 8];
+        char namepath[320], devpath[320], name[128];
+        int fd;
 
-            if (strncmp(entry->d_name, "event", 5) != 0)
-                continue;
-            snprintf(namepath, sizeof(namepath),
-                "/sys/class/input/%s/device/name", entry->d_name);
-            if (read_text(namepath, name, sizeof(name)) < 0)
-                continue;
-            if (!strstr(name, "pmic_pwrkey") && !strstr(name, "pwrkey"))
-                continue;
-            snprintf(devpath, sizeof(devpath), "/dev/input/%s",
-                entry->d_name);
-            fd = open(devpath, O_RDONLY | O_NONBLOCK);
-            if (fd >= 0)
-                break;
+        if (keys->count >= MAX_KEY_DEVS)
+            break;
+        if (strncmp(entry->d_name, "event", 5) != 0)
+            continue;
+        snprintf(devpath, sizeof(devpath), "/dev/input/%s",
+            entry->d_name);
+        fd = open(devpath, O_RDONLY | O_NONBLOCK);
+        if (fd < 0)
+            continue;
+        memset(bits, 0, sizeof(bits));
+        if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(bits)), bits) < 0 ||
+            !(bits[KEY_POWER / 8] & (1 << (KEY_POWER % 8)))) {
+            close(fd);
+            continue;
         }
-        closedir(dir);
+        snprintf(namepath, sizeof(namepath),
+            "/sys/class/input/%s/device/name", entry->d_name);
+        if (read_text(namepath, name, sizeof(name)) < 0)
+            snprintf(name, sizeof(name), "%s", entry->d_name);
+        keys->fd[keys->count++] = fd;
+        kmsg("gts9wifi-lpcharge: power key %s (%s)", entry->d_name, name);
     }
-    if (fd < 0)
-        fd = open("/dev/input/event0", O_RDONLY | O_NONBLOCK);
-    return fd;
+    closedir(dir);
+}
+
+static void panel_blank(struct fbdev *fb, int blank)
+{
+    int fb_rc;
+    int drm_rc;
+
+    fb_rc = ioctl(fb->fd, FBIOBLANK, blank);
+    drm_rc = write_text("/sys/class/drm/card0-DSI-1/dpms",
+        blank == FB_BLANK_POWERDOWN ? "off" : "on");
+    if (fb_rc < 0 && drm_rc < 0)
+        kmsg("gts9wifi-lpcharge: panel blank=%d failed", blank);
 }
 
 static void quit_plymouth(void)
@@ -495,17 +547,6 @@ static void quit_plymouth(void)
         }
     }
 }
-
-struct fbdev {
-    int fd;
-    unsigned char *map;
-    size_t length;
-    int width;
-    int height;
-    int stride;
-    cairo_surface_t *surface;
-    cairo_t *cr;
-};
 
 static int open_fb(struct fbdev *fb)
 {
@@ -586,13 +627,15 @@ int main(int argc, char **argv)
 {
     struct fbdev fb = {.fd = -1};
     struct backlight bl = {0};
+    struct key_devs keys;
     struct reading r;
-    int key_fd;
     int screen_on = 1;
     int pressed = 0;
+    int i;
     double press_at = 0;
     double last_activity;
     double last_draw = 0;
+    double last_log = 0;
 
     if (fonts_init() < 0)
         kmsg("gts9wifi-lpcharge: no usable fonts; text will be missing");
@@ -600,11 +643,14 @@ int main(int argc, char **argv)
         return preview(argv[2]);
 
     quit_plymouth();
-    if (open_fb(&fb) < 0)
+    if (open_fb(&fb) < 0) {
+        kmsg("gts9wifi-lpcharge: /dev/fb0 unavailable");
         return 1;
+    }
     setup_backlight(&bl);
-    key_fd = find_power_key();
-    if (key_fd < 0) {
+    find_power_keys(&keys);
+    if (keys.count == 0) {
+        kmsg("gts9wifi-lpcharge: no power key device; continuing boot");
         close_fb(&fb);
         return 1;
     }
@@ -614,32 +660,48 @@ int main(int argc, char **argv)
         fb.width, fb.height, r.percent);
     render_fb(&fb, &r);
     last_activity = mono_seconds();
+    last_log = last_activity;
 
     for (;;) {
-        struct pollfd pfd = {.fd = key_fd, .events = POLLIN};
+        struct pollfd fds[MAX_KEY_DEVS];
         double now = mono_seconds();
-        int ret = poll(&pfd, 1, 100);
+        int ret;
 
-        if (ret > 0 && (pfd.revents & POLLIN)) {
-            struct input_event ev;
+        for (i = 0; i < keys.count; i++) {
+            fds[i].fd = keys.fd[i];
+            fds[i].events = POLLIN;
+            fds[i].revents = 0;
+        }
+        ret = poll(fds, keys.count, 100);
+        if (ret > 0) {
+            for (i = 0; i < keys.count; i++) {
+                struct input_event ev;
 
-            while (read(key_fd, &ev, sizeof(ev)) == sizeof(ev)) {
-                if (ev.type != EV_KEY || ev.code != KEY_POWER)
+                if (!(fds[i].revents & POLLIN))
                     continue;
-                if (ev.value == 1) {
-                    pressed = 1;
-                    press_at = now;
-                    last_activity = now;
-                    if (!screen_on) {
-                        screen_on = 1;
-                        write_int(bl.brightness, bl.saved);
-                        read_reading(&r);
-                        render_fb(&fb, &r);
-                        last_draw = now;
+                while (read(keys.fd[i], &ev, sizeof(ev)) == sizeof(ev)) {
+                    if (ev.type != EV_KEY || ev.code != KEY_POWER)
+                        continue;
+                    kmsg("gts9wifi-lpcharge: power key value=%d",
+                        ev.value);
+                    if (ev.value == 1) {
+                        pressed = 1;
+                        press_at = now;
+                        last_activity = now;
+                        if (!screen_on) {
+                            screen_on = 1;
+                            panel_blank(&fb, FB_BLANK_UNBLANK);
+                            write_int(bl.brightness, bl.saved);
+                            read_reading(&r);
+                            render_fb(&fb, &r);
+                            last_draw = now;
+                            kmsg("gts9wifi-lpcharge: wake pct=%d v=%.1f a=%.1f w=%.1f",
+                                r.percent, r.volts, r.amps, r.watts);
+                        }
+                    } else if (ev.value == 0) {
+                        pressed = 0;
+                        last_activity = now;
                     }
-                } else if (ev.value == 0) {
-                    pressed = 0;
-                    last_activity = now;
                 }
             }
         }
@@ -650,16 +712,26 @@ int main(int argc, char **argv)
         if (screen_on && now - last_activity >= BLANK_SECONDS) {
             screen_on = 0;
             write_int(bl.brightness, 0);
+            panel_blank(&fb, FB_BLANK_POWERDOWN);
+            kmsg("gts9wifi-lpcharge: blank");
         }
-        if (screen_on && now - last_draw >= 1.0) {
+        if (now - last_draw >= 1.0) {
             read_reading(&r);
             render_fb(&fb, &r);
             last_draw = now;
+            if (now - last_log >= 30.0) {
+                kmsg("gts9wifi-lpcharge: data pct=%d v=%.1f a=%.1f w=%.1f t=%.1f",
+                    r.percent, r.volts, r.amps, r.watts, r.temp);
+                last_log = now;
+            }
         }
     }
 
+    panel_blank(&fb, FB_BLANK_UNBLANK);
     write_int(bl.brightness, bl.saved);
-    close(key_fd);
+    kmsg("gts9wifi-lpcharge: boot requested");
+    for (i = 0; i < keys.count; i++)
+        close(keys.fd[i]);
     close_fb(&fb);
     return 0;
 }
