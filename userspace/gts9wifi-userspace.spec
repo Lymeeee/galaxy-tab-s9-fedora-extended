@@ -1,11 +1,11 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.22
+Version:        0.17.23
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
-URL:            https://github.com/Lymeeee/gts9wifi-fedora-linux
+URL:            https://github.com/Lymeeee/galaxy-tab-s9-fedora-extended
 BuildArch:      noarch
 Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  systemd-rpm-macros

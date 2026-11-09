@@ -5,7 +5,7 @@ Version:        0.1.0
 Release:        1%{?dist}
 Summary:        EL721 secure-start runtime for the Galaxy Tab S9 Wi-Fi
 License:        MIT AND LGPL-2.1-or-later AND BSD-3-Clause
-URL:            https://github.com/Lymeeee/gts9wifi-fedora-linux
+URL:            https://github.com/Lymeeee/galaxy-tab-s9-fedora-extended
 BuildArch:      aarch64
 Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  glib2-devel

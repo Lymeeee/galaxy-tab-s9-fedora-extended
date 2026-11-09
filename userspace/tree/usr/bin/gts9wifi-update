@@ -7,8 +7,8 @@
 # persist, modemst or efs.
 set -euo pipefail
 
-REPO=${GTS9WIFI_REPO:-Lymeeee/gts9wifi-fedora-linux}
-DEFAULT_TAG=${GTS9WIFI_TAG:-kernel-7.2.0-merge-1}
+REPO=${GTS9WIFI_REPO:-Lymeeee/galaxy-tab-s9-fedora-extended}
+DEFAULT_TAG=${GTS9WIFI_TAG:-latest}
 DEFAULT_FFMPEG_TAG=${GTS9WIFI_FFMPEG_TAG:-ffmpeg-8.1.3-gts9wifi-1}
 DEFAULT_LIBFPRINT_TAG=${GTS9WIFI_LIBFPRINT_TAG:-libfprint-1.94.100-gts9wifi-1}
 DEFAULT_FINGERPRINT_TAG=${GTS9WIFI_FINGERPRINT_TAG:-gts9wifi-fingerprint-0.1.0-1}
@@ -49,7 +49,7 @@ Commands:
   rollback [--backup D] restore the latest (or D) boot-partition backup
 
 Options:
-  --tag TAG             release tag (default: kernel-7.2.0-merge-1,
+  --tag TAG             release tag (default: latest,
                         ffmpeg-8.1.3-gts9wifi-1 for ffmpeg)
   --libfprint-tag TAG   libfprint EL721 release (default: libfprint-1.94.100-gts9wifi-1)
   --fingerprint-tag TAG runtime release (default: gts9wifi-fingerprint-0.1.0-1)

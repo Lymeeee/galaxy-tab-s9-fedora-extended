@@ -41,11 +41,12 @@ jobs:
       - name: Publish the charger and preview
         env:
           GH_TOKEN: ${{ github.token }}
-          REL: kernel-7.2.0-merge-1
+          REL: latest
         run: |
           gh release view "$REL" >/dev/null 2>&1 || \
-            gh release create "$REL" --title "Experimental Test Build ($REL)" \
-              --prerelease --latest=false --notes "Automated build for $REL"
+            gh release create "$REL" --target "$GITHUB_SHA" --latest \
+              --title "GTS9 Latest" \
+              --notes "Rolling channel: newest userspace/dynpart RPMs and kernel bundle."
           gh release upload "$REL" --clobber \
             out-charger/gts9wifi-lpcharge \
             out-charger/charge-preview.png

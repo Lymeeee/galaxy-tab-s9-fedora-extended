@@ -15,14 +15,14 @@ on:
         type: string
       firmware_url:
         description: "Device firmware payload (GPU/ADSP blobs for the initramfs)"
-        default: "https://api.github.com/repos/Lymeeee/gts9wifi-fedora-linux/releases/assets/723491599"
+        default: "https://api.github.com/repos/Lymeeee/galaxy-tab-s9-fedora-extended/releases/assets/723491599"
         type: string
       firmware_sha256:
         description: "sha256 of the firmware payload"
         default: "30cace40556fdaf1577c76bedc1b1a6236f4acc23e9300253b3834fa7ed4bab5"
         type: string
       release_tag:
-        description: "Release tag to (re)publish the boot bundle and TWRP zip to, e.g. kernel-7.2.0-gts9wifi-1 (required: there is no artifact upload anymore)"
+        description: "Release tag to publish, e.g. kernel-7.2.0-20261109.42560601162 (required)"
         default: ""
         type: string
 

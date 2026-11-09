@@ -67,16 +67,24 @@ probe, ambient-light sensing over D-Bus, password login.
 
 ## Getting the images
 
-[Releases](https://github.com/nacht20-de/gts9wifi-fedora/releases) carries
-everything needed. The `gts9wifi-fedora-*` full-set release has all of it in
-one place — kernel RPM, boot bundle, TWRP zip and rootfs tarball, verified to
-match. The pieces are also published separately:
+[Releases](https://github.com/Lymeeee/galaxy-tab-s9-fedora-extended/releases)
+carries everything needed. Releases follow a fixed naming scheme:
 
-- **`rootfs-f44-gnome-…`** — the turnkey rootfs tarball (~1.8 GB): GNOME
-  Workstation plus gdm, the device stack, all device firmware, and kernel
-  modules matching the boot bundle. Default login is `fedora` / `fedora`.
-- **`kernel-…-gts9wifi-…`** — the TWRP flash zip (boot bundle), the kernel RPM,
-  and the firmware payload asset.
+- **`latest`** — the rolling channel used by `gts9wifi-update`: newest
+  `gts9wifi-userspace` and `gts9wifi-dynpart` RPMs, the charger preview, and
+  the current kernel pair. Old package versions are pruned automatically.
+- **`kernel-7.2.0-<YYYYMMDD>.<run>`** — one immutable kernel build: boot
+  images, `linux-gts9wifi-7.2.0-<build>.fc44.aarch64.rpm`,
+  `gts9wifi-fedora-7.2.0-<build>.zip`, `BUILD-METADATA.txt` and
+  `BUNDLE-SHA256SUMS`. Use this tag with `gts9wifi-update kernel --tag ...`
+  to pin or roll back a specific build.
+- **`ffmpeg-…`, `libfprint-…`, `gts9wifi-fingerprint-…`** — third-party RPM
+  builds referenced by the updater.
+
+`<build>` is `<YYYYMMDD>.<GitHub run number>`; the same identifier appears in
+the kernel RPM release, the TWRP zip filename and `BUILD-METADATA.txt`.
+Historical `kernel-7.2.0-merge-*` and `rootfs-*` tags are kept for reference
+only.
 
 The full walk-through is in [INSTALL.md](INSTALL.md).
 
@@ -107,15 +115,18 @@ or fetched from a pinned source with a verified checksum.
 
 ## Updating
 
-A new boot bundle must be paired with its matching kernel RPM on the rootfs:
+The updater pulls from the rolling `latest` release by default:
 
 ```sh
-sudo rpm -Uvh linux-gts9wifi-<ver>.aarch64.rpm
+sudo gts9wifi-update userspace        # userspace + dynpart RPMs
+sudo gts9wifi-update check            # installed vs release versions
+sudo gts9wifi-update kernel --flash   # kernel RPM + matching boot bundle
 ```
 
-Take the bundle and the RPM from the same release. The kernel's version magic
-has to match the modules on the rootfs or they will not load — and the first
-thing you notice is Wi-Fi and Bluetooth being dead.
+Pin or roll back a kernel with `--tag kernel-7.2.0-<YYYYMMDD>.<run>`. Take the
+bundle and the RPM from the same release: the kernel's version magic has to
+match the modules on the rootfs or they will not load — and the first thing
+you notice is Wi-Fi and Bluetooth being dead.
 
 ---
 

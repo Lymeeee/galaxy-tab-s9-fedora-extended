@@ -5,10 +5,11 @@
 %define flavor gts9wifi
 %define debug_package %{nil}
 %define kversion 7.2.0
+%{!?buildid: %global buildid 0.1}
 
 Name:           linux-%{flavor}
 Version:        7.2.0
-Release:        0.1%{?dist}
+Release:        %{buildid}%{?dist}
 Summary:        Mainline Linux kernel for Samsung Galaxy Tab S9 Wi-Fi (gts9wifi)
 License:        GPL-2.0-only
 URL:            https://www.kernel.org

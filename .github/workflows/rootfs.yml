@@ -24,14 +24,14 @@ on:
         type: string
       firmware_url:
         description: "Device firmware payload (extracted from the stock partitions)"
-        default: "https://api.github.com/repos/Lymeeee/gts9wifi-fedora-linux/releases/assets/723491599"
+        default: "https://api.github.com/repos/Lymeeee/galaxy-tab-s9-fedora-extended/releases/assets/723491599"
         type: string
       firmware_sha256:
         description: "sha256 of the firmware payload"
         default: "30cace40556fdaf1577c76bedc1b1a6236f4acc23e9300253b3834fa7ed4bab5"
         type: string
       release_tag:
-        description: "Release tag to (re)publish the finished assets to, e.g. rootfs-f44-gnome-3 (required: there is no artifact upload anymore)"
+        description: "Release tag to publish, e.g. rootfs-f44-gnome-20261109 (required: there is no artifact upload anymore)"
         default: ""
         type: string
 

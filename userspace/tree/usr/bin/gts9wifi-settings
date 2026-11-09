@@ -29,7 +29,7 @@ UPDATE = '/usr/bin/gts9wifi-update'
 PROTECT = '/usr/libexec/gts9wifi-protect'
 IME = '/usr/libexec/gts9wifi-ime'
 POWERKEY = '/usr/libexec/gts9wifi-powerkey-mode'
-DEFAULT_KERNEL_TAG = 'kernel-7.2.0-merge-1'
+DEFAULT_KERNEL_TAG = 'latest'
 POWER_IDS = ['powersave', 'sticky', 'balanced', 'performance']
 MIRROR_IDS = ['ustc', 'tuna']
 MIRROR_HOSTS = {
@@ -601,7 +601,7 @@ class Settings(Adw.Application):
     def flash_kernel(self):
         tag = self.kernel_tag.get_text().strip()
         if not tag or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-' for c in tag):
-            self.alert('Invalid tag', 'Use a release tag such as kernel-7.2.0-merge-2.')
+            self.alert('Invalid tag', 'Use latest or a dated kernel tag such as kernel-7.2.0-20261109.67.')
             return
         self.confirm_typed(
             'Flash kernel and boot bundle?',

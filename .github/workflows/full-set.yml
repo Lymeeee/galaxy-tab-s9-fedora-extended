@@ -12,7 +12,7 @@ on:
         default: "rootfs-f44-gnome-5"
         type: string
       release_tag:
-        description: "Combined release tag to publish, e.g. gts9wifi-fedora-7.2.0-1 (required: there is no artifact upload anymore)"
+        description: "Combined release tag to publish, e.g. gts9wifi-fedora-7.2.0-20261109.42560601162 (required)"
         default: ""
         type: string
 

@@ -6,7 +6,7 @@ on:
       release_tag:
         description: "Release tag to publish the userspace RPM to"
         required: false
-        default: "kernel-7.2.0-merge-1"
+        default: "latest"
         type: string
   push:
     branches: [main]
@@ -59,13 +59,22 @@ jobs:
               cp ~/rpmbuild/RPMS/noarch/*.rpm /work/out-userspace/
             '
 
-      - name: Publish to the named release
+      - name: Publish and keep only the newest userspace RPM
         env:
           GH_TOKEN: ${{ github.token }}
-          REL: ${{ inputs.release_tag || 'kernel-7.2.0-merge-1' }}
+          REL: ${{ inputs.release_tag || 'latest' }}
         run: |
+          set -euo pipefail
           [ -n "$REL" ] || { echo "release tag is empty" >&2; exit 1; }
           gh release view "$REL" >/dev/null 2>&1 || \
-            gh release create "$REL" --title "Experimental Test Build ($REL)" \
-              --prerelease --latest=false --notes "Automated build for $REL"
+            gh release create "$REL" --target "$GITHUB_SHA" --latest \
+              --title "GTS9 Latest" \
+              --notes "Rolling channel: newest userspace/dynpart RPMs and kernel bundle."
           gh release upload "$REL" --clobber out-userspace/*.rpm
+          if [ "$REL" = latest ]; then
+            new=$(basename "$(echo out-userspace/*.rpm)")
+            gh release view latest --json assets --jq '.assets[].name' \
+              | grep -E '^gts9wifi-userspace-.*\.noarch\.rpm$' \
+              | grep -vxF "$new" \
+              | while read -r old; do gh release delete-asset latest "$old" --yes; done || true
+          fi
