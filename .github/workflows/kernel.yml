@@ -182,6 +182,9 @@ jobs:
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+      # The publish job has no checkout; without this gh cannot resolve the
+      # repository ("fatal: not a git repository") before it even calls the API.
+      GH_REPO: ${{ github.repository }}
       BUILD_ID: ${{ needs.meta.outputs.build_id }}
       REL: ${{ needs.meta.outputs.rel }}
     steps:
