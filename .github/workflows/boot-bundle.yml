@@ -15,7 +15,7 @@ on:
         type: string
       firmware_url:
         description: "Device firmware payload (GPU/ADSP blobs for the initramfs)"
-        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-2/firmware-samsung-gts9wifi-v2.tar.gz"
+        default: "https://api.github.com/repos/Lymeeee/gts9wifi-fedora-linux/releases/assets/723491599"
         type: string
       firmware_sha256:
         description: "sha256 of the firmware payload"
@@ -77,7 +77,8 @@ jobs:
               # gts9wifi.conf install_items pulls the a740 zap/GMU files into
               # the image.  Without this extract dracut-install silently drops
               # them and GNOME comes up on llvmpipe.
-              curl -sfL "$FIRMWARE_URL" -o /tmp/fw.tar.gz
+              curl -sfL -H "Accept: application/octet-stream" \
+                "$FIRMWARE_URL" -o /tmp/fw.tar.gz
               echo "$FIRMWARE_SHA256  /tmp/fw.tar.gz" | sha256sum -c -
               tar xzf /tmp/fw.tar.gz -C /
 

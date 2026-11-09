@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=GTS9
+Description=Galaxy Tab S9 Wi-Fi boot splash
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/gts9wifi
+ScriptFile=/usr/share/plymouth/themes/gts9wifi/gts9wifi.script

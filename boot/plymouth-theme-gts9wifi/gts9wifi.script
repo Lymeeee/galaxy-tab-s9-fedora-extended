@@ -1,0 +1,142 @@
+# GTS9 boot splash (Plymouth script theme)
+#
+# All images are pre-rendered 1:1 for the 2560x1600 panel.  Plymouth's
+# Image.Scale uses a fixed 2x2 interpolation, which aliases badly when
+# downscaling these assets at boot; load them without scaling instead.
+Window.SetBackgroundTopColor(0, 0, 0);
+Window.SetBackgroundBottomColor(0, 0, 0);
+
+screen.width = Window.GetWidth();
+screen.height = Window.GetHeight();
+screen.x = Window.GetX();
+screen.y = Window.GetY();
+
+samsung.image = Image("samsung.png");
+samsung.width = samsung.image.GetWidth();
+samsung.height = samsung.image.GetHeight();
+samsung.sprite = Sprite(samsung.image);
+
+spinner.images[0] = Image("spinner-0001.png");
+spinner.images[1] = Image("spinner-0002.png");
+spinner.images[2] = Image("spinner-0003.png");
+spinner.images[3] = Image("spinner-0004.png");
+spinner.images[4] = Image("spinner-0005.png");
+spinner.images[5] = Image("spinner-0006.png");
+spinner.images[6] = Image("spinner-0007.png");
+spinner.images[7] = Image("spinner-0008.png");
+spinner.images[8] = Image("spinner-0009.png");
+spinner.images[9] = Image("spinner-0010.png");
+spinner.images[10] = Image("spinner-0011.png");
+spinner.images[11] = Image("spinner-0012.png");
+spinner.images[12] = Image("spinner-0013.png");
+spinner.images[13] = Image("spinner-0014.png");
+spinner.images[14] = Image("spinner-0015.png");
+spinner.images[15] = Image("spinner-0016.png");
+spinner.images[16] = Image("spinner-0017.png");
+spinner.images[17] = Image("spinner-0018.png");
+spinner.images[18] = Image("spinner-0019.png");
+spinner.images[19] = Image("spinner-0020.png");
+spinner.images[20] = Image("spinner-0021.png");
+spinner.images[21] = Image("spinner-0022.png");
+spinner.images[22] = Image("spinner-0023.png");
+spinner.images[23] = Image("spinner-0024.png");
+spinner.images[24] = Image("spinner-0025.png");
+spinner.images[25] = Image("spinner-0026.png");
+spinner.images[26] = Image("spinner-0027.png");
+spinner.images[27] = Image("spinner-0028.png");
+spinner.images[28] = Image("spinner-0029.png");
+spinner.images[29] = Image("spinner-0030.png");
+spinner.images[30] = Image("spinner-0031.png");
+spinner.images[31] = Image("spinner-0032.png");
+spinner.images[32] = Image("spinner-0033.png");
+spinner.images[33] = Image("spinner-0034.png");
+spinner.images[34] = Image("spinner-0035.png");
+spinner.images[35] = Image("spinner-0036.png");
+spinner.images[36] = Image("spinner-0037.png");
+spinner.images[37] = Image("spinner-0038.png");
+spinner.images[38] = Image("spinner-0039.png");
+spinner.images[39] = Image("spinner-0040.png");
+spinner.images[40] = Image("spinner-0041.png");
+spinner.images[41] = Image("spinner-0042.png");
+spinner.images[42] = Image("spinner-0043.png");
+spinner.images[43] = Image("spinner-0044.png");
+spinner.images[44] = Image("spinner-0045.png");
+spinner.images[45] = Image("spinner-0046.png");
+spinner.images[46] = Image("spinner-0047.png");
+spinner.images[47] = Image("spinner-0048.png");
+spinner.images[48] = Image("spinner-0049.png");
+spinner.images[49] = Image("spinner-0050.png");
+spinner.images[50] = Image("spinner-0051.png");
+spinner.images[51] = Image("spinner-0052.png");
+spinner.images[52] = Image("spinner-0053.png");
+spinner.images[53] = Image("spinner-0054.png");
+spinner.images[54] = Image("spinner-0055.png");
+spinner.images[55] = Image("spinner-0056.png");
+spinner.images[56] = Image("spinner-0057.png");
+spinner.images[57] = Image("spinner-0058.png");
+spinner.images[58] = Image("spinner-0059.png");
+spinner.images[59] = Image("spinner-0060.png");
+spinner.images[60] = Image("spinner-0061.png");
+spinner.images[61] = Image("spinner-0062.png");
+spinner.images[62] = Image("spinner-0063.png");
+spinner.images[63] = Image("spinner-0064.png");
+spinner.images[64] = Image("spinner-0065.png");
+spinner.images[65] = Image("spinner-0066.png");
+spinner.images[66] = Image("spinner-0067.png");
+spinner.images[67] = Image("spinner-0068.png");
+spinner.images[68] = Image("spinner-0069.png");
+spinner.images[69] = Image("spinner-0070.png");
+spinner.images[70] = Image("spinner-0071.png");
+spinner.images[71] = Image("spinner-0072.png");
+spinner.images[72] = Image("spinner-0073.png");
+spinner.images[73] = Image("spinner-0074.png");
+spinner.images[74] = Image("spinner-0075.png");
+spinner.images[75] = Image("spinner-0076.png");
+spinner.images[76] = Image("spinner-0077.png");
+spinner.images[77] = Image("spinner-0078.png");
+spinner.images[78] = Image("spinner-0079.png");
+spinner.images[79] = Image("spinner-0080.png");
+spinner.images[80] = Image("spinner-0081.png");
+spinner.images[81] = Image("spinner-0082.png");
+spinner.images[82] = Image("spinner-0083.png");
+spinner.images[83] = Image("spinner-0084.png");
+
+spinner.size = spinner.images[0].GetWidth();
+spinner.top = screen.height * 0.72 - spinner.size / 2;
+samsung.y = spinner.top / 2 - samsung.height / 2;
+samsung.sprite.SetPosition(screen.x + screen.width / 2 - samsung.width / 2, screen.y + samsung.y, 10);
+
+spinner.sprite = Sprite(spinner.images[0]);
+spinner.sprite.SetPosition(screen.x + screen.width / 2 - spinner.size / 2, screen.y + screen.height * 0.72 - spinner.size / 2, 20);
+spinner.frame = 0;
+
+fedora.icon.image = Image("fedora-icon.png");
+fedora.icon.size = fedora.icon.image.GetWidth();
+fedora.icon.sprite = Sprite(fedora.icon.image);
+fedora.word.image = Image("fedora-wordmark.png");
+fedora.word.height = fedora.word.image.GetHeight();
+fedora.word.width = fedora.word.image.GetWidth();
+fedora.word.sprite = Sprite(fedora.word.image);
+fedora.gap = Math.Int(screen.width * 10 / 960);
+fedora.total = fedora.icon.size + fedora.gap + fedora.word.width;
+fedora.x = screen.x + screen.width / 2 - fedora.total / 2;
+fedora.y = screen.y + screen.height * 0.88;
+fedora.icon.sprite.SetPosition(fedora.x, fedora.y - fedora.icon.size / 2, 10);
+fedora.word.sprite.SetPosition(fedora.x + fedora.icon.size + fedora.gap, fedora.y - fedora.word.height / 2, 10);
+
+fun refresh_callback()
+  {
+    spinner.frame += 1;
+    if (spinner.frame >= 84)
+      spinner.frame = 0;
+    spinner.sprite.SetImage(spinner.images[spinner.frame]);
+  }
+
+Plymouth.SetRefreshFunction(refresh_callback);
+
+fun no_message(text)
+  {
+  }
+
+Plymouth.SetDisplayMessageFunction(no_message);
+Plymouth.SetHideMessageFunction(no_message);

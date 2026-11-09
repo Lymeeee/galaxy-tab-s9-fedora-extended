@@ -5,7 +5,7 @@ on:
     inputs:
       firmware_url:
         description: "Device firmware payload (GPU/ADSP blobs for the initramfs)"
-        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-rc3-gts9wifi-2/firmware-samsung-gts9wifi-v2.tar.gz"
+        default: "https://api.github.com/repos/Lymeeee/gts9wifi-fedora-linux/releases/assets/723491599"
         type: string
       firmware_sha256:
         description: "sha256 of the firmware payload"
@@ -39,6 +39,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Fail in seconds if the payload link is dead instead of after the
+      # 50-minute kernel build.
+      - name: Validate the firmware payload URL
+        run: |
+          curl -sfL --max-time 60 -r 0-1023 -o /dev/null \
+            -H "Accept: application/octet-stream" \
+            "${{ inputs.firmware_url }}"
+
       - name: Build kernel RPM, initramfs, boot bundle and TWRP zip
         run: |
           docker run --rm \
@@ -52,8 +60,8 @@ jobs:
               dnf -y install make gcc clang lld llvm bc flex bison perl \
                   openssl openssl-devel elfutils-libelf-devel python3 tar xz \
                   zstd rpm-build ccache dtc findutils dwarves dracut \
-                  cpio lz4 iproute pkgconf-pkg-config cairo-devel \
-                  pango-devel fontconfig-devel >/dev/null
+                  cpio lz4 iproute plymouth plymouth-plugin-script \
+                  pkgconf-pkg-config cairo-devel pango-devel fontconfig-devel >/dev/null
 
               # --- kernel ---
               mkdir -p /tmp/kcache
@@ -80,7 +88,8 @@ jobs:
               # The Adreno driver is built-in and probes inside the initramfs;
               # stage the device GPU firmware so the first fw request succeeds
               # (gts9wifi.conf install_items pulls these into the image).
-              curl -sfL "$FIRMWARE_URL" -o /tmp/fw.tar.gz
+              curl -sfL -H "Accept: application/octet-stream" \
+                "$FIRMWARE_URL" -o /tmp/fw.tar.gz
               echo "$FIRMWARE_SHA256  /tmp/fw.tar.gz" | sha256sum -c -
               tar xzf /tmp/fw.tar.gz -C /
               # Off-mode charging screen: binary, fonts and dracut module.
@@ -94,7 +103,15 @@ jobs:
                   /work/boot/dracut/95gts9wifi-lpcharge \
                   /usr/lib/dracut/modules.d/
               cp /work/boot/dracut/dracut.conf.d/gts9wifi.conf /usr/lib/dracut/dracut.conf.d/
+              install -d /usr/share/plymouth/themes/gts9wifi
+              cp -a /work/boot/plymouth-theme-gts9wifi/. /usr/share/plymouth/themes/gts9wifi/
+              plymouth-set-default-theme gts9wifi
+              grep -q '^ShowDelay=' /etc/plymouth/plymouthd.conf || echo 'ShowDelay=0' >> /etc/plymouth/plymouthd.conf
+              grep -q '^Theme=gts9wifi$' /etc/plymouth/plymouthd.conf
               dracut --kver "$KVER" --force /tmp/initramfs.img
+              zcat /tmp/initramfs.img | cpio -it 2>/dev/null > /tmp/initramfs.list
+              grep -qx 'usr/share/plymouth/themes/gts9wifi/gts9wifi.script' /tmp/initramfs.list
+              grep -qx 'usr/share/plymouth/themes/gts9wifi/spinner-0084.png' /tmp/initramfs.list
 
               # --- boot bundle ---
               bash /work/boot/build-bundle.sh \

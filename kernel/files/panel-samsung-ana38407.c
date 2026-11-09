@@ -43,7 +43,50 @@
  * 11 set wraps back to the bottom of the range.  Declaring 4095 made the
  * desktop's slider sweep the panel from dark to bright twice.
  */
-#define ANA38407_MAX_BRIGHTNESS		0x07ff
+#define ANA38407_MAX_DBV		0x07ff
+#define ANA38407_BL_LEVELS		256
+
+/*
+ * Samsung's NORMAL_CANDELA_MAP from the panel data file: platform level (the
+ * 0..255 brightness the desktop sets) -> WRDISBV -> luminance.  The DDIC's
+ * own curve is very non-linear at the low end, so mapping the slider straight
+ * to 0..2047 made the darkest settings far too bright and wasted most of the
+ * range.  This is the stock curve (level 0 = 2 cd/m2, level 255 = 420 cd/m2).
+ */
+static const u16 ana38407_normal_dbv[ANA38407_BL_LEVELS] = {
+	10, 12, 14, 16, 19, 22, 26, 29,
+	33, 36, 40, 44, 48, 53, 57, 61,
+	66, 70, 75, 80, 84, 89, 94, 99,
+	104, 110, 115, 120, 125, 131, 136, 142,
+	147, 153, 158, 164, 170, 176, 182, 187,
+	193, 199, 205, 211, 218, 224, 230, 236,
+	242, 249, 255, 261, 268, 274, 281, 287,
+	294, 301, 307, 314, 321, 327, 334, 341,
+	348, 355, 362, 369, 376, 383, 390, 397,
+	404, 411, 418, 425, 432, 440, 447, 454,
+	462, 469, 476, 484, 491, 499, 506, 514,
+	521, 529, 536, 544, 551, 559, 567, 575,
+	582, 590, 598, 606, 613, 621, 629, 637,
+	645, 653, 661, 669, 677, 685, 693, 701,
+	709, 717, 726, 734, 742, 750, 758, 767,
+	775, 783, 791, 800, 808, 817, 825, 833,
+	842, 850, 859, 867, 876, 884, 893, 901,
+	910, 919, 927, 936, 944, 953, 962, 971,
+	979, 988, 997, 1006, 1014, 1023, 1032, 1041,
+	1050, 1059, 1068, 1077, 1086, 1095, 1104, 1113,
+	1122, 1131, 1140, 1149, 1158, 1167, 1176, 1185,
+	1194, 1203, 1213, 1222, 1231, 1240, 1250, 1259,
+	1268, 1277, 1287, 1296, 1305, 1315, 1324, 1334,
+	1343, 1352, 1362, 1371, 1381, 1390, 1400, 1409,
+	1419, 1428, 1438, 1447, 1457, 1467, 1476, 1486,
+	1495, 1505, 1515, 1524, 1534, 1544, 1554, 1563,
+	1573, 1583, 1593, 1603, 1612, 1622, 1632, 1642,
+	1652, 1662, 1672, 1681, 1691, 1701, 1711, 1721,
+	1731, 1741, 1751, 1761, 1771, 1781, 1791, 1801,
+	1812, 1822, 1832, 1842, 1852, 1862, 1872, 1882,
+	1893, 1903, 1913, 1923, 1934, 1944, 1954, 1964,
+	1975, 1985, 1995, 2006, 2016, 2026, 2037, 2047,
+};
 /* One UI enrollment reports HBM platform level 385. Samsung's HBM table
  * maps that to WRDISBV 1623 (634 cd/m2), not 2047 (900 cd/m2). Normal mode
  * also uses 2047, but with a different luminance table (420 cd/m2).
@@ -648,17 +691,32 @@ static const struct drm_panel_funcs ana38407_panel_funcs = {
 	.get_modes = ana38407_get_modes,
 };
 
+/*
+ * The backlight class keeps the DDIC's 0..2047 range so saved desktop values
+ * and other consumers see the same scale as before; the slider value is a
+ * position, so translate it to the stock 0..255 platform level first.
+ */
+static u16 ana38407_dbv_from_raw(unsigned int raw)
+{
+	unsigned int level = DIV_ROUND_CLOSEST(raw * (ANA38407_BL_LEVELS - 1),
+					       ANA38407_MAX_DBV);
+
+	level = min_t(unsigned int, level, ANA38407_BL_LEVELS - 1);
+	return ana38407_normal_dbv[level];
+}
+
 static int ana38407_bl_update(struct backlight_device *bl)
 {
 	struct ana38407 *ctx = bl_get_data(bl);
-	u16 brightness = min_t(u16, backlight_get_brightness(bl),
-			       ANA38407_MAX_BRIGHTNESS);
+	unsigned int raw = min_t(unsigned int, backlight_get_brightness(bl),
+				 ANA38407_MAX_DBV);
+	u16 dbv = ana38407_dbv_from_raw(raw);
 	int ret = 0;
 
 	mutex_lock(&ctx->lock);
-	ctx->user_brightness = brightness;
+	ctx->user_brightness = dbv;
 	if (ctx->prepared && !ctx->fod_mode)
-		ret = ana38407_write_brightness_locked(ctx, brightness);
+		ret = ana38407_write_brightness_locked(ctx, dbv);
 	mutex_unlock(&ctx->lock);
 
 	return ret;
@@ -846,8 +904,8 @@ static struct backlight_device *ana38407_create_backlight(struct ana38407 *ctx)
 	struct device *dev = &ctx->dsi->dev;
 	const struct backlight_properties props = {
 		.type = BACKLIGHT_RAW,
-		.brightness = ANA38407_MAX_BRIGHTNESS,
-		.max_brightness = ANA38407_MAX_BRIGHTNESS,
+		.brightness = ANA38407_MAX_DBV,
+		.max_brightness = ANA38407_MAX_DBV,
 	};
 
 	return devm_backlight_device_register(dev, dev_name(dev), dev, ctx,
@@ -937,7 +995,7 @@ static int ana38407_probe(struct mipi_dsi_device *dsi)
 	mipi_dsi_set_drvdata(dsi, ctx);
 	mutex_init(&ctx->lock);
 	INIT_DELAYED_WORK(&ctx->fod_watchdog, ana38407_fod_watchdog_work);
-	ctx->user_brightness = ANA38407_MAX_BRIGHTNESS;
+	ctx->user_brightness = ana38407_normal_dbv[ANA38407_BL_LEVELS - 1];
 
 	dsi->lanes = 4;
 	dsi->format = MIPI_DSI_FMT_RGB888;

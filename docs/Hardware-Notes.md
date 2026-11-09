@@ -74,6 +74,17 @@ gesture wake" report was a broken resume path, not a DT2W defect.
 Works. The native digitizer resolution was wrong and is fixed (100 units/mm);
 the tilt sensor is still missing.
 
+GNOME integration is a userspace problem: libwacom has to recognise the
+digitizer as a display-integrated tablet, or the compositor assigns the pen to
+an external output and its mapping stops following the panel in portrait. The
+driver reports Wacom vendor ID `0x056a` (product `0x0000`) for that match;
+`gts9wifi-userspace` ships `samsung-gts9wifi-spen.tablet` with
+`IntegratedIn=Display;System`, the digitizer's 236 x 147 mm active area and the
+no-eraser stylus. Both pieces are needed: the ID makes the match possible, the
+libwacom entry makes it integrated. As with the Ultra port, the compositor
+reads the database at start-up, so a reboot or session restart is required
+after installing it.
+
 Palm rejection is kernel-level. The digitizer and the touchscreen are fully
 independent input devices; the touchscreen controller already classifies palm
 contacts, but the driver reported every accepted touch type

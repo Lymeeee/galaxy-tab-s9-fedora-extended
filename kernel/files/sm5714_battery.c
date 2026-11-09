@@ -491,7 +491,14 @@ int sm5714_battery_set_pd_contract(unsigned int mv, unsigned int ma)
 	struct sm5714_battery *sm;
 	int ret = 0;
 
-	if ((mv && (mv < 5000 || mv > 9000)) || ma > 3000)
+	/*
+	 * The DT sink PDOs are 5 V and 9 V only, so a fixed contract can
+	 * never ask for more than 9 V/3 A.  Anything above that is a PPS
+	 * operating point for the SM5440 pump, which needs up to 10.5 V at
+	 * 4.5 A for the 45 W profile.  Do not clamp the PPS path to the
+	 * switching charger's 9 V/3 A budget.
+	 */
+	if ((mv && (mv < 5000 || mv > 10500)) || ma > 5000)
 		return -ERANGE;
 
 	mutex_lock(&sm5714_global_lock);
