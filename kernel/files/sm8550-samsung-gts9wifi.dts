@@ -362,17 +362,17 @@
 
 		/*
 		 * The stock hall_ic node has a second hall ("hall_wacom") on
-		 * TLMM GPIO203.  The keyboard cover's magnet targets one of
-		 * the two halls; expose both as SW_LID so logind suspends
-		 * whichever one the cover actually triggers.
+		 * TLMM GPIO203, described as the tablet's Wacom (S Pen) hall.
+		 * Expose it as SW_PEN_INSERTED for diagnostics only: logind
+		 * ignores it, so attaching the pen cannot suspend the tablet.
+		 * It is deliberately NOT a SW_LID switch.
 		 */
-		switch-lid-wacom {
-			label = "Book Cover Keyboard";
+		switch-pen-hall {
+			label = "S Pen Hall";
 			linux,input-type = <EV_SW>;
-			linux,code = <SW_LID>;
+			linux,code = <SW_PEN_INSERTED>;
 			gpios = <&tlmm 203 GPIO_ACTIVE_LOW>;
 			debounce-interval = <50>;
-			wakeup-source;
 		};
 	};
 
