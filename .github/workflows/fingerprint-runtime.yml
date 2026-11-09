@@ -1,0 +1,46 @@
+name: Fingerprint runtime RPM
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish the runtime RPM to"
+        required: false
+        default: "gts9wifi-fingerprint-0.1.0-1"
+        type: string
+  push:
+    branches: [phase3-fingerprint]
+    paths:
+      - 'fingerprint/**'
+      - '.github/workflows/fingerprint-runtime.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-runtime:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build runtime RPM
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/work" -w /work \
+            quay.io/fedora/fedora:44 \
+            bash /work/fingerprint/build-runtime-rpm.sh
+
+      - name: Publish to the named release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REL: ${{ inputs.release_tag || 'gts9wifi-fingerprint-0.1.0-1' }}
+        run: |
+          [ -n "$REL" ] || { echo "release tag is empty" >&2; exit 1; }
+          gh release view "$REL" >/dev/null 2>&1 || \
+            gh release create "$REL" --title "Experimental Test Build ($REL)" \
+              --prerelease --latest=false \
+              --notes "EL721 secure-start runtime for the Galaxy Tab S9 Wi-Fi."
+          gh release upload "$REL" --clobber \
+            out-fingerprint/*.rpm out-fingerprint/SHA256SUMS out-fingerprint/BUILD-METADATA.txt

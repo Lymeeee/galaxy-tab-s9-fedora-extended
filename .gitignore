@@ -5,6 +5,7 @@ local-assets/
 # Build output
 out/
 out-ffmpeg/
+out-fingerprint/
 build/
 
 # Disk images
