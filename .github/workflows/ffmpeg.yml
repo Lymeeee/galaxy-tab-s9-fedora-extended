@@ -1,0 +1,55 @@
+name: FFmpeg RPM
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish the FFmpeg RPMs to"
+        required: false
+        default: "ffmpeg-8.1.3-gts9wifi-1"
+        type: string
+      srpm_url:
+        description: "Fedora ffmpeg source RPM to rebuild"
+        required: false
+        default: "https://dl.fedoraproject.org/pub/fedora/linux/updates/44/Everything/source/tree/Packages/f/ffmpeg-8.1.3-2.fc44.src.rpm"
+        type: string
+  push:
+    branches: [phase2-ffmpeg]
+    paths:
+      - 'ffmpeg/**'
+      - '.github/workflows/ffmpeg.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-ffmpeg:
+    # Native arm64; the Fedora container is aarch64 as well.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build RPMs in Fedora 44
+        env:
+          SRPM_URL: ${{ inputs.srpm_url || 'https://dl.fedoraproject.org/pub/fedora/linux/updates/44/Everything/source/tree/Packages/f/ffmpeg-8.1.3-2.fc44.src.rpm' }}
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/work" -w /work \
+            -e SRPM_URL \
+            quay.io/fedora/fedora:44 \
+            bash /work/ffmpeg/build-rpms.sh
+
+      - name: Publish to the named release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REL: ${{ inputs.release_tag || 'ffmpeg-8.1.3-gts9wifi-1' }}
+        run: |
+          [ -n "$REL" ] || { echo "release tag is empty" >&2; exit 1; }
+          gh release view "$REL" >/dev/null 2>&1 || \
+            gh release create "$REL" --title "Experimental Test Build ($REL)" \
+              --prerelease --latest=false \
+              --notes "Fedora 44 ffmpeg-free rebuilt with the gts9wifi V4L2 M2M patches."
+          gh release upload "$REL" --clobber \
+            out-ffmpeg/*.rpm out-ffmpeg/SHA256SUMS out-ffmpeg/BUILD-METADATA.txt
