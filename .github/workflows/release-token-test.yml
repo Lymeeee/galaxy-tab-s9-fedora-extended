@@ -1,0 +1,23 @@
+name: Release token test
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+    steps:
+      - name: Create and delete a temporary release
+        run: |
+          set -euo pipefail
+          tag="token-test-$(date -u +%Y%m%d%H%M%S)"
+          gh release create "$tag" --target "$GITHUB_SHA" --prerelease \
+            --latest=false --title "$tag" --notes "Temporary release-token check."
+          gh release view "$tag" --json tag_name --jq .tag_name
+          gh release delete "$tag" --yes --cleanup-tag
+          echo "RELEASE_TOKEN can create releases"

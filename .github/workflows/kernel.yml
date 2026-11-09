@@ -181,7 +181,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
       BUILD_ID: ${{ needs.meta.outputs.build_id }}
       REL: ${{ needs.meta.outputs.rel }}
     steps:

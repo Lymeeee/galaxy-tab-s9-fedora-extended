@@ -61,7 +61,7 @@ jobs:
 
       - name: Publish and keep only the newest userspace RPM
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           REL: ${{ inputs.release_tag || 'latest' }}
         run: |
           set -euo pipefail

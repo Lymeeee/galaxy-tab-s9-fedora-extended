@@ -92,7 +92,7 @@ jobs:
       # is the run's only output — no Actions artifacts are uploaded.
       - name: Publish assets to the named release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           REL: ${{ inputs.release_tag }}
         run: |
           gh release view "$REL" >/dev/null 2>&1 || \

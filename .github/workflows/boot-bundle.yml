@@ -106,7 +106,7 @@ jobs:
       # assets, so re-running against the same tag keeps a stable asset set.
       - name: Publish assets to the named release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           REL: ${{ inputs.release_tag }}
         run: |
           gh release view "$REL" >/dev/null 2>&1 || \

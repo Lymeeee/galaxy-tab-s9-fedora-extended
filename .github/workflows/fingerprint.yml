@@ -42,7 +42,7 @@ jobs:
 
       - name: Publish to the named release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           REL: ${{ inputs.release_tag || 'libfprint-1.94.100-gts9wifi-1' }}
         run: |
           [ -n "$REL" ] || { echo "release tag is empty" >&2; exit 1; }
