@@ -27,13 +27,12 @@ jobs:
             bash -lc '
               set -euxo pipefail
               dnf -y install gcc make pkgconf-pkg-config cairo-devel \
-                  pango-devel fontconfig-devel >/dev/null
+                  freetype-devel >/dev/null
               mkdir -p out-charger
               gcc -O2 -Wall -Wextra -o out-charger/gts9wifi-lpcharge \
                   charger/gts9wifi-lpcharge.c \
-                  $(pkg-config --cflags --libs cairo pangocairo) -lm
-              install -d /usr/share/gts9wifi /usr/share/fonts/gts9wifi
-              install -m0644 charger/fonts.conf /usr/share/gts9wifi/fonts.conf
+                  $(pkg-config --cflags --libs cairo freetype2) -lm
+              install -d /usr/share/fonts/gts9wifi
               install -m0644 charger/fonts/*.ttf /usr/share/fonts/gts9wifi/
               out-charger/gts9wifi-lpcharge --preview out-charger/charge-preview.png
             '

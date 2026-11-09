@@ -2,15 +2,22 @@
 //
 // Off-mode charging screen for the Galaxy Tab S9 Fedora port.  This runs
 // from the dracut initramfs when ABL passes lpcharge=1: it draws directly on
-// /dev/fb0, blanks the backlight after 15 s, wakes on a short power press and
+// /dev/fb0, blanks the backlight after 10 s, wakes on a short power press and
 // continues the normal boot after a 5 s hold.
 //
-// The same binary has a --preview mode so the Cairo/Pango layout and the
-// embedded font subsets can be checked in userspace without flashing a bundle.
+// Text is rendered with FreeType directly from the bundled font subsets.
+// Pango/fontconfig are deliberately not used: inside the initramfs the
+// Pango layout produced no glyphs (only the ring and background were drawn),
+// even though the config and both subset files were present in the image.
+// Loading the subsets by path keeps text independent of fontconfig.
+//
+// The same binary has a --preview mode so the Cairo layout and the embedded
+// font subsets can be checked in userspace without flashing a bundle.
 
 #define _GNU_SOURCE
 #include <cairo/cairo.h>
-#include <pango/pangocairo.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
 #include <linux/fb.h>
 #include <linux/input.h>
 #include <linux/input-event-codes.h>
@@ -25,6 +32,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <time.h>
 #include <math.h>
 #include <errno.h>
@@ -33,13 +41,56 @@
 #define CANVAS_H 1600
 #define FONT_UI "Adwaita Sans"
 #define FONT_CJK "Noto Sans CJK SC"
+#define FONT_UI_PATH "/usr/share/fonts/gts9wifi/AdwaitaSans-GTS9.ttf"
+#define FONT_CJK_PATH "/usr/share/fonts/gts9wifi/NotoSansCJKSC-GTS9.ttf"
 #define HOLD_SECONDS 5.0
-#define BLANK_SECONDS 15.0
+#define BLANK_SECONDS 10.0
 
-static const double BG_TOP[3] = {0.055, 0.060, 0.075};
-static const double BG_BOTTOM[3] = {0.025, 0.030, 0.040};
 static const double FG[3] = {0.94, 0.95, 0.97};
 static const double ACCENT[3] = {0.318, 0.635, 0.855};
+
+static FT_Library ft_lib;
+static FT_Face ft_ui;
+static FT_Face ft_cjk;
+
+static void kmsg(const char *fmt, ...)
+{
+    char buf[256];
+    va_list ap;
+    int fd;
+    int len;
+
+    va_start(ap, fmt);
+    len = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    if (len <= 0)
+        return;
+    fd = open("/dev/kmsg", O_WRONLY);
+    if (fd < 0)
+        return;
+    if (write(fd, buf, (size_t)len) < 0)
+        ;
+    close(fd);
+}
+
+static int fonts_init(void)
+{
+    FT_Error ui;
+    FT_Error cjk;
+
+    if (FT_Init_FreeType(&ft_lib) != 0) {
+        kmsg("gts9wifi-lpcharge: FreeType init failed");
+        return -1;
+    }
+    ui = FT_New_Face(ft_lib, FONT_UI_PATH, 0, &ft_ui);
+    cjk = FT_New_Face(ft_lib, FONT_CJK_PATH, 0, &ft_cjk);
+    if (ui)
+        ft_ui = NULL;
+    if (cjk)
+        ft_cjk = NULL;
+    kmsg("gts9wifi-lpcharge: fonts ui=%d cjk=%d", ui == 0, cjk == 0);
+    return (ft_ui || ft_cjk) ? 0 : -1;
+}
 
 struct reading {
     int percent;
@@ -183,31 +234,126 @@ static void read_reading(struct reading *r)
         r->percent = 0;
 }
 
+static int utf8_decode(const char **text, unsigned *codepoint)
+{
+    const unsigned char *s = (const unsigned char *)*text;
+    unsigned c = s[0];
+
+    if (c < 0x80) {
+        *codepoint = c;
+        *text += 1;
+        return 0;
+    }
+    if ((c & 0xe0) == 0xc0) {
+        *codepoint = ((c & 0x1f) << 6) | (s[1] & 0x3f);
+        *text += 2;
+        return 0;
+    }
+    if ((c & 0xf0) == 0xe0) {
+        *codepoint = ((c & 0x0f) << 12) | ((s[1] & 0x3f) << 6) |
+            (s[2] & 0x3f);
+        *text += 3;
+        return 0;
+    }
+    if ((c & 0xf8) == 0xf0) {
+        *codepoint = ((c & 0x07) << 18) | ((s[1] & 0x3f) << 12) |
+            ((s[2] & 0x3f) << 6) | (s[3] & 0x3f);
+        *text += 4;
+        return 0;
+    }
+    return -1;
+}
+
 static void draw_text(cairo_t *cr, const char *text, double size,
                       double cx, double cy, const double color[3],
                       int bold, const char *family)
 {
-    PangoLayout *layout = pango_cairo_create_layout(cr);
-    PangoFontDescription *desc = pango_font_description_new();
-    int width, height;
+    struct {
+        FT_Face face;
+        FT_UInt index;
+    } runs[128];
+    FT_Face primary = strcmp(family, FONT_CJK) == 0 ? ft_cjk : ft_ui;
+    FT_Face fallback = primary == ft_ui ? ft_cjk : ft_ui;
+    const char *p = text;
+    double width = 0;
+    double pen;
+    double baseline;
+    int count = 0;
+    int i;
 
-    pango_font_description_set_family(desc, family);
-    pango_font_description_set_absolute_size(desc, size * PANGO_SCALE);
-    pango_font_description_set_weight(desc,
-        bold ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
-    pango_layout_set_font_description(layout, desc);
-    pango_layout_set_text(layout, text, -1);
-    pango_layout_get_pixel_size(layout, &width, &height);
-    cairo_set_source_rgb(cr, color[0], color[1], color[2]);
-    cairo_move_to(cr, cx - width / 2.0, cy - height / 2.0);
-    pango_cairo_show_layout(cr, layout);
-    g_object_unref(layout);
-    pango_font_description_free(desc);
+    (void)bold;
+    if (!primary)
+        primary = fallback;
+    if (!primary)
+        return;
+    if (!fallback)
+        fallback = primary;
+
+    FT_Set_Pixel_Sizes(primary, 0, (FT_UInt)(size + 0.5));
+    if (fallback != primary)
+        FT_Set_Pixel_Sizes(fallback, 0, (FT_UInt)(size + 0.5));
+
+    while (*p && count < (int)(sizeof(runs) / sizeof(runs[0]))) {
+        unsigned codepoint;
+        FT_UInt index;
+        FT_Face face = primary;
+
+        if (utf8_decode(&p, &codepoint) < 0)
+            break;
+        index = FT_Get_Char_Index(primary, codepoint);
+        if (!index && fallback != primary) {
+            face = fallback;
+            index = FT_Get_Char_Index(fallback, codepoint);
+        }
+        if (FT_Load_Glyph(face, index, FT_LOAD_DEFAULT) != 0)
+            continue;
+        runs[count].face = face;
+        runs[count].index = index;
+        count++;
+        width += face->glyph->advance.x / 64.0;
+    }
+
+    baseline = cy +
+        (primary->size->metrics.ascender + primary->size->metrics.descender) /
+        128.0;
+    pen = cx - width / 2.0;
+
+    for (i = 0; i < count; i++) {
+        FT_GlyphSlot slot;
+        cairo_surface_t *glyph;
+        unsigned char *dst;
+        int stride;
+        int y;
+
+        if (FT_Load_Glyph(runs[i].face, runs[i].index,
+                FT_LOAD_DEFAULT | FT_LOAD_RENDER) != 0)
+            continue;
+        slot = runs[i].face->glyph;
+        if (slot->bitmap.pixel_mode == FT_PIXEL_MODE_GRAY &&
+            slot->bitmap.width && slot->bitmap.rows) {
+            glyph = cairo_image_surface_create(CAIRO_FORMAT_A8,
+                slot->bitmap.width, slot->bitmap.rows);
+            dst = cairo_image_surface_get_data(glyph);
+            stride = cairo_image_surface_get_stride(glyph);
+            for (y = 0; y < (int)slot->bitmap.rows; y++)
+                memcpy(dst + y * stride,
+                    slot->bitmap.buffer + y * slot->bitmap.pitch,
+                    slot->bitmap.width);
+            cairo_surface_mark_dirty(glyph);
+            cairo_save(cr);
+            cairo_translate(cr, pen + slot->bitmap_left,
+                baseline - slot->bitmap_top);
+            cairo_set_source_rgb(cr, color[0], color[1], color[2]);
+            cairo_mask_surface(cr, glyph, 0, 0);
+            cairo_restore(cr);
+            cairo_surface_destroy(glyph);
+        }
+        pen += slot->advance.x / 64.0;
+    }
 }
 
 static void draw_ui(cairo_t *cr, const struct reading *r)
 {
-    cairo_pattern_t *bg;
     char percent[32], power[32], values[96];
     double cx = CANVAS_W / 2.0, cy = CANVAS_H * 0.45;
     double radius = CANVAS_H * 0.2;
@@ -216,15 +362,8 @@ static void draw_ui(cairo_t *cr, const struct reading *r)
     double end = start + 2 * M_PI * r->percent / 100.0;
 
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-    cairo_set_source_rgb(cr, BG_TOP[0], BG_TOP[1], BG_TOP[2]);
+    cairo_set_source_rgb(cr, 0, 0, 0);
     cairo_paint(cr);
-    bg = cairo_pattern_create_linear(0, 0, 0, CANVAS_H);
-    cairo_pattern_add_color_stop_rgb(bg, 0, BG_TOP[0], BG_TOP[1], BG_TOP[2]);
-    cairo_pattern_add_color_stop_rgb(bg, 1, BG_BOTTOM[0], BG_BOTTOM[1],
-        BG_BOTTOM[2]);
-    cairo_set_source(cr, bg);
-    cairo_paint(cr);
-    cairo_pattern_destroy(bg);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
     cairo_new_path(cr);
 
@@ -438,17 +577,6 @@ static int preview(const char *path)
     return status == CAIRO_STATUS_SUCCESS ? 0 : 1;
 }
 
-static void set_fonts(void)
-{
-    const char *conf = getenv("LPCHARGE_FONTS_CONF");
-    const char *default_conf = "/usr/share/gts9wifi/fonts.conf";
-
-    if (!conf)
-        conf = default_conf;
-    if (access(conf, R_OK) == 0)
-        setenv("FONTCONFIG_FILE", conf, 1);
-}
-
 int main(int argc, char **argv)
 {
     struct fbdev fb = {.fd = -1};
@@ -461,7 +589,8 @@ int main(int argc, char **argv)
     double last_activity;
     double last_draw = 0;
 
-    set_fonts();
+    if (fonts_init() < 0)
+        kmsg("gts9wifi-lpcharge: no usable fonts; text will be missing");
     if (argc == 3 && strcmp(argv[1], "--preview") == 0)
         return preview(argv[2]);
 
@@ -476,6 +605,8 @@ int main(int argc, char **argv)
     }
 
     read_reading(&r);
+    kmsg("gts9wifi-lpcharge: fb %dx%d battery=%d%%",
+        fb.width, fb.height, r.percent);
     render_fb(&fb, &r);
     last_activity = mono_seconds();
 
