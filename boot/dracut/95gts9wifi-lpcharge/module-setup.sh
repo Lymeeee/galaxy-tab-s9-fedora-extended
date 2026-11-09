@@ -4,7 +4,8 @@
 # subsets all live inside the initramfs.
 
 check() { return 0; }
-depends() { echo base udev; }
+# dracut-ng (107+) has no "udev" module; its udev userspace is "systemd-udevd".
+depends() { echo base systemd-udevd; }
 
 install() {
     inst_multiple /usr/libexec/gts9wifi-lpcharge
