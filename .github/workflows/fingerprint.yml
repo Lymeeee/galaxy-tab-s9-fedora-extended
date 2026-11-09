@@ -14,7 +14,7 @@ on:
         default: "https://dl.fedoraproject.org/pub/fedora/linux/updates/44/Everything/source/tree/Packages/l/libfprint-1.94.100-1.fc44.src.rpm"
         type: string
   push:
-    branches: [phase3-fingerprint]
+    branches: [main]
     paths:
       - 'fingerprint/**'
       - '.github/workflows/fingerprint.yml'

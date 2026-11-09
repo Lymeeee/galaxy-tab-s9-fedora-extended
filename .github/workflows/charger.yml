@@ -3,7 +3,7 @@ name: Charger preview
 on:
   workflow_dispatch:
   push:
-    branches: [phase1-userspace]
+    branches: [main]
     paths:
       - 'charger/**'
       - '.github/workflows/charger.yml'

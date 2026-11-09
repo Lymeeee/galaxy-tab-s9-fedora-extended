@@ -9,7 +9,7 @@ on:
         default: "kernel-7.2.0-merge-1"
         type: string
   push:
-    branches: [phase1-userspace]
+    branches: [main]
     paths:
       - 'dynpart/**'
       - '.github/workflows/dynpart.yml'

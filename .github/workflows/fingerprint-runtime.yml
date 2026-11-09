@@ -9,7 +9,7 @@ on:
         default: "gts9wifi-fingerprint-0.1.0-1"
         type: string
   push:
-    branches: [phase3-fingerprint]
+    branches: [main]
     paths:
       - 'fingerprint/**'
       - '.github/workflows/fingerprint-runtime.yml'

@@ -14,7 +14,7 @@ on:
         default: "https://dl.fedoraproject.org/pub/fedora/linux/updates/44/Everything/source/tree/Packages/f/ffmpeg-8.1.3-2.fc44.src.rpm"
         type: string
   push:
-    branches: [phase2-ffmpeg]
+    branches: [main]
     paths:
       - 'ffmpeg/**'
       - '.github/workflows/ffmpeg.yml'
