@@ -23,22 +23,36 @@ permissions:
   contents: write
 
 jobs:
-  build-kernel:
-    # Native arm64, full LLVM toolchain, same model as the pmOS kernel build.
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 120
+  meta:
+    # Kept separate so the build and publish jobs share the same build id and
+    # a publish-only retry does not rebuild the kernel.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      build_id: ${{ steps.id.outputs.build_id }}
+      rel: ${{ steps.id.outputs.rel }}
     steps:
       - name: Compute build id and release tag
+        id: id
         run: |
           build_id="$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}"
           rel="${{ inputs.release_tag }}"
           [ -n "$rel" ] || rel="kernel-7.2.0-$build_id"
           {
-            echo "BUILD_ID=$build_id"
-            echo "REL=$rel"
-          } >> "$GITHUB_ENV"
+            echo "build_id=$build_id"
+            echo "rel=$rel"
+          } >> "$GITHUB_OUTPUT"
           echo "building $rel ($build_id, ${GITHUB_SHA})"
 
+  build-kernel:
+    needs: meta
+    # Native arm64, full LLVM toolchain, same model as the pmOS kernel build.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    env:
+      BUILD_ID: ${{ needs.meta.outputs.build_id }}
+      REL: ${{ needs.meta.outputs.rel }}
+    steps:
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -142,34 +156,97 @@ jobs:
 
       - name: Fix ownership
         run: sudo chown -R $USER:$USER out-kernel out-bundle out-twrp
+
+      # Rename the bundle checksums so they do not collide with the rootfs
+      # workflow's SHA256SUMS in combined releases.
+      - name: Rename bundle checksums
+        run: mv out-bundle/SHA256SUMS out-bundle/BUNDLE-SHA256SUMS
+
+      # Keep the build even if publishing fails; a failed publish job can then
+      # be re-run without spending another 50 minutes compiling.
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-build-${{ needs.meta.outputs.build_id }}
+          path: |
+            out-kernel/*.rpm
+            out-bundle/*.img
+            out-bundle/BUNDLE-SHA256SUMS
+            out-bundle/BUILD-METADATA.txt
+            out-twrp/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: [meta, build-kernel]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_ID: ${{ needs.meta.outputs.build_id }}
+      REL: ${{ needs.meta.outputs.rel }}
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-build-${{ needs.meta.outputs.build_id }}
+          path: dist
+
       - name: Publish immutable build and mirror to latest
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Rename the bundle checksums so they do not collide with the
-          # rootfs workflow's SHA256SUMS in combined releases.
-          mv out-bundle/SHA256SUMS out-bundle/BUNDLE-SHA256SUMS
-          gh release view "$REL" >/dev/null 2>&1 || \
-            gh release create "$REL" --target "$GITHUB_SHA" --prerelease --latest=false \
-              --title "Kernel 7.2.0 build $BUILD_ID" \
-              --notes "Kernel 7.2.0, boot bundle and TWRP zip. Build $BUILD_ID, commit $GITHUB_SHA."
-          gh release upload "$REL" --clobber \
-            out-kernel/*.rpm \
-            out-bundle/*.img out-bundle/BUNDLE-SHA256SUMS out-bundle/BUILD-METADATA.txt \
-            out-twrp/*.zip
+          cd dist
+
+          # Release creation and asset upload are retried: a single 403 from
+          # the releases API must not throw away a finished kernel build.
+          ensure_release() {
+            tag=$1 flags=$2 title=$3 notes=$4
+            if gh release view "$tag" >/dev/null 2>&1; then return 0; fi
+            i=1
+            while [ "$i" -le 5 ]; do
+              if gh release create "$tag" --target "$GITHUB_SHA" $flags \
+                  --title "$title" --notes "$notes"; then
+                return 0
+              fi
+              # The create may have landed even if the response was an error.
+              if gh release view "$tag" >/dev/null 2>&1; then return 0; fi
+              echo "release create for $tag failed (attempt $i/5); retrying" >&2
+              sleep $((i * 20))
+              i=$((i + 1))
+            done
+            return 1
+          }
+
+          upload_assets() {
+            tag=$1
+            i=1
+            while [ "$i" -le 5 ]; do
+              if gh release upload "$tag" --clobber \
+                  out-kernel/*.rpm \
+                  out-bundle/*.img out-bundle/BUNDLE-SHA256SUMS out-bundle/BUILD-METADATA.txt \
+                  out-twrp/*.zip; then
+                return 0
+              fi
+              echo "release upload to $tag failed (attempt $i/5); retrying" >&2
+              sleep $((i * 20))
+              i=$((i + 1))
+            done
+            return 1
+          }
+
+          ensure_release "$REL" "--prerelease --latest=false" \
+            "Kernel 7.2.0 build $BUILD_ID" \
+            "Kernel 7.2.0, boot bundle and TWRP zip. Build $BUILD_ID, commit $GITHUB_SHA."
+          upload_assets "$REL"
 
           # The rolling release is what gts9wifi-update uses by default.  Keep
           # exactly one kernel pair there; the immutable release above is the
           # pin/rollback anchor.
-          gh release view latest >/dev/null 2>&1 || \
-            gh release create latest --target "$GITHUB_SHA" --latest \
-              --title "GTS9 Latest" \
-              --notes "Rolling channel: newest userspace/dynpart RPMs and kernel bundle."
-          gh release upload latest --clobber \
-            out-kernel/*.rpm \
-            out-bundle/*.img out-bundle/BUNDLE-SHA256SUMS out-bundle/BUILD-METADATA.txt \
-            out-twrp/*.zip
+          ensure_release latest "--latest" \
+            "GTS9 Latest" \
+            "Rolling channel: newest userspace/dynpart RPMs and kernel bundle."
+          upload_assets latest
+
           new_rpm=$(basename "$(echo out-kernel/*.rpm)")
           new_zip=$(basename "$(echo out-twrp/*.zip)")
           gh release view latest --json assets --jq '.assets[].name' \
