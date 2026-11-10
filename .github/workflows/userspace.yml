@@ -19,20 +19,20 @@ permissions:
 
 jobs:
   build-userspace:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build noarch RPM
+      - name: Build aarch64 RPM
         run: |
           docker run --rm \
             -v "$PWD:/work" -w /work \
             quay.io/fedora/fedora:44 \
             bash -lc '
               set -euxo pipefail
-              dnf -y install rpm-build systemd-rpm-macros glib2 findutils tar gzip sed python3 desktop-file-utils python3-gobject gtk4 libadwaita >/dev/null
+              dnf -y install rpm-build systemd-rpm-macros glib2 glib2-devel libgtop2-devel gcc findutils tar gzip sed python3 desktop-file-utils python3-gobject gtk4 libadwaita >/dev/null
               python3 -m py_compile /work/userspace/tree/usr/bin/gts9wifi-settings /work/userspace/tree/usr/libexec/gts9wifi-power-key /work/userspace/tree/usr/libexec/gts9wifi-wifi-bdf /work/userspace/tree/usr/libexec/gts9wifi-spen-remote /work/userspace/tree/usr/libexec/gts9wifi-rtc-time
               rm -rf /work/userspace/tree/usr/bin/__pycache__ /work/userspace/tree/usr/libexec/__pycache__
               python3 /work/userspace/tests/settings-smoke.py
@@ -55,8 +55,9 @@ jobs:
               cp -a /work/userspace/tree/. "/tmp/src/gts9wifi-userspace-$VERSION/"
               tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-$VERSION.tar.gz \
                 "gts9wifi-userspace-$VERSION"
+              cp /work/userspace/cpuinfo/gts9-cpuinfo.c ~/rpmbuild/SOURCES/
               rpmbuild -bb /work/userspace/gts9wifi-userspace.spec
-              cp ~/rpmbuild/RPMS/noarch/*.rpm /work/out-userspace/
+              cp ~/rpmbuild/RPMS/aarch64/*.rpm /work/out-userspace/
             '
 
       - name: Publish and keep only the newest userspace RPM
@@ -74,7 +75,7 @@ jobs:
           if [ "$REL" = latest ]; then
             new=$(basename "$(echo out-userspace/*.rpm)")
             gh release view latest --json assets --jq '.assets[].name' \
-              | grep -E '^gts9wifi-userspace-.*\.noarch\.rpm$' \
+              | grep -E '^gts9wifi-userspace-.*\.(aarch64|noarch)\.rpm$' \
               | grep -vxF "$new" \
               | while read -r old; do gh release delete-asset latest "$old" --yes; done || true
           fi

@@ -1,16 +1,21 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.25
+Version:        0.17.26
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
 URL:            https://github.com/Lymeeee/galaxy-tab-s9-fedora-extended
-BuildArch:      noarch
+BuildArch:      aarch64
 Source0:        %{name}-%{version}.tar.gz
+Source1:        gts9-cpuinfo.c
 BuildRequires:  systemd-rpm-macros
+BuildRequires:  gcc
+BuildRequires:  glib2-devel
+BuildRequires:  libgtop2-devel
 Requires:       glib2
 Requires:       gnome-shell
+Requires:       gnome-control-center
 Requires:       NetworkManager
 Requires:       wpa_supplicant
 Requires:       bash
@@ -48,11 +53,16 @@ stm32_gts9family.bin into /lib/firmware/keyboard_stm/ separately.
 %setup -q
 
 %build
+gcc %{optflags} -fPIC -shared -Wall -Wextra -o libgts9-cpuinfo.so %{SOURCE1} \
+    $(pkg-config --cflags glib-2.0 libgtop-2.0) \
+    $(pkg-config --libs glib-2.0) -ldl
 
 %install
 rm -rf %{buildroot}
 mkdir -p %{buildroot}
 cp -a . %{buildroot}/
+install -d %{buildroot}%{_libdir}/gts9wifi
+install -m 0755 libgts9-cpuinfo.so %{buildroot}%{_libdir}/gts9wifi/libgts9-cpuinfo.so
 
 %post
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
@@ -122,6 +132,8 @@ fi
 %files
 %{_bindir}/gts9wifi-update
 %{_bindir}/gts9wifi-settings
+%{_prefix}/local/bin/gnome-control-center
+%{_libdir}/gts9wifi/libgts9-cpuinfo.so
 %{_datadir}/applications/gts9wifi-settings.desktop
 %{_datadir}/icons/hicolor/scalable/apps/gts9wifi-settings.svg
 %{_datadir}/libwacom/samsung-gts9wifi-spen.tablet
@@ -192,6 +204,15 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 
 %changelog
+* Mon Nov 10 2026 Lymeeee <mr_xunyu@163.com> - 0.17.26-1
+- Show all Shell OSDs at the top edge by mirroring the theme's bottom margin
+  instead of anchoring them at the bottom
+- Feed the OSD level bar a 0-1 fraction so a full S Pen battery is white, not
+  the red overdrive colour Shell 50 uses past its 1.0 threshold
+- Never report a missing /run/gts9wifi/spen-battery file as 0% battery
+- Fill the missing Settings > System > About processor row on arm64 with a
+  libgtop shim that reports the device CPU model
+
 * Mon Nov 09 2026 Lymeeee <mr_xunyu@163.com> - 0.17.25-1
 - Translate the Tab9 Settings UI, device control labels, desktop entry and
   the GNOME extension preferences to Simplified Chinese

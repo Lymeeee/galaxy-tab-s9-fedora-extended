@@ -1,0 +1,6 @@
+/* Shell anchors the OSD pills at the bottom with a 4em bottom margin.  The
+   extension flips the window alignment to the top, so mirror that margin. */
+.osd-window {
+    margin-top: 4em;
+    margin-bottom: 0;
+}

@@ -373,7 +373,8 @@ cmd_userspace() {
     need_root
     need_cmd dnf
     local line name url rpm dir dline dname durl drpm
-    line=$(asset '^gts9wifi-userspace-.*\.noarch\.rpm$') ||
+    line=$(asset '^gts9wifi-userspace-.*\.aarch64\.rpm$') ||
+        line=$(asset '^gts9wifi-userspace-.*\.noarch\.rpm$') ||
         die "no userspace RPM in release $tag"
     IFS=$'\t' read -r name url <<<"$line"
     dline=$(asset '^gts9wifi-dynpart-[0-9].*\.aarch64\.rpm$') || true

@@ -77,7 +77,10 @@ export class SpenOsd {
     }
 
     _battery() {
-        const value = Number(readFile(BATTERY_STATE));
+        const text = readFile(BATTERY_STATE);
+        if (text === null || text === '')
+            return null;
+        const value = Number(text);
         return Number.isInteger(value) && value >= 0 && value <= 100
             ? value : null;
     }

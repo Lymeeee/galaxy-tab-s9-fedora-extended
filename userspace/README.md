@@ -1,6 +1,6 @@
 # gts9wifi-userspace
 
-Noarch RPM with the Phase 1 userspace pieces from the Ubuntu port:
+aarch64 RPM with the Phase 1 userspace pieces from the Ubuntu port:
 
 - Tab9 Extras GNOME Shell extension v6 (screen-lock/keyboard controls,
   floating on-screen keyboard button, FOD overlay is a separate phase)
@@ -40,21 +40,26 @@ Noarch RPM with the Phase 1 userspace pieces from the Ubuntu port:
   Fedora kernel/firmware and fedora-release/repos, and pins `releasever`;
   explicit `dnf system-upgrade` is still possible
 
-Build (Fedora container):
+Build (Fedora aarch64 container; needs gcc, glib2-devel and libgtop2-devel):
 
 ```sh
 mkdir -p ~/rpmbuild/SOURCES
-mkdir -p /tmp/src/gts9wifi-userspace-0.13.0
-cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.13.0/
-tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.13.0.tar.gz gts9wifi-userspace-0.13.0
+mkdir -p /tmp/src/gts9wifi-userspace-0.17.26
+cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.17.26/
+tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.17.26.tar.gz gts9wifi-userspace-0.17.26
+cp userspace/cpuinfo/gts9-cpuinfo.c ~/rpmbuild/SOURCES/
 rpmbuild -bb userspace/gts9wifi-userspace.spec
 ```
 
 Install:
 
 ```sh
-sudo dnf install ./gts9wifi-userspace-0.13.0-1.fc44.noarch.rpm
+sudo dnf install ./gts9wifi-userspace-0.17.26-1.fc44.aarch64.rpm
 ```
+
+The package also wraps `gnome-control-center` in `/usr/local/bin`: arm64
+`/proc/cpuinfo` has no CPU model, so the wrapper preloads a small libgtop
+shim that supplies it for the Settings > System > About processor row.
 
 The keyboard firmware is not included. Copy the verified V37 blob to
 `/lib/firmware/keyboard_stm/stm32_gts9family.bin` only after the matching

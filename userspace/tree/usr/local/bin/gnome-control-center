@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# arm64 /proc/cpuinfo has no model name, so libgtop leaves the Processor row
+# of Settings > System empty.  Preload a shim that adds the model string.
+
+GTS9_CPU_MODEL="${GTS9_CPU_MODEL:-Qualcomm SM8550-AC}"
+export GTS9_CPU_MODEL
+LD_PRELOAD="/usr/lib64/gts9wifi/libgts9-cpuinfo.so${LD_PRELOAD:+:$LD_PRELOAD}"
+export LD_PRELOAD
+
+exec /usr/bin/gnome-control-center "$@"
