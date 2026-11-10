@@ -61,6 +61,7 @@ gcc %{optflags} -fPIC -shared -Wall -Wextra -o libgts9-cpuinfo.so %{SOURCE1} \
 rm -rf %{buildroot}
 mkdir -p %{buildroot}
 cp -a . %{buildroot}/
+rm -f %{buildroot}/libgts9-cpuinfo.so
 install -d %{buildroot}%{_libdir}/gts9wifi
 install -m 0755 libgts9-cpuinfo.so %{buildroot}%{_libdir}/gts9wifi/libgts9-cpuinfo.so
 
@@ -204,7 +205,7 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 
 %changelog
-* Mon Nov 10 2026 Lymeeee <mr_xunyu@163.com> - 0.17.26-1
+* Tue Nov 10 2026 Lymeeee <mr_xunyu@163.com> - 0.17.26-1
 - Show all Shell OSDs at the top edge by mirroring the theme's bottom margin
   instead of anchoring them at the bottom
 - Feed the OSD level bar a 0-1 fraction so a full S Pen battery is white, not
