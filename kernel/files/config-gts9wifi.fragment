@@ -323,3 +323,9 @@ CONFIG_KEYBOARD_SAMSUNG_STM32_POGO=y
 # decisions under memory pressure (the 8 GiB tablet swaps into zram).
 CONFIG_LRU_GEN=y
 CONFIG_LRU_GEN_ENABLED=y
+
+# The rolling CI container's kernel-headers now declare __u128 in
+# asm/sigcontext.h, which the resolve_btfids host tool (built with clang)
+# cannot compile.  The port does not use BTF; skip it rather than pinning the
+# container toolchain.
+# CONFIG_DEBUG_INFO_BTF is not set
