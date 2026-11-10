@@ -20,6 +20,8 @@
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/pm_wakeirq.h>
+#include <linux/pm_wakeup.h>
 #include <linux/power_supply.h>
 #include <linux/property.h>
 #include <linux/regulator/consumer.h>
@@ -55,6 +57,16 @@ module_param(pen_y_max, int, 0644);
 #define WEZ01_CHARGE_STATUS_PERIOD_MS	30000
 #define WEZ01_PKT_REPLY			0x0e
 #define WEZ01_REPLY_GARAGE_CHARGE	0x06
+
+/*
+ * The keyboard folio's magnet never reaches the tablet's hall sensor; the
+ * digitiser is what notices the cover.  The controller volunteers a 0x0d
+ * notification frame with the cover state in bit 7 of data[3], exactly as
+ * Samsung's downstream driver decodes it.
+ */
+#define WEZ01_PKT_NOTI			0x0d
+#define WEZ01_NOTI_COVER_DETECT		0x0a
+#define WEZ01_COVER_CLOSED		BIT(7)
 
 enum wez01_charge_state {
 	WEZ01_CHARGE_OFF = 0,
@@ -131,6 +143,7 @@ struct wacom_wez01 {
 	s8 max_tilt_y;
 	bool prox;
 	bool docked;
+	bool cover_closed;
 	u8 charge_stage;
 	int charge_status;
 	struct timer_list prox_timer;
@@ -366,6 +379,34 @@ static void wacom_wez01_set_docked(struct wacom_wez01 *w, bool docked)
 	mod_delayed_work(system_wq, &w->charge_work, 0);
 }
 
+static bool wacom_wez01_handle_cover(struct wacom_wez01 *w, const u8 *data)
+{
+	bool closed;
+
+	if ((data[0] & 0x0f) != WEZ01_PKT_NOTI ||
+	    data[1] != WEZ01_NOTI_COVER_DETECT)
+		return false;
+
+	closed = data[3] & WEZ01_COVER_CLOSED;
+	if (closed == READ_ONCE(w->cover_closed))
+		return true;
+
+	WRITE_ONCE(w->cover_closed, closed);
+	/*
+	 * SW_MACHINE_COVER is what the hardware means; SW_LID is the one
+	 * logind and GNOME act on.  The gpio-keys hall keeps reporting SW_LID
+	 * for plain covers, and the two never contradict each other because
+	 * each answers a different lid.
+	 */
+	input_report_switch(w->input, SW_MACHINE_COVER, closed);
+	input_report_switch(w->input, SW_LID, closed);
+	input_sync(w->input);
+	dev_info(&w->client->dev, "book cover %s\n",
+		 closed ? "closed" : "open");
+
+	return true;
+}
+
 static irqreturn_t wacom_wez01_pdct_irq(int irq, void *dev_id)
 {
 	struct wacom_wez01 *w = dev_id;
@@ -498,6 +539,9 @@ static irqreturn_t wacom_wez01_irq_handler(int irq, void *dev_id)
 	if (wacom_wez01_handle_garage_reply(w, data))
 		return IRQ_HANDLED;
 
+	if (wacom_wez01_handle_cover(w, data))
+		return IRQ_HANDLED;
+
 	if ((data[0] & 0x0f) != WEZ01_PKT_COORD)
 		return IRQ_HANDLED;
 
@@ -554,6 +598,12 @@ static void wacom_wez01_cancel_charge_work(void *data)
 	struct wacom_wez01 *w = data;
 
 	cancel_delayed_work_sync(&w->charge_work);
+}
+
+static void wacom_wez01_clear_wake_irq(void *data)
+{
+	dev_pm_clear_wake_irq(data);
+	device_init_wakeup(data, false);
 }
 
 static int wacom_wez01_probe(struct i2c_client *client)
@@ -637,6 +687,8 @@ static int wacom_wez01_probe(struct i2c_client *client)
 	input_set_capability(input, EV_KEY, BTN_TOOL_PEN);
 	input_set_capability(input, EV_KEY, BTN_TOOL_RUBBER);
 	input_set_capability(input, EV_SW, SW_PEN_INSERTED);
+	input_set_capability(input, EV_SW, SW_MACHINE_COVER);
+	input_set_capability(input, EV_SW, SW_LID);
 
 	input_set_abs_params(input, ABS_X, 0, w->max_y, 0, 0);
 	input_set_abs_params(input, ABS_Y, 0, w->max_x, 0, 0);
@@ -688,6 +740,23 @@ static int wacom_wez01_probe(struct i2c_client *client)
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to request irq\n");
 
+	/*
+	 * The keyboard folio's lid notifications arrive through Wacom, not
+	 * GPIO107.  Keep the data IRQ able to wake the SoC so the open event
+	 * can be read after resume; the IRQ is routed through the SM8550 PDC.
+	 */
+	ret = device_init_wakeup(dev, true);
+	if (ret)
+		return ret;
+	ret = dev_pm_set_wake_irq(dev, client->irq);
+	if (ret) {
+		device_init_wakeup(dev, false);
+		return dev_err_probe(dev, ret, "cannot configure lid wake IRQ\n");
+	}
+	ret = devm_add_action_or_reset(dev, wacom_wez01_clear_wake_irq, dev);
+	if (ret)
+		return ret;
+
 	pdct_irq = gpiod_to_irq(w->pdct);
 	if (pdct_irq < 0)
 		return dev_err_probe(dev, pdct_irq,
@@ -715,10 +784,13 @@ static int wacom_wez01_suspend(struct device *dev)
 
 	disable_irq(w->pdct_irq);
 	cancel_delayed_work_sync(&w->charge_work);
-	disable_irq(w->client->irq);
 	timer_shutdown_sync(&w->prox_timer);
 	wacom_wez01_leave_range(w);
-	wacom_wez01_send(w, WEZ01_COM_SAMPLERATE_STOP);
+	/*
+	 * Keep the digitiser sampling and its data IRQ armed: the keyboard
+	 * folio's lid notification that wakes the tablet is read from this
+	 * IRQ.  The reference port runs deep sleep the same way.
+	 */
 
 	return 0;
 }
@@ -729,7 +801,6 @@ static int wacom_wez01_resume(struct device *dev)
 
 	wacom_wez01_send(w, WEZ01_COM_SURVEY_EXIT);
 	wacom_wez01_send(w, WEZ01_COM_SAMPLERATE_START);
-	enable_irq(w->client->irq);
 	enable_irq(w->pdct_irq);
 	wacom_wez01_set_docked(w, gpiod_get_value_cansleep(w->pdct) > 0);
 	if (READ_ONCE(w->docked))

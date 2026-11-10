@@ -38,6 +38,9 @@ aarch64 RPM with the Phase 1 userspace pieces from the Ubuntu port:
   power-key toggle, and Advanced installs
   components, flashes/rolls back the boot pair (typed confirmation) and
   installs the keyboard V37 firmware file
+- a logind drop-in shortens the post-resume lid holdoff to 5 s; together with
+  the kernel's Wacom cover-detect (SW_LID) closing the keyboard folio suspends
+  and opening it wakes the tablet
 - the low-brightness warning is a transient normal-priority notification that
   expires on its own and is suppressed while GNOME's idle dimming is active;
   clicking it raises the brightness to 36%
@@ -49,9 +52,9 @@ Build (Fedora aarch64 container; needs gcc, glib2-devel and libgtop2-devel):
 
 ```sh
 mkdir -p ~/rpmbuild/SOURCES
-mkdir -p /tmp/src/gts9wifi-userspace-0.17.28
-cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.17.28/
-tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.17.28.tar.gz gts9wifi-userspace-0.17.28
+mkdir -p /tmp/src/gts9wifi-userspace-0.17.29
+cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.17.29/
+tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.17.29.tar.gz gts9wifi-userspace-0.17.29
 cp userspace/cpuinfo/gts9-cpuinfo.c ~/rpmbuild/SOURCES/
 rpmbuild -bb userspace/gts9wifi-userspace.spec
 ```
@@ -59,7 +62,7 @@ rpmbuild -bb userspace/gts9wifi-userspace.spec
 Install:
 
 ```sh
-sudo dnf install ./gts9wifi-userspace-0.17.28-1.fc44.aarch64.rpm
+sudo dnf install ./gts9wifi-userspace-0.17.29-1.fc44.aarch64.rpm
 ```
 
 The package also wraps `gnome-control-center` in `/usr/local/bin`: arm64

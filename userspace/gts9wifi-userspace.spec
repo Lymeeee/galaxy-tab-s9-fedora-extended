@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.28
+Version:        0.17.29
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -202,10 +202,15 @@ fi
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-usb0-unmanaged.conf
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 %config(noreplace) %{_sysconfdir}/systemd/zram-generator.conf.d/10-gts9wifi-zstd.conf
+%config(noreplace) %{_sysconfdir}/systemd/logind.conf.d/11-gts9wifi-lid-holdoff.conf
 %dir %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 
 %changelog
+* Tue Nov 10 2026 Lymeeee <mr_xunyu@163.com> - 0.17.29-1
+- Shorten logind's post-resume lid holdoff to 5 s so closing the cover right
+  after waking suspends the tablet instead of being ignored
+
 * Tue Nov 10 2026 Lymeeee <mr_xunyu@163.com> - 0.17.28-1
 - Skip the low-brightness warning while gsd-power's idle dimming is active
   (Main.brightnessManager.dimming), so the automatic dim no longer pops it
