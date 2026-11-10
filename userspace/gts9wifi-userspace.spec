@@ -210,6 +210,8 @@ fi
 * Tue Nov 10 2026 Lymeeee <mr_xunyu@163.com> - 0.17.29-1
 - Shorten logind's post-resume lid holdoff to 5 s so closing the cover right
   after waking suspends the tablet instead of being ignored
+- Enable the firmware CPU boost OPPs (CPU7 3.36 GHz) in balanced, sticky and
+  performance, and keep them off in powersave
 
 * Tue Nov 10 2026 Lymeeee <mr_xunyu@163.com> - 0.17.28-1
 - Skip the low-brightness warning while gsd-power's idle dimming is active

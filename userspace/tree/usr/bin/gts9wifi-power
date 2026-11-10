@@ -48,6 +48,11 @@ set_ondemand() { # up_threshold sampling_rate_us sampling_down_factor
     done
 }
 
+set_boost() { # 0|1: expose the firmware boost OPPs (CPU7 3.36 GHz)
+    printf '%s\n' "$1" >/sys/devices/system/cpu/cpufreq/boost 2>/dev/null ||
+        true
+}
+
 set_gpu_poll() { # polling_interval_ms
     for d in /sys/class/devfreq/*; do
         [ -d "$d" ] || continue
@@ -71,11 +76,13 @@ apply_profile() { # apply_profile <name>
     case "$1" in
         powersave)
             set_cpu schedutil power
+            set_boost 0
             set_gpu simple_ondemand
             set_wifi on
             ;;
         balanced)
             set_cpu schedutil balance_power
+            set_boost 1
             set_gpu msm-adreno-tz
             set_wifi on
             ;;
@@ -84,12 +91,14 @@ apply_profile() { # apply_profile <name>
             # full clocks available for a real burst.
             set_cpu ondemand
             set_ondemand 90 10000 1
+            set_boost 1
             set_gpu simple_ondemand
             set_gpu_poll 20
             set_wifi on
             ;;
         performance)
             set_cpu performance performance
+            set_boost 1
             set_gpu performance
             set_wifi off
             ;;
@@ -104,6 +113,7 @@ apply_profile() { # apply_profile <name>
 
 show_status() {
     echo "saved profile: $(cat "$STATE" 2>/dev/null || echo balanced)"
+    echo "cpu boost: $(cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || echo n/a)"
     for d in /sys/devices/system/cpu/cpufreq/policy*; do
         [ -d "$d" ] || continue
         printf 'cpu %s: %s' "$(basename "$d")" \

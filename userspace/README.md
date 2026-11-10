@@ -18,8 +18,9 @@ aarch64 RPM with the Phase 1 userspace pieces from the Ubuntu port:
 - `gts9wifi-update ffmpeg`, which installs the rebuilt ffmpeg-free RPMs
   (v4l2m2m H.264/HEVC), verifies their SHA256SUMS, sets Firefox's
   `media.hardware-video-decoding.force-enabled` policy and version-locks them
-- `gts9wifi-power` with powersave/balanced/performance profiles (CPU
-  governor/EPP, GPU devfreq, Wi-Fi powersave), applied at boot
+- `gts9wifi-power` with powersave/balanced/sticky/performance profiles (CPU
+  governor/EPP and boost OPPs, GPU devfreq, Wi-Fi powersave), applied at boot;
+  balanced, sticky and performance expose CPU7's 3.36 GHz boost OPP
 - fast charging enabled once by default; USB debug network disabled by
   default (create `/etc/gts9wifi/usb-net-enabled` to restore it)
 - all of the above in the extension's settings page (Extensions app ->
