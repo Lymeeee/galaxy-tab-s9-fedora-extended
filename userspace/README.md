@@ -31,11 +31,15 @@ aarch64 RPM with the Phase 1 userspace pieces from the Ubuntu port:
 - `Tab9 Settings`, a GTK4/libadwaita application in the app grid that
   aggregates the device controls, power profile, USB debug switch and
   system/firmware status (`gts9wifi-settings`); its Setup page adds
-  EasyEffects, RPM Fusion/Copr, Simplified Chinese, IBus Rime/雾凇拼音,
+  EasyEffects, a LibreOffice -> ONLYOFFICE swap, IBus Rime with the Wanxiang
+  dictionary (libpinyin removed, grammar model skipped, inline preedit off),
+  RPM Fusion/Copr, Simplified Chinese,
   USTC/TUNA mirror switching, the dnf protection switch and the convertible
   power-key toggle, and Advanced installs
   components, flashes/rolls back the boot pair (typed confirmation) and
   installs the keyboard V37 firmware file
+- the low-brightness warning is a transient normal-priority notification that
+  expires on its own, and clicking it raises the brightness to 36%
 - `gts9wifi-protect` blocks dnf updates of port-patched packages, the
   Fedora kernel/firmware and fedora-release/repos, and pins `releasever`;
   explicit `dnf system-upgrade` is still possible
@@ -44,9 +48,9 @@ Build (Fedora aarch64 container; needs gcc, glib2-devel and libgtop2-devel):
 
 ```sh
 mkdir -p ~/rpmbuild/SOURCES
-mkdir -p /tmp/src/gts9wifi-userspace-0.17.26
-cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.17.26/
-tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.17.26.tar.gz gts9wifi-userspace-0.17.26
+mkdir -p /tmp/src/gts9wifi-userspace-0.17.27
+cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.17.27/
+tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.17.27.tar.gz gts9wifi-userspace-0.17.27
 cp userspace/cpuinfo/gts9-cpuinfo.c ~/rpmbuild/SOURCES/
 rpmbuild -bb userspace/gts9wifi-userspace.spec
 ```
@@ -54,7 +58,7 @@ rpmbuild -bb userspace/gts9wifi-userspace.spec
 Install:
 
 ```sh
-sudo dnf install ./gts9wifi-userspace-0.17.26-1.fc44.aarch64.rpm
+sudo dnf install ./gts9wifi-userspace-0.17.27-1.fc44.aarch64.rpm
 ```
 
 The package also wraps `gnome-control-center` in `/usr/local/bin`: arm64

@@ -8,6 +8,8 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
 const BACKLIGHT_ROOT = '/sys/class/backlight';
 const THRESHOLD = 36;
 const POLL_MS = 1000;
@@ -29,9 +31,16 @@ export class BrightnessWarning {
         this._armed = true;
         this._lastNotify = -Infinity;
         this._pollId = 0;
+        this._actionId = 0;
+        this._notificationId = 0;
     }
 
     enable() {
+        this._actionId = Gio.DBus.session.signal_subscribe(
+            'org.freedesktop.Notifications',
+            'org.freedesktop.Notifications',
+            'ActionInvoked', '/org/freedesktop/Notifications', null,
+            Gio.DBusSignalFlags.NONE, this._onAction.bind(this));
         this._dir = this._findBacklight();
         this._pollId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, POLL_MS, () => {
             this._poll();
@@ -44,6 +53,11 @@ export class BrightnessWarning {
             GLib.source_remove(this._pollId);
             this._pollId = 0;
         }
+        if (this._actionId) {
+            Gio.DBus.session.signal_unsubscribe(this._actionId);
+            this._actionId = 0;
+        }
+        this._notificationId = 0;
         this._dir = null;
     }
 
@@ -73,11 +87,32 @@ export class BrightnessWarning {
             'org.freedesktop.Notifications', 'Notify',
             new GLib.Variant('(susssasa{sv}i)', [
                 'gts9wifi', 0, 'dialog-warning-symbolic',
-                '亮度警告', TEXT, [],
-                {urgency: new GLib.Variant('y', 2)},
-                10000,
+                '亮度警告', TEXT,
+                ['default', '将亮度调到 36%'],
+                {
+                    urgency: new GLib.Variant('y', 1),
+                    transient: new GLib.Variant('b', true),
+                },
+                4000,
             ]),
-            null, Gio.DBusCallFlags.NONE, -1, null, null);
+            null, Gio.DBusCallFlags.NONE, -1, null,
+            (connection, result) => {
+                try {
+                    [this._notificationId] =
+                        connection.call_finish(result).deep_unpack();
+                } catch {
+                    this._notificationId = 0;
+                }
+            });
+    }
+
+    _onAction(_connection, _sender, _path, _iface, _signal, params) {
+        const [id, action] = params.deep_unpack();
+        if (action !== 'default' || id !== this._notificationId)
+            return;
+        this._notificationId = 0;
+        for (const scale of Main.brightnessManager.scales)
+            scale.value = THRESHOLD / 100;
     }
 
     _findBacklight() {

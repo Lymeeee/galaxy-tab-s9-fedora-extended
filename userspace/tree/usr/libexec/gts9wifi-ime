@@ -1,54 +1,118 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
-# Install IBus Rime and the rime-ice (雾凇拼音) dictionary for the current user.
+# Install IBus Rime with the Wanxiang (万象) base dictionary, drop the
+# libpinyin baggage and turn off inline preedit for this user.
 set -eu
 
 [ "$(id -u)" -ne 0 ] || { echo "run as your desktop user, not root" >&2; exit 1; }
 
-if ! rpm -q ibus-rime >/dev/null 2>&1; then
-    pkexec dnf install -y ibus-rime git
+# The Tailscale repository shipped on some images lacks its GPG key, which
+# makes every dnf transaction fail signature verification.
+dnf_cmd() {
+    if [ -f /etc/yum.repos.d/tailscale.repo ]; then
+        pkexec dnf --disablerepo=tailscale-stable "$@"
+    else
+        pkexec dnf "$@"
+    fi
+}
+
+old=""
+for package in ibus-libpinyin libpinyin-data; do
+    if rpm -q "$package" >/dev/null 2>&1; then
+        old="$old $package"
+    fi
+done
+if [ -n "$old" ]; then
+    echo "removing the old pinyin engine:$old"
+    # shellcheck disable=SC2086
+    dnf_cmd remove -y $old
+fi
+rm -rf "$HOME/.cache/ibus/libpinyin" "$HOME/.cache/ibus/libpinyin.clean.bak"
+
+missing=""
+for package in ibus-rime librime-lua librime-octagram librime-tools \
+               brise curl unzip; do
+    if ! rpm -q "$package" >/dev/null 2>&1; then
+        missing="$missing $package"
+    fi
+done
+if [ -n "$missing" ]; then
+    echo "installing:$missing"
+    # shellcheck disable=SC2086
+    dnf_cmd install -y $missing
 fi
 
+url=${WANXIANG_URL:-https://cnb.cool/amzxyz/rime-wanxiang/-/releases/download/v18.1.11/rime-wanxiang-base.zip}
+sum=${WANXIANG_SHA256-e38f11208d89caccc61d4e7a4c626eebdd30d68ef53298bc8e88ccaf2bcdd4d7}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-url=${RIME_ICE_URL:-https://github.com/iDvel/rime-ice.git}
-if ! git clone --depth 1 "$url" "$tmp/rime-ice"; then
-    echo "failed to clone $url" >&2
-    echo "set RIME_ICE_URL to a reachable mirror and re-run" >&2
-    exit 1
+
+echo "downloading $url"
+curl -fL --retry 3 -o "$tmp/base.zip" "$url"
+if [ -n "$sum" ]; then
+    echo "$sum  $tmp/base.zip" | sha256sum -c -
 fi
 
 rime=$HOME/.config/ibus/rime
-if [ -d "$rime" ] && [ -n "$(find "$rime" -mindepth 1 -print -quit 2>/dev/null)" ]; then
-    backup=$rime.bak-$(date +%Y%m%d%H%M%S)
-    mv "$rime" "$backup"
+mkdir -p "$rime"
+if [ -n "$(find "$rime" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+    backup=$HOME/rime-backup-$(date +%Y%m%d-%H%M%S).tar.gz
+    tar czf "$backup" -C "$HOME/.config/ibus" --exclude='rime/build' rime
     echo "existing Rime data backed up to $backup"
 fi
-mkdir -p "$rime"
-cp -a "$tmp/rime-ice/." "$rime/"
+unzip -q -o "$tmp/base.zip" -d "$rime"
+
+# The 418 MB grammar model is optional and caused stalls; never keep one.
+find "$rime" -maxdepth 1 -name '*.gram' -delete
+
+# The hollow box and underline are IBus inline preedit.  A user-level copy of
+# ibus_rime.yaml wins over the shared one; ibus_rime.custom.yaml patches are
+# ignored by the engine.
+if [ -f /usr/share/rime-data/ibus_rime.yaml ]; then
+    cp -f /usr/share/rime-data/ibus_rime.yaml "$rime/ibus_rime.yaml"
+    sed -i 's/^\( *\)inline_preedit:.*/\1inline_preedit: false/' \
+        "$rime/ibus_rime.yaml"
+else
+    echo "warning: /usr/share/rime-data/ibus_rime.yaml is missing" >&2
+fi
+
+if command -v rime_deployer >/dev/null 2>&1; then
+    rime_deployer --build "$rime" /usr/share/rime-data
+fi
 
 python3 - <<'PY'
 import ast
 import subprocess
 
-out = subprocess.check_output(
-    ['gsettings', 'get', 'org.gnome.desktop.input-sources', 'sources'],
-    text=True)
-sources = ast.literal_eval(out.strip())
-if ('ibus', 'rime') not in sources:
-    sources.append(('ibus', 'rime'))
+def read_list(key):
+    out = subprocess.check_output(
+        ['gsettings', 'get', 'org.gnome.desktop.input-sources', key],
+        text=True)
+    return list(ast.literal_eval(out.strip()))
+
+def write_list(key, value):
     subprocess.run(
-        ['gsettings', 'set', 'org.gnome.desktop.input-sources', 'sources',
-         str(sources)],
+        ['gsettings', 'set', 'org.gnome.desktop.input-sources', key,
+         str(value)],
         check=True)
-    print('added the Rime input source')
-else:
-    print('the Rime input source is already present')
+
+ordered = [('ibus', 'rime'), ('xkb', 'us')]
+for key in ('sources', 'mru-sources'):
+    try:
+        current = read_list(key)
+    except (subprocess.CalledProcessError, ValueError, SyntaxError):
+        current = []
+    rest = [item for item in current
+            if item not in ordered and item != ('ibus', 'libpinyin')]
+    write_list(key, ordered + rest)
+print('Rime is now the default input source')
 PY
 
-pkill -x ibus-daemon 2>/dev/null || true
-ibus-daemon -drx 2>/dev/null || true
+if ! ibus restart 2>/dev/null; then
+    pkill -x ibus-daemon 2>/dev/null || true
+    ibus-daemon -drx 2>/dev/null || true
+fi
 sleep 1
-ibus engine rime 2>/dev/null || true
-echo "Rime/雾凇拼音 installed; use Super+Space to switch input methods."
-echo "If GNOME does not pick it up, log out and back in once."
+echo "Rime/万象拼音 installed with inline preedit off."
+echo "Use Super+Space to switch input methods; log out and back in if GNOME"
+echo "does not pick up the new source immediately."

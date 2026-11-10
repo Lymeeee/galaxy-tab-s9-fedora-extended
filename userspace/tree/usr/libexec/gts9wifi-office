@@ -1,0 +1,43 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Replace LibreOffice with the official ONLYOFFICE Desktop Editors RPM.
+set -eu
+
+[ "$(id -u)" -ne 0 ] || { echo "run as your desktop user, not root" >&2; exit 1; }
+
+dnf_cmd() {
+    if [ -f /etc/yum.repos.d/tailscale.repo ]; then
+        pkexec dnf --disablerepo=tailscale-stable "$@"
+    else
+        pkexec dnf "$@"
+    fi
+}
+
+old=$(rpm -qa --qf '%{NAME}\n' 'libreoffice*' 2>/dev/null || true)
+if [ -n "$old" ]; then
+    echo "removing LibreOffice packages:"
+    echo "$old"
+    # shellcheck disable=SC2086
+    dnf_cmd remove -y $old
+fi
+
+if command -v flatpak >/dev/null 2>&1; then
+    flatpak list --app --columns=application 2>/dev/null |
+        grep -i '^org\.libreoffice\.' |
+        while read -r app; do
+            echo "removing Flatpak $app"
+            flatpak uninstall -y "$app" || true
+        done
+fi
+
+url=${ONLYOFFICE_URL:-https://download.onlyoffice.com/install/desktop/editors/linux/onlyoffice-desktopeditors.aarch64.rpm}
+out=${ONLYOFFICE_RPM:-$HOME/Downloads/onlyoffice-desktopeditors.aarch64.rpm}
+mkdir -p "$(dirname "$out")"
+
+echo "downloading $url"
+curl -fL --retry 3 -C - -o "$out.part" "$url"
+mv "$out.part" "$out"
+
+echo "installing $out"
+dnf_cmd install -y "$out"
+echo "ONLYOFFICE installed; LibreOffice, if present, was removed."

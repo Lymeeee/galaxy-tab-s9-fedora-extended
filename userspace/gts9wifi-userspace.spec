@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.26
+Version:        0.17.27
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -150,6 +150,7 @@ fi
 %{_libexecdir}/gts9wifi-panel-coldboot-check
 %{_libexecdir}/gts9wifi-bt-provision
 %{_libexecdir}/gts9wifi-spen-remote
+%{_libexecdir}/gts9wifi-office
 %{_libexecdir}/gts9wifi-device-name
 %{_libexecdir}/gts9wifi-android-mounts
 %{_libexecdir}/gts9wifi-rtc-time
@@ -205,6 +206,16 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 
 %changelog
+* Tue Nov 10 2026 Lymeeee <mr_xunyu@163.com> - 0.17.27-1
+- Add an ONLYOFFICE action that removes LibreOffice (RPM or Flatpak) when
+  present and installs the official aarch64 RPM
+- Rework the Rime action into the Wanxiang setup: remove ibus-libpinyin and
+  libpinyin-data, install ibus-rime with the Wanxiang base dictionary, drop
+  the grammar model, turn off inline preedit and make Rime the default source
+- Send the low-brightness warning as a normal transient notification so it
+  expires instead of staying until dismissed, and make clicking it set the
+  brightness to 36%
+
 * Tue Nov 10 2026 Lymeeee <mr_xunyu@163.com> - 0.17.26-1
 - Show all Shell OSDs at the top edge by mirroring the theme's bottom margin
   instead of anchoring them at the bottom
