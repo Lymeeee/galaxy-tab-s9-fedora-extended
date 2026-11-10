@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.27
+Version:        0.17.28
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -206,6 +206,10 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 
 %changelog
+* Tue Nov 10 2026 Lymeeee <mr_xunyu@163.com> - 0.17.28-1
+- Skip the low-brightness warning while gsd-power's idle dimming is active
+  (Main.brightnessManager.dimming), so the automatic dim no longer pops it
+
 * Tue Nov 10 2026 Lymeeee <mr_xunyu@163.com> - 0.17.27-1
 - Add an ONLYOFFICE action that removes LibreOffice (RPM or Flatpak) when
   present and installs the official aarch64 RPM

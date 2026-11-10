@@ -62,6 +62,11 @@ export class BrightnessWarning {
     }
 
     _poll() {
+        // gsd-power calls SetDimming(true) on org.gnome.Shell.Brightness after
+        // idle; that is not a user choice, so neither warn nor touch the
+        // re-arm state while it is active.
+        if (Main.brightnessManager.dimming)
+            return;
         const percent = this._readPercent();
         if (percent === null)
             return;
