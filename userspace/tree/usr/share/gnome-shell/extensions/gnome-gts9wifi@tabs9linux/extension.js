@@ -14,6 +14,8 @@
 // lighting the dark screen (which kept the tablet from ever suspending).
 // topOsd.js backs the transient S Pen dock and Caps Lock notices.
 // brightnessWarning.js warns when the panel leaves its DC dimming range.
+// brightnessOsdGuard.js hides the Shell OSD while the brightness slider is
+// being dragged, without hiding it for the brightness keys.
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
@@ -25,6 +27,7 @@ import {TopOsd} from './topOsd.js';
 import {SpenOsd} from './spenOsd.js';
 import {CapsLockOsd} from './capsLockOsd.js';
 import {BrightnessWarning} from './brightnessWarning.js';
+import {BrightnessOsdGuard} from './brightnessOsdGuard.js';
 
 export default class Gts9wifiExtension extends Extension {
     enable() {
@@ -44,9 +47,13 @@ export default class Gts9wifiExtension extends Extension {
         this._capsLockOsd.enable();
         this._brightnessWarning = new BrightnessWarning();
         this._brightnessWarning.enable();
+        this._brightnessOsdGuard = new BrightnessOsdGuard();
+        this._brightnessOsdGuard.enable();
     }
 
     disable() {
+        this._brightnessOsdGuard?.disable();
+        this._brightnessOsdGuard = null;
         this._brightnessWarning?.disable();
         this._brightnessWarning = null;
         this._capsLockOsd?.disable();

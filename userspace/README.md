@@ -45,6 +45,9 @@ aarch64 RPM with the Phase 1 userspace pieces from the Ubuntu port:
 - the low-brightness warning is a transient normal-priority notification that
   expires on its own and is suppressed while GNOME's idle dimming is active;
   clicking it raises the brightness to 36%
+- the Shell brightness OSD is suppressed only while the Quick Settings
+  brightness slider is being dragged; brightness keys and auto-brightness
+  still show it
 - `gts9wifi-protect` blocks dnf updates of port-patched packages, the
   Fedora kernel/firmware and fedora-release/repos, and pins `releasever`;
   explicit `dnf system-upgrade` is still possible
@@ -55,9 +58,9 @@ Build (Fedora aarch64 container; needs gcc, glib2-devel and libgtop2-devel):
 
 ```sh
 mkdir -p ~/rpmbuild/SOURCES
-mkdir -p /tmp/src/gts9wifi-userspace-0.17.32
-cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.17.32/
-tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.17.32.tar.gz gts9wifi-userspace-0.17.32
+mkdir -p /tmp/src/gts9wifi-userspace-0.17.33
+cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.17.33/
+tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.17.33.tar.gz gts9wifi-userspace-0.17.33
 cp userspace/cpuinfo/gts9-cpuinfo.c ~/rpmbuild/SOURCES/
 rpmbuild -bb userspace/gts9wifi-userspace.spec
 ```
@@ -65,7 +68,7 @@ rpmbuild -bb userspace/gts9wifi-userspace.spec
 Install:
 
 ```sh
-sudo dnf install ./gts9wifi-userspace-0.17.32-1.fc44.aarch64.rpm
+sudo dnf install ./gts9wifi-userspace-0.17.33-1.fc44.aarch64.rpm
 ```
 
 The package also wraps `gnome-control-center` in `/usr/local/bin`: arm64
