@@ -524,6 +524,20 @@ static void panel_blank(struct fbdev *fb, int blank)
         kmsg("gts9wifi-lpcharge: panel blank=%d failed", blank);
 }
 
+/*
+ * A cold boot from ABL can leave the DDIC showing only part of a preserved
+ * frame.  Power-cycle the panel once before the first draw so the charger
+ * owns a clean scanout instead of inheriting that state.
+ */
+static void panel_reinit(struct fbdev *fb)
+{
+    kmsg("gts9wifi-lpcharge: panel reinit");
+    panel_blank(fb, FB_BLANK_POWERDOWN);
+    usleep(200000);
+    panel_blank(fb, FB_BLANK_UNBLANK);
+    usleep(150000);
+}
+
 static void quit_plymouth(void)
 {
     static const char *paths[] = {
@@ -648,6 +662,7 @@ int main(int argc, char **argv)
         return 1;
     }
     setup_backlight(&bl);
+    panel_reinit(&fb);
     find_power_keys(&keys);
     if (keys.count == 0) {
         kmsg("gts9wifi-lpcharge: no power key device; continuing boot");
