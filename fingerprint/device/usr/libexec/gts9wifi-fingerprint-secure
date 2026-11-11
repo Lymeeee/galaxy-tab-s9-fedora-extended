@@ -241,7 +241,21 @@ def boot():
         with (LOG / 'owner.log').open('wb', buffering=0) as log:
             while True:
                 if any(c.poll() is not None for c in children):
-                    raise RuntimeError('secure startup child exited; no automatic restart')
+                    # Drain the owner's pipe before raising; its diagnostics
+                    # otherwise stay in the pipe and owner.log remains empty.
+                    try:
+                        while True:
+                            chunk = os.read(owner.stdout.fileno(), 4096)
+                            if not chunk:
+                                break
+                            log.write(chunk)
+                    except (BlockingIOError, OSError):
+                        pass
+                    dead = ', '.join(
+                        f'pid {c.pid} exited {c.returncode}'
+                        for c in children if c.poll() is not None)
+                    raise RuntimeError(f'secure startup child exited: {dead}; '
+                                       'no automatic restart')
                 if (procs[0] / 'state').read_text().strip() != 'running':
                     raise RuntimeError('SPSS left running state; full reboot required')
                 for key, _ in poll.select(timeout=0.25):

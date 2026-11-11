@@ -17,7 +17,7 @@
 
 #include <glib/gstdio.h>
 
-#define EL721_FIRMWARE "/usr/lib/firmware/gts9u/fingerprint"
+#define EL721_FIRMWARE "/var/lib/gts9wifi/fingerprint/firmware"
 #define EL721_TOUCH "/sys/bus/i2c/devices/13-005d"
 #define EL721_PANEL "/sys/class/backlight/ae94000.dsi.0"
 #define EL721_VISUAL_STATE "/run/gts9u-fingerprint/active"

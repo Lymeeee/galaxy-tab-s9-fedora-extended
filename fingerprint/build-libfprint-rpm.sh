@@ -67,7 +67,7 @@ cp "$qcbor_lib" "$qtee_lib" "$srcdir/el721-qtee-deps/lib/"
 
 # Higher than Fedora's current release so a plain install upgrades it;
 # versionlock keeps Fedora updates from replacing the EL721 build.
-sed -i 's/^Release:.*/Release:        100.gts9wifi1%{?dist}/' "$spec"
+sed -i 's/^Release:.*/Release:        100.gts9wifi2%{?dist}/' "$spec"
 
 dnf builddep -y --spec "$spec" >/dev/null
 rpmbuild -bb "$spec"

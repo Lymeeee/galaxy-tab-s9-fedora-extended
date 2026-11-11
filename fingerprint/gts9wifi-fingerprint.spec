@@ -6,7 +6,7 @@
 %global __requires_exclude ^libc[.]so[(]
 
 Name:           gts9wifi-fingerprint
-Version:        0.1.4
+Version:        0.1.5
 Release:        1%{?dist}
 Summary:        EL721 secure-start runtime for the Galaxy Tab S9 Wi-Fi
 License:        MIT AND LGPL-2.1-or-later AND BSD-3-Clause
@@ -69,6 +69,13 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %{_unitdir}/fprintd.service.d/10-gts9wifi-el721.conf
 
 %changelog
+* Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.1.5-1
+- Align the secure owner and libfprint with this port's runtime paths:
+  use /run/gts9wifi-fingerprint-secure/attempt, the gts9wifi firmware
+  directory and the gts9wifi gatekeeper state instead of the Ultra
+  gts9u paths. Drain the owner pipe and log the exited secure child
+  PID/status before failing.
+
 * Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.1.4-1
 - Replace the vendor libhardware_legacy.so with a no-op wake-lock stub:
   the vendor build pulls binder/hidl/suspend HAL and left spdaemon spinning

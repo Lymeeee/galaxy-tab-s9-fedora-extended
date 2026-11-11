@@ -111,14 +111,14 @@ int main (int argc, char **argv)
   if (geteuid () != 0) return 77;
   setvbuf (stdout, NULL, _IOLBF, 0);
   /* The supervisor creates this exclusive boot marker before launching us. */
-  if (access ("/run/gts9u-fingerprint-secure/attempt", F_OK)) return 78;
+  if (access ("/run/gts9wifi-fingerprint-secure/attempt", F_OK)) return 78;
   g_autoptr(GError) error = NULL;
   El721Qtee *session = g_new0 (El721Qtee, 1);
   struct qcomtee_object *controller = QCOMTEE_OBJECT_NULL;
   qcomtee_result_t result = QCOMTEE_ERROR;
   guint8 request[128] = {0};
   gboolean ready = FALSE;
-  session->firmware_directory = g_strdup ("/usr/lib/firmware/gts9u/fingerprint");
+  session->firmware_directory = g_strdup ("/var/lib/gts9wifi/fingerprint/firmware");
   session->root = open_root (&error);
   if (!session->root) goto finished;
   session->client_env = open_client_env (session->root, &error);

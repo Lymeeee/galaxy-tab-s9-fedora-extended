@@ -6,7 +6,7 @@ on:
       release_tag:
         description: "Release tag to publish the libfprint RPMs to"
         required: false
-        default: "libfprint-1.94.100-gts9wifi-1"
+        default: "libfprint-1.94.100-gts9wifi-2"
         type: string
       srpm_url:
         description: "Fedora libfprint source RPM to rebuild"
@@ -43,7 +43,7 @@ jobs:
       - name: Publish to the named release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
-          REL: ${{ inputs.release_tag || 'libfprint-1.94.100-gts9wifi-1' }}
+          REL: ${{ inputs.release_tag || 'libfprint-1.94.100-gts9wifi-2' }}
         run: |
           [ -n "$REL" ] || { echo "release tag is empty" >&2; exit 1; }
           gh release view "$REL" >/dev/null 2>&1 || \

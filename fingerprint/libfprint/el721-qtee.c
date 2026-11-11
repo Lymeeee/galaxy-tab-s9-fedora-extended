@@ -133,8 +133,8 @@
 #define GATEKEEPER_UID 0x47545355U
 #define GATEKEEPER_HANDLE_SIZE 58U
 #define GATEKEEPER_SECRET_SIZE 32U
-#define GATEKEEPER_STATE_DIRECTORY "/var/lib/gts9u-fingerprint"
-#define GATEKEEPER_STATE_PATH GATEKEEPER_STATE_DIRECTORY "/gts9u-gatekeeper"
+#define GATEKEEPER_STATE_DIRECTORY "/var/lib/gts9wifi/fingerprint"
+#define GATEKEEPER_STATE_PATH GATEKEEPER_STATE_DIRECTORY "/gts9wifi-gatekeeper"
 #define GATEKEEPER_LEGACY_STATE_PATH "/var/lib/fprint/gts9u-gatekeeper"
 #define GATEKEEPER_STATE_SIZE (8U + 1U + GATEKEEPER_SECRET_SIZE + \
                                GATEKEEPER_HANDLE_SIZE)
