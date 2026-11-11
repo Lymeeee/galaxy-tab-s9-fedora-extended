@@ -30,6 +30,8 @@ PROTECT = '/usr/libexec/gts9wifi-protect'
 IME = '/usr/libexec/gts9wifi-ime'
 OFFICE = '/usr/libexec/gts9wifi-office'
 POWERKEY = '/usr/libexec/gts9wifi-powerkey-mode'
+SPEN_AIRMOUSE = '/usr/libexec/gts9wifi-spen-airmouse'
+SPEN_AIRMOUSE_FLAG = '/etc/gts9wifi/spen-airmouse'
 DEFAULT_KERNEL_TAG = 'latest'
 POWER_IDS = ['powersave', 'sticky', 'balanced', 'performance']
 MIRROR_IDS = ['ustc', 'tuna']
@@ -42,8 +44,8 @@ STATUS_ZH = {
     'Charging': '充电中',
     'Discharging': '放电中',
     'Full': '已充满',
-    'Not charging': '未充电',
-    'Unknown': '未知',
+    'Not charging': '未在充电',
+    'Unknown': '状态未知',
 }
 
 
@@ -90,10 +92,11 @@ class Settings(Adw.Application):
         self._status_rows = {}
 
     def activate(self, app):
-        window = Adw.PreferencesWindow(application=app, title='Tab9 设置')
+        window = Adw.PreferencesWindow(application=app, title='平板杂项设置')
         window.set_default_size(540, 820)
         self.window = window
         window.add(self.device_page())
+        window.add(self.spen_page())
         window.add(self.power_page())
         window.add(self.debug_page())
         window.add(self.setup_page())
@@ -149,6 +152,47 @@ class Settings(Adw.Application):
             groups[control['group']].add(row)
         return page
 
+    def spen_page(self):
+        page = Adw.PreferencesPage(title='S Pen', icon_name='input-tablet-symbolic')
+        group = Adw.PreferencesGroup(
+            title='隔空操作',
+            description='S Pen 离开笔槽后通过蓝牙陀螺仪移动鼠标指针，'
+                        '按笔身按钮单击。')
+        row = Adw.SwitchRow(
+            title='隔空鼠标指针',
+            subtitle='仅在 S Pen 抽出时生效，需要保持蓝牙连接。',
+            active=os.path.exists(SPEN_AIRMOUSE_FLAG))
+        guard = {'busy': False}
+
+        def toggled(row, _pspec):
+            if guard['busy']:
+                return
+            action = 'on' if row.get_active() else 'off'
+            guard['busy'] = True
+            row.set_sensitive(False)
+
+            def worker():
+                result = run(['pkexec', SPEN_AIRMOUSE, action])
+                GLib.idle_add(finish, result)
+
+            def finish(result):
+                guard['busy'] = False
+                row.set_sensitive(True)
+                if result is None or result.returncode != 0:
+                    guard['busy'] = True
+                    row.set_active(not row.get_active())
+                    guard['busy'] = False
+                    self.alert('无法切换隔空指针',
+                               '请确认 S Pen 服务已安装并完成授权。')
+                return False
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        row.connect('notify::active', toggled)
+        group.add(row)
+        page.add(group)
+        return page
+
     def controls(self):
         result = run([DEVICE_CONTROL, 'list'])
         if result is None or result.returncode != 0:
@@ -169,10 +213,10 @@ class Settings(Adw.Application):
         page = Adw.PreferencesPage(title='电源', icon_name='battery-symbolic')
         group = Adw.PreferencesGroup(
             title='性能模式',
-            description='CPU 调频/EPP、GPU 调频和 Wi-Fi 省电策略。'
-                        '修改时会通过 pkexec 认证。')
+            description='CPU与GPU性能选项'
+                        '修改时需要root密码')
         labels = Gtk.StringList.new(
-            ['省电', '粘性', '均衡', '性能'])
+            ['省电', '敏感', '均衡', '性能'])
         current = read(POWER_PROFILE) or 'balanced'
         if current not in POWER_IDS:
             current = 'balanced'
@@ -203,7 +247,7 @@ class Settings(Adw.Application):
     def add_battery_group(self, page):
         battery = Adw.PreferencesGroup(
             title='电池',
-            description='来自 SM5714 电量计和充电器的实时数据。')
+            description='SM5714电量计的实时数据')
         self._battery_rows = {}
         for key, title in (
                 ('status', '状态'),
@@ -258,7 +302,7 @@ class Settings(Adw.Application):
         current_max = read(usb + '/current_max')
         if online == '1' and voltage_max and current_max:
             try:
-                rows['input'].set_subtitle('%0.1f V / %0.2f A 供电合同' % (
+                rows['input'].set_subtitle('%0.1f V / %0.2f A 握手协议' % (
                     float(voltage_max) / 1e6, float(current_max) / 1e6))
             except ValueError:
                 rows['input'].set_subtitle('已连接')
@@ -269,11 +313,11 @@ class Settings(Adw.Application):
     def debug_page(self):
         page = Adw.PreferencesPage(title='调试', icon_name='utilities-terminal-symbolic')
         group = Adw.PreferencesGroup(
-            title='USB 调试网络',
-            description='通过 172.16.42.1 的 USB 网卡提供 SSH。'
-                        '日常使用建议关闭；开启后会持续给 UDC 供电。')
+            title='USB调试网络',
+            description='USB与电脑连接后，可使用SSH连接172.16.42.1'
+                        '日常使用建议关闭')
         row = Adw.SwitchRow(
-            title='启用 USB 调试网络',
+            title='启用USB调试网络',
             active=os.path.exists(USB_NET_FLAG))
         guard = {'busy': False}
 
@@ -298,7 +342,7 @@ class Settings(Adw.Application):
         applications = Adw.PreferencesGroup(title='应用')
         installed = shutil.which('easyeffects') is not None
         self.action_row(applications, 'EasyEffects',
-            'PipeWire 全局均衡器、压缩器和限制器。',
+            '一个很好用的PipeWire均衡器',
             '打开' if installed else '安装并打开',
             self.open_easyeffects)
         self.action_row(applications, 'ONLYOFFICE 办公套件',
@@ -309,24 +353,23 @@ class Settings(Adw.Application):
 
         repositories = Adw.PreferencesGroup(
             title='软件仓库',
-            description='USTC/TUNA 不镜像 Copr，将直接从官方启用。'
+            description='COPR不走镜像，网络不好建议科学上网'
         )
         self.action_row(repositories, 'RPM Fusion',
-            'Free 与 nonfree 发行版软件仓库。', '启用',
+            'free与nonfree', '启用',
             self.enable_rpmfusion)
-        self.copr_entry = Adw.EntryRow(title='Copr 项目（owner/project）')
+        self.copr_entry = Adw.EntryRow(title='COPR项目（owner/project）')
         repositories.add(self.copr_entry)
-        self.action_row(repositories, 'Copr 仓库',
-            '如有需要会安装 dnf5-plugins，然后启用上面的项目。',
-            '启用', self.enable_copr)
+        self.action_row(repositories, 'COPR仓库',
+            '如有需要会自动安装dnf5-plugins，无需操心',
+            '安装', self.enable_copr)
         page.add(repositories)
 
         protection = Adw.PreferencesGroup(title='保护')
         self.protect_row = Adw.SwitchRow(
-            title='保护移植包和 Fedora 发行版',
-            subtitle='排除本移植替换的软件包、Fedora 内核/固件以及 '
-                     'fedora-release/repos，并固定 releasever。仍可显式执行 '
-                     'system-upgrade。',
+            title='保护不可升级的包',
+            subtitle='固定系统版本，内核以及魔改过的驱动包'
+                     '保证你安心运行系统更新也不会重启就崩',
             active=self.protect_enabled())
         guard = {'busy': False}
 
@@ -346,9 +389,9 @@ class Settings(Adw.Application):
 
         powerkey = Adw.PreferencesGroup(title='电源键')
         self.powerkey_row = Adw.SwitchRow(
-            title='二合一电源键模式',
-            subtitle='短按锁定并挂起；长按打开电源菜单。'
-                     '会设置 CHASSIS=convertible，gsd-media-keys 需要重新登录后生效。',
+            title='更好的电源键',
+            subtitle='短按锁定并休眠，长按打开电源菜单'
+                     '设定CHASSIS=convertible，需要注销重新登录后生效',
             active=os.path.exists('/etc/gts9wifi/power-key-enabled'))
         self.powerkey_row.connect('notify::active', self.powerkey_toggled)
         powerkey.add(self.powerkey_row)
@@ -356,18 +399,16 @@ class Settings(Adw.Application):
 
         locale = Adw.PreferencesGroup(title='语言')
         self.action_row(locale, '简体中文',
-            '安装 zh_CN 语言包，设置系统语言和 GNOME 区域'
+            '安装zh_CN语言包，设置系统语言和 GNOME 区域'
             '（之后需要注销再登录）。', '设为简体中文', self.enable_chinese)
-        self.action_row(locale, '中文输入法（Rime 万象拼音）',
-            '卸载 ibus-libpinyin 与 libpinyin 词库，安装 ibus-rime 和万象拼音'
+        self.action_row(locale, '中文输入法（ibus-rime+万象拼音）',
             ' Base；不安装语法模型，关闭行内预编辑并设为默认输入源。',
-            '安装并调优', self.install_rime)
+            '安装', self.install_rime)
         page.add(locale)
 
         mirrors = Adw.PreferencesGroup(
             title='镜像源',
-            description='USTC 镜像 Fedora、RPM Fusion 和 Flathub；TUNA 镜像 Fedora'
-                        ' 和 RPM Fusion。首次修改前会备份仓库文件。'
+            description='建议使用USTC，rpmfusion更全'
         )
         self.mirror_row = Adw.ComboRow(
             title='镜像',
@@ -375,12 +416,9 @@ class Settings(Adw.Application):
             selected=0)
         mirrors.add(self.mirror_row)
         self.action_row(mirrors, '切换软件源镜像',
-            '重写 Fedora 和 RPM Fusion 仓库文件，并在所选镜像提供 Flathub 时切换；'
-            '随后清理 dnf 缓存。',
-            '应用', self.apply_mirrors)
-        self.action_row(mirrors, '恢复仓库文件',
-            '恢复首次切换镜像前的仓库备份。',
-            '恢复', self.restore_mirrors)
+            '应用所选镜像并清理缓存', '应用', self.apply_mirrors)
+        self.action_row(mirrors, '恢复原先镜像源',
+            '恢复首次切换前的仓库备份', '恢复', self.restore_mirrors)
         page.add(mirrors)
         return page
 
@@ -414,7 +452,6 @@ class Settings(Adw.Application):
                 run(['systemctl', '--user', 'restart',
                      'org.gnome.SettingsDaemon.MediaKeys.service'], timeout=20)
                 self.alert('请注销后重新登录',
-                    'CHASSIS 现在是 convertible；可能需要重新登录后'
                     '电源键才会按预期工作。')
         else:
             run(['systemctl', '--user', 'disable', '--now',
@@ -437,18 +474,18 @@ class Settings(Adw.Application):
             try:
                 subprocess.Popen(['easyeffects'])
             except OSError as error:
-                self.alert('无法启动 EasyEffects', str(error))
+                self.alert('无法启动EasyEffects', str(error))
             return
         self.confirm_simple(
             '安装 EasyEffects？',
-            '安装 Fedora 的 EasyEffects 软件包，然后打开它。',
+            '安装 Fedora 的 EasyEffects 软件包后打开。',
             lambda: self.open_terminal([
                 'bash', '-lc',
                 'pkexec dnf install -y easyeffects && easyeffects']))
 
     def enable_rpmfusion(self):
         if rpm('rpmfusion-free-release') != 'not installed':
-            self.alert('RPM Fusion 已启用', '发行版软件包已安装。')
+            self.alert('RPM Fusion已启用', '发行版软件包已安装。')
             return
         host = self.mirror_host()
         command = (
@@ -463,13 +500,13 @@ class Settings(Adw.Application):
     def enable_copr(self):
         project = self.copr_entry.get_text().strip()
         if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', project):
-            self.alert('Copr 项目无效', '请使用 owner/project 的形式。')
+            self.alert('COPR项目无效', '请使用 owner/project 的形式。')
             return
         command = ('pkexec dnf install -y dnf5-plugins && '
                    'pkexec dnf copr enable -y ' + shlex.quote(project))
         self.confirm_simple(
-            '启用 Copr 仓库？',
-            '启用 %s。USTC/TUNA 不镜像 Copr。' % project,
+            '启用COPR仓库？',
+            '安装 %s。' % project,
             lambda: self.open_terminal(['bash', '-lc', command]))
 
     def enable_chinese(self):
@@ -483,21 +520,21 @@ class Settings(Adw.Application):
         self.confirm_simple(
             '切换到简体中文？',
             '安装语言包，设置系统和用户语言'
-            '（AccountsService）以及 GNOME 区域。注销并重新登录后'
+            '以及 GNOME 区域。注销并重新登录后'
             '界面语言生效；部分移植工具仍为英文。',
             lambda: self.open_terminal(['bash', '-lc', command]))
 
     def install_onlyoffice(self):
         self.confirm_simple(
-            '安装 ONLYOFFICE？',
-            '将卸载已安装的 LibreOffice（RPM 或 Flatpak），然后从 ONLYOFFICE'
-            ' 官方下载 aarch64 RPM 并安装（约 270 MB）。',
+            '安装ONLYOFFICE？',
+            '将卸载LibreOffice，然后从ONLYOFFICE'
+            ' 官方源下载aarch64版RPM包并安装',
             lambda: self.open_terminal([OFFICE]))
 
     def install_rime(self):
         self.confirm_simple(
             '安装中文输入法？',
-            '卸载 ibus-libpinyin 及词库，安装 ibus-rime 与万象拼音 Base，'
+            '卸载ibus-libpinyin，安装ibus-rime与万象拼音，'
             '删除语法模型、关闭行内预编辑，并把 Rime 设为默认输入源。'
             '会先备份现有 Rime 配置。',
             lambda: self.open_terminal([IME]))
@@ -506,7 +543,6 @@ class Settings(Adw.Application):
         mirror = MIRROR_IDS[self.mirror_row.get_selected()]
         self.confirm_simple(
             '切换软件源镜像？',
-            '重写 Fedora 和 RPM Fusion 仓库文件并清理 dnf 缓存。'
             '会保留备份；可用“恢复”还原。',
             lambda: self.open_terminal(['pkexec', '/usr/libexec/gts9wifi-mirrors', mirror]))
 
@@ -521,21 +557,21 @@ class Settings(Adw.Application):
 
         components = Adw.PreferencesGroup(
             title='组件',
-            description='会打开带 pkexec 的终端；更新工具会自行校验下载内容。')
+            description='将要打开带终端；更新工具会自行校验下载内容。')
         self.action_row(components, '用户态软件包',
-            '安装最新的用户态控制项和更新工具。',
+            '安装最新的用户态控制项和更新。',
             '安装', lambda: self.confirm_simple(
                 '更新用户态软件包？',
-                '从 release 安装用户态 RPM 并应用电源默认设置。',
+                '从Github Releases安装用户态软件包',
                 lambda: self.open_terminal(['pkexec', UPDATE, 'userspace'])))
-        self.action_row(components, 'FFmpeg 编解码器',
-            '安装重建的 ffmpeg-free RPM 和 Firefox 硬件视频策略。',
+        self.action_row(components, 'FFmpeg编解码器',
+            '安装为硬解而改造的ffmpeg。',
             '安装', lambda: self.confirm_simple(
-                '安装 FFmpeg 编解码器？',
-                '下载并校验 ffmpeg-free 运行时 RPM。',
+                '安装FFmpeg编解码器？',
+                '下载并校验ffmpeg-free运行时 RPM。',
                 lambda: self.open_terminal(['pkexec', UPDATE, 'ffmpeg'])))
         self.action_row(components, '指纹组件',
-            '安装 libfprint EL721 和安全启动运行时。',
+            '安装EL721和TEE驱动。',
             '安装', lambda: self.confirm_simple(
                 '安装指纹组件？',
                 '安装 libfprint EL721 和指纹运行时，并从本机 sec_efs '
@@ -550,21 +586,21 @@ class Settings(Adw.Application):
         self.kernel_tag = Adw.EntryRow(title='内核 release 标签')
         self.kernel_tag.set_text(DEFAULT_KERNEL_TAG)
         kernel.add(self.kernel_tag)
-        self.action_row(kernel, '更新内核 + 启动包',
-            '下载并校验内核对，备份 boot，写入四个分区，回读校验并安装 RPM。',
-            '刷写…', self.flash_kernel, destructive=True)
-        self.action_row(kernel, '回滚 boot 分区',
-            '恢复最近一次 gts9wifi boot 备份及其模块。',
-            '回滚…', self.rollback_boot, destructive=True)
+        self.action_row(kernel, '更新内核+启动包',
+            '下载并校验，备份并写入新的四大分区，然后安装内核RPM。',
+            '刷写', self.flash_kernel, destructive=True)
+        self.action_row(kernel, '回滚',
+            '恢复最近一次系统分区及内核备份。',
+            '回滚', self.rollback_boot, destructive=True)
         page.add(kernel)
 
         keyboard = Adw.PreferencesGroup(
             title='键盘',
-            description='这里只负责安装固件文件；如果尚未是 V37，pogo 驱动会在下次启动时写入 MCU。')
+            description='这里负责安装键盘固件；如果固件不是V37，键盘可能会无法使用。')
         self.keyboard_row = Adw.ActionRow(
-            title='STM32 V37 固件',
+            title='STM32 V37固件',
             subtitle=self.keyboard_subtitle())
-        install = Gtk.Button(label='安装文件…')
+        install = Gtk.Button(label='安装')
         install.connect('clicked', lambda _button: self.choose_keyboard_firmware())
         self.keyboard_row.add_suffix(install)
         keyboard.add(self.keyboard_row)
@@ -628,16 +664,16 @@ class Settings(Adw.Application):
             self.alert('标签无效', '请使用 latest 或形如 kernel-7.2.0-20261109.67 的日期标签。')
             return
         self.confirm_typed(
-            '刷写内核和启动包？',
-            '这会写入 boot、init_boot、vendor_boot 和 dtbo，然后安装匹配的内核 RPM。'
-            '工具会校验下载并保留回滚备份。标签：%s' % tag,
+            '刷写内核和系统分区？',
+            '这会写入boot、init_boot、vendor_boot和dtbo，然后安装匹配的内核RPM。'
+            '工具会校验下载并保留备份。标签：%s' % tag,
             'FLASH',
             lambda: self.open_terminal(['pkexec', UPDATE, 'kernel', '--tag', tag, '--flash']))
 
     def rollback_boot(self):
         self.confirm_typed(
-            '回滚 boot 分区？',
-            '恢复最近的 boot 分区备份和内核模块，然后提示你重启。',
+            '回滚分区？',
+            '恢复最近的分区备份和内核模块，然后重启。',
             'ROLLBACK',
             lambda: self.open_terminal(['pkexec', UPDATE, 'rollback']))
 
@@ -664,8 +700,8 @@ class Settings(Adw.Application):
             return
         self.confirm_typed(
             '安装键盘 V37 固件？',
-            '文件会复制到 /lib/firmware/keyboard_stm/。pogo 驱动会在下次启动时'
-            '写入 MCU（如果尚未是 V37）；该写入是永久的。',
+            '文件会复制到 /lib/firmware/keyboard_stm/。系统会在下次启动时'
+            '写入MCU（如果尚未是V37）；该写入是永久的！！！',
             'MCU',
             lambda: self.open_terminal([
                 'pkexec', '/usr/bin/install', '-D', '-m0644', path, KEYBOARD_FW]))
@@ -695,15 +731,15 @@ class Settings(Adw.Application):
         header.add_suffix(refresh)
         group.add(header)
         for key, title in [
-            ('kernel', '内核'),
-            ('userspace', '用户态软件包'),
-            ('libfprint', 'libfprint'),
-            ('fingerprint', '指纹运行时'),
+            ('kernel', '内核版本'),
+            ('userspace', '用户态软件版本'),
+            ('libfprint', '指纹驱动'),
+            ('fingerprint', '指纹'),
             ('esfp', '指纹设备'),
             ('keyboard', '键盘控制器'),
-            ('keyboard_fw', '键盘固件文件'),
-            ('ffmpeg', 'FFmpeg 编解码器'),
-            ('vendor', 'Android /vendor 分区'),
+            ('keyboard_fw', '键盘固件'),
+            ('ffmpeg', 'FFmpeg编解码器'),
+            ('vendor', '/vendor分区'),
             ('usbnet', 'USB 调试网络'),
         ]:
             row = Adw.ActionRow(title=title, subtitle='…')

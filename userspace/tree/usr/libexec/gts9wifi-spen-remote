@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: MIT
 """Pair the docked S Pen over BLE and publish its battery through BlueZ."""
 
+import fcntl
 import glob
+import math
+import os
+import struct
 import sys
 import time
 from pathlib import Path
@@ -33,6 +37,28 @@ SPEN_SERVICES = {
 BATTERY_UUID = "5a87b4ef-3bfa-76a8-e642-92933c31434f"
 MODE_UUID = "aca1ab48-08ba-e79e-ab48-a9b9e6429293"
 BATTERY_STATE = "/run/gts9wifi/spen-battery"
+BUTTON_UUID = "6c290d2e-1c03-aca1-ab48-a9b908bae79e"
+RAW_SENSOR_UUID = "ddb42396-ca00-4db3-b87d-2ee458279360"
+AIRMOUSE_STATE = Path('/etc/gts9wifi/spen-airmouse')
+
+EV_SYN = 0
+EV_KEY = 1
+EV_REL = 2
+SYN_REPORT = 0
+REL_X = 0
+REL_Y = 1
+BTN_LEFT = 272
+BTN_TOOL_PEN = 320
+BTN_STYLUS = 331
+BUS_VIRTUAL = 0x06
+INPUT_EVENT = struct.Struct('llHHi')
+UI_SET_EVBIT = 0x40045564
+UI_SET_KEYBIT = 0x40045565
+UI_SET_RELBIT = 0x40045566
+UI_DEV_CREATE = 0x5501
+UI_DEV_DESTROY = 0x5502
+UI_DEV_SETUP = 0x405c5503
+EVIOCGKEY = 0x80004518
 
 PAIR_WINDOW_SECONDS = 65
 PAIR_ATTEMPTS = 2
@@ -76,6 +102,47 @@ def is_spen_name(properties):
 def is_spen(properties):
     services = {str(uuid).lower() for uuid in properties.get("UUIDs", [])}
     return is_spen_name(properties) and SPEN_SERVICES <= services
+
+
+def airmouse_enabled():
+    return AIRMOUSE_STATE.exists()
+
+
+class VirtualPointer:
+    """Relative pointer fed by the S Pen's BLE gyroscope deltas."""
+
+    def __init__(self):
+        self.fd = os.open("/dev/uinput", os.O_RDWR | os.O_NONBLOCK)
+        fcntl.ioctl(self.fd, UI_SET_EVBIT, EV_KEY)
+        fcntl.ioctl(self.fd, UI_SET_EVBIT, EV_REL)
+        fcntl.ioctl(self.fd, UI_SET_KEYBIT, BTN_LEFT)
+        fcntl.ioctl(self.fd, UI_SET_RELBIT, REL_X)
+        fcntl.ioctl(self.fd, UI_SET_RELBIT, REL_Y)
+        name = b"Galaxy Tab S9 S Pen pointer".ljust(80, b"\0")
+        setup = struct.pack("HHHH80sI", BUS_VIRTUAL, 0x04E8, 0xA037, 1, name, 0)
+        fcntl.ioctl(self.fd, UI_DEV_SETUP, setup)
+        fcntl.ioctl(self.fd, UI_DEV_CREATE)
+
+    def emit(self, event_type, code, value):
+        os.write(self.fd, INPUT_EVENT.pack(0, 0, event_type, code, value))
+
+    def move(self, dx, dy):
+        if dx:
+            self.emit(EV_REL, REL_X, dx)
+        if dy:
+            self.emit(EV_REL, REL_Y, dy)
+        if dx or dy:
+            self.emit(EV_SYN, SYN_REPORT, 0)
+
+    def button(self, pressed):
+        self.emit(EV_KEY, BTN_LEFT, int(pressed))
+        self.emit(EV_SYN, SYN_REPORT, 0)
+
+    def close(self):
+        if self.fd is not None:
+            fcntl.ioctl(self.fd, UI_DEV_DESTROY)
+            os.close(self.fd)
+            self.fd = None
 
 
 class BatteryObject(dbus.service.Object):
@@ -282,9 +349,26 @@ class Service(dbus.service.Object):
         self.ble_device_path = None
         self.ble_chars = {}
         self.ble_notify = set()
-        self.mode_sent = False
+        self.mode_value = None
         self.battery_valid = False
         self.next_battery_at = 0.0
+        self.virtual_pointer = None
+        self.pen_fd = None
+        self.pen_watch = None
+        self.pen_in_proximity = False
+        self.pen_pressed = False
+        self.pointer_filtered_x = 0.0
+        self.pointer_filtered_y = 0.0
+        self.pointer_residual_x = 0.0
+        self.pointer_residual_y = 0.0
+        self.pointer_gravity_y = None
+        self.pointer_gravity_z = None
+        self.bus.add_signal_receiver(
+            self._gatt_properties,
+            signal_name="PropertiesChanged",
+            dbus_interface=PROPERTIES_IFACE,
+            path_keyword="path",
+        )
 
     def devices(self):
         try:
@@ -465,7 +549,7 @@ class Service(dbus.service.Object):
             self.battery.update(None, None)
             self.ble_chars = {}
             self.ble_notify.clear()
-            self.mode_sent = False
+            self.mode_value = None
             self.battery_valid = False
             return
 
@@ -473,7 +557,7 @@ class Service(dbus.service.Object):
             self.ble_device_path = path
             self.ble_chars = {}
             self.ble_notify.clear()
-            self.mode_sent = False
+            self.mode_value = None
             self.battery_valid = False
             self.next_battery_at = 0.0
 
@@ -483,23 +567,64 @@ class Service(dbus.service.Object):
                 chars[str(interfaces[GATT_IFACE]["UUID"]).lower()] = object_path
         self.ble_chars = chars
 
-        if BATTERY_UUID not in chars:
-            self.battery.update(None, None)
-            return
+        pointer_active = airmouse_enabled() and not docked()
+        desired_mode = 0x04 if pointer_active else 0x10
+
+        raw_path = chars.get(RAW_SENSOR_UUID)
+        if pointer_active and raw_path is not None:
+            if raw_path not in self.ble_notify:
+                try:
+                    dbus.Interface(
+                        self.bus.get_object(BLUEZ, raw_path), GATT_IFACE
+                    ).StartNotify()
+                    self.ble_notify.add(raw_path)
+                except dbus.DBusException:
+                    pass
+        elif raw_path is not None and raw_path in self.ble_notify:
+            try:
+                dbus.Interface(
+                    self.bus.get_object(BLUEZ, raw_path), GATT_IFACE
+                ).StopNotify()
+            except dbus.DBusException:
+                pass
+            self.ble_notify.discard(raw_path)
+
+        button_path = chars.get(BUTTON_UUID)
+        if pointer_active and button_path is not None:
+            if button_path not in self.ble_notify:
+                try:
+                    dbus.Interface(
+                        self.bus.get_object(BLUEZ, button_path), GATT_IFACE
+                    ).StartNotify()
+                    self.ble_notify.add(button_path)
+                except dbus.DBusException:
+                    pass
+        elif button_path is not None and button_path in self.ble_notify:
+            try:
+                dbus.Interface(
+                    self.bus.get_object(BLUEZ, button_path), GATT_IFACE
+                ).StopNotify()
+            except dbus.DBusException:
+                pass
+            self.ble_notify.discard(button_path)
 
         mode_path = chars.get(MODE_UUID)
-        if mode_path is not None and not self.mode_sent:
+        if mode_path is not None and self.mode_value != desired_mode:
             try:
                 dbus.Interface(
                     self.bus.get_object(BLUEZ, mode_path), GATT_IFACE
                 ).WriteValue(
-                    dbus.Array([dbus.Byte(0x10)], signature="y"), {}
+                    dbus.Array([dbus.Byte(desired_mode)], signature="y"), {}
                 )
-                self.mode_sent = True
+                self.mode_value = desired_mode
             except dbus.DBusException:
-                pass
+                self.mode_value = None
 
-        battery_path = chars[BATTERY_UUID]
+        battery_path = chars.get(BATTERY_UUID)
+        if battery_path is None:
+            self.battery_valid = False
+            self.battery.update(None, None)
+            return
         if battery_path not in self.ble_notify:
             try:
                 dbus.Interface(
@@ -527,9 +652,211 @@ class Service(dbus.service.Object):
             self.battery_valid = False
             self.battery.update(None, None)
 
+    def sync_pointer(self):
+        wanted = airmouse_enabled() and not docked()
+        if wanted:
+            if self.virtual_pointer is None:
+                try:
+                    self.virtual_pointer = VirtualPointer()
+                except OSError:
+                    self.virtual_pointer = None
+            return
+        if self.virtual_pointer is None:
+            return
+        if self.pen_pressed:
+            self.virtual_pointer.button(False)
+            self.pen_pressed = False
+        self.virtual_pointer.close()
+        self.virtual_pointer = None
+
+    @staticmethod
+    def find_pen_event():
+        for event in glob.glob("/sys/class/input/event*"):
+            try:
+                name = Path(event, "device/name").read_text(
+                    encoding="ascii").strip()
+            except OSError:
+                continue
+            if "Wacom" in name and "Pen" in name:
+                return "/dev/input/" + Path(event).name
+        return None
+
+    def ensure_pen_reader(self):
+        if not airmouse_enabled():
+            self.close_pen_reader()
+            return
+        if self.pen_fd is not None:
+            return
+        path = self.find_pen_event()
+        if path is None:
+            return
+        try:
+            self.pen_fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+            keys = bytearray(BTN_TOOL_PEN // 8 + 1)
+            fcntl.ioctl(self.pen_fd, EVIOCGKEY | (len(keys) << 16), keys, True)
+            self.pen_in_proximity = bool(
+                keys[BTN_TOOL_PEN // 8] & (1 << (BTN_TOOL_PEN % 8))
+            )
+        except OSError:
+            self.pen_in_proximity = True
+            self.close_pen_reader()
+            return
+        self.pen_watch = GLib.io_add_watch(
+            self.pen_fd, GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self._pen_event
+        )
+
+    def close_pen_reader(self):
+        if self.pen_pressed and self.virtual_pointer is not None:
+            self.virtual_pointer.button(False)
+            self.pen_pressed = False
+        if self.pen_watch is not None:
+            GLib.source_remove(self.pen_watch)
+            self.pen_watch = None
+        if self.pen_fd is not None:
+            self.pen_in_proximity = True
+            os.close(self.pen_fd)
+            self.pen_fd = None
+
+    def _pen_event(self, _source, condition):
+        if condition & (GLib.IO_HUP | GLib.IO_ERR):
+            self.close_pen_reader()
+            return GLib.SOURCE_REMOVE
+        try:
+            data = os.read(self.pen_fd, INPUT_EVENT.size * 32)
+        except BlockingIOError:
+            return GLib.SOURCE_CONTINUE
+        except OSError:
+            self.close_pen_reader()
+            return GLib.SOURCE_REMOVE
+        if not data:
+            self.close_pen_reader()
+            return GLib.SOURCE_REMOVE
+        for offset in range(0, len(data) - INPUT_EVENT.size + 1,
+                            INPUT_EVENT.size):
+            _sec, _usec, event_type, code, value = INPUT_EVENT.unpack_from(
+                data, offset)
+            if event_type == EV_KEY and code == BTN_TOOL_PEN and value in {0, 1}:
+                self.pen_in_proximity = value == 1
+            elif event_type == EV_KEY and code == BTN_STYLUS and value in {0, 1}:
+                self._pen_button(value == 1)
+        return GLib.SOURCE_CONTINUE
+
+    def _pen_button(self, pressed):
+        if not airmouse_enabled() or self.virtual_pointer is None:
+            return
+        if pressed == self.pen_pressed:
+            return
+        self.pen_pressed = pressed
+        self.virtual_pointer.button(pressed)
+
+    def _gatt_properties(self, interface, changed, _invalidated, path=None):
+        if interface != GATT_IFACE or "Value" not in changed:
+            return
+        value = bytes(changed["Value"])
+        if path == self.ble_chars.get(RAW_SENSOR_UUID):
+            self._raw_sensor(value)
+        elif path == self.ble_chars.get(BUTTON_UUID):
+            self._button_data(value)
+
+    def _raw_sensor(self, value):
+        if not airmouse_enabled() or self.virtual_pointer is None or docked():
+            return
+        if len(value) < 13:
+            return
+        accel_y = int.from_bytes(value[3:5], "little", signed=True)
+        accel_z = int.from_bytes(value[5:7], "little", signed=True)
+        gyro_y = int.from_bytes(value[9:11], "little", signed=True)
+        gyro_z = int.from_bytes(value[11:13], "little", signed=True)
+        gravity_norm = math.hypot(accel_y, accel_z)
+        if gravity_norm >= 500:
+            target_y = accel_y / gravity_norm
+            target_z = accel_z / gravity_norm
+            if self.pointer_gravity_y is None:
+                self.pointer_gravity_y = target_y
+                self.pointer_gravity_z = target_z
+            else:
+                self.pointer_gravity_y += 0.12 * (
+                    target_y - self.pointer_gravity_y)
+                self.pointer_gravity_z += 0.12 * (
+                    target_z - self.pointer_gravity_z)
+                norm = math.hypot(
+                    self.pointer_gravity_y, self.pointer_gravity_z)
+                self.pointer_gravity_y /= norm
+                self.pointer_gravity_z /= norm
+        if self.pointer_gravity_y is None:
+            return
+        yaw = gyro_y * self.pointer_gravity_y + gyro_z * self.pointer_gravity_z
+        pitch = -gyro_y * self.pointer_gravity_z + gyro_z * self.pointer_gravity_y
+        if abs(yaw) < 120:
+            yaw = 0
+        if abs(pitch) < 120:
+            pitch = 0
+        self._pointer_move(yaw, pitch)
+
+    def _button_data(self, value):
+        if not airmouse_enabled() or self.virtual_pointer is None:
+            return
+        offset = 0
+        count = 1
+        if len(value) >= 2 and value[0] == 0xF0:
+            count = value[1]
+            offset = 2
+        for _index in range(count):
+            if offset >= len(value):
+                break
+            header = value[offset]
+            if header == 3:
+                if not self.pen_pressed:
+                    self.pen_pressed = True
+                    self.virtual_pointer.button(True)
+                offset += 1
+            elif header == 0 and offset + 6 <= len(value):
+                if self.pen_pressed:
+                    self.virtual_pointer.button(False)
+                self.pen_pressed = False
+                offset += 6
+            elif header in {14, 15, 142, 143} and offset + 6 <= len(value):
+                dx = int.from_bytes(
+                    value[offset + 1:offset + 3], "little", signed=True)
+                dy = int.from_bytes(
+                    value[offset + 3:offset + 5], "little", signed=True)
+                pressed = header in {15, 143}
+                if pressed != self.pen_pressed:
+                    self.pen_pressed = pressed
+                    self.virtual_pointer.button(pressed)
+                self._pointer_move(dx, dy)
+                offset += 6
+            else:
+                break
+
+    def _pointer_move(self, raw_x, raw_y):
+        if self.virtual_pointer is None:
+            return
+        scale = 0.0045 * (
+            1.0 + min(1.5, (abs(raw_x) + abs(raw_y)) / 6000.0))
+        target_x = -raw_x * scale * 1.6
+        target_y = raw_y * scale
+        alpha = 1.0 - 35 / 110.0
+        self.pointer_filtered_x += alpha * (target_x - self.pointer_filtered_x)
+        self.pointer_filtered_y += alpha * (target_y - self.pointer_filtered_y)
+        self.pointer_residual_x += self.pointer_filtered_x
+        self.pointer_residual_y += self.pointer_filtered_y
+        move_x = int(self.pointer_residual_x)
+        move_y = int(self.pointer_residual_y)
+        self.pointer_residual_x -= move_x
+        self.pointer_residual_y -= move_y
+        self.virtual_pointer.move(move_x, move_y)
+
     def tick(self):
         now = time.monotonic()
         is_docked = docked()
+        enabled = airmouse_enabled()
+        self.sync_pointer()
+        if enabled:
+            self.ensure_pen_reader()
+        else:
+            self.close_pen_reader()
+
         if not is_docked:
             if self.pairing:
                 self.finish_pairing()
@@ -538,6 +865,15 @@ class Service(dbus.service.Object):
             self.pairing_attempts = 0
             self.next_pair_at = 0.0
             self.repairs = 0
+            paired_path, paired = self.paired_spen()
+            if paired_path is not None and paired.get("Connected", False):
+                self.refresh_gatt(paired_path, now)
+                return True
+            if enabled and paired_path is not None:
+                self.set_trusted(paired_path)
+                self.battery.update(None, None)
+                self.connect(paired_path)
+                return True
             self.battery.update(None, None)
             return True
 

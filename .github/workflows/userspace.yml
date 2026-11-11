@@ -46,6 +46,7 @@ jobs:
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-charge-guard
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-keyboard-fw
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-panel-coldboot-check
+              sh -n /work/userspace/tree/usr/libexec/gts9wifi-spen-airmouse
               bash -n /work/userspace/tree/usr/bin/gts9wifi-update
               for f in /work/userspace/tree/usr/share/gnome-shell/extensions/gnome-gts9wifi@tabs9linux/*.js; do
                 cp "$f" /tmp/extension-check.mjs

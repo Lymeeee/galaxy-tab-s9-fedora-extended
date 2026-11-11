@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.34
+Version:        0.17.35
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -88,6 +88,7 @@ systemctl enable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
 systemctl enable gts9wifi-speaker-protection.service >/dev/null 2>&1 || :
 systemctl enable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-spen-remote.service >/dev/null 2>&1 || :
+systemctl try-restart gts9wifi-spen-remote.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-device-name.service >/dev/null 2>&1 || :
 systemctl enable gts9wifi-rtc-time.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-rtc-anchor.timer >/dev/null 2>&1 || :
@@ -165,6 +166,7 @@ fi
 %{_libexecdir}/gts9wifi-panel-coldboot-check
 %{_libexecdir}/gts9wifi-bt-provision
 %{_libexecdir}/gts9wifi-spen-remote
+%{_libexecdir}/gts9wifi-spen-airmouse
 %{_libexecdir}/gts9wifi-office
 %{_libexecdir}/gts9wifi-device-name
 %{_libexecdir}/gts9wifi-android-mounts
@@ -222,6 +224,12 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 
 %changelog
+* Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.17.35-1
+- Add the S Pen air-mouse pointer: when the pen leaves the dock the
+  spen-remote daemon switches the BLE sensor to pointer mode and feeds a
+  uinput relative pointer; the Settings app gains an S Pen page with a
+  toggle, plus revised Simplified Chinese strings.
+
 * Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.17.34-1
 - Install the fingerprint runtime 0.1.2 from the Settings button and pass
   --calib-from-device so this unit's sec_efs calibration is imported
