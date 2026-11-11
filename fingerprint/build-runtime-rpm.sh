@@ -73,6 +73,10 @@ clang --target=aarch64-linux-android29 -O2 -fPIC -fvisibility=hidden \
     -ffreestanding -Wall -Wextra -Werror -shared -nostdlib -fuse-ld=lld \
     -Wl,-soname,libvmmem_shim.so "$here/libvmmem_shim.c" \
     -o "$shims/libvmmem_shim.so"
+clang --target=aarch64-linux-android29 -O2 -fPIC \
+    -ffreestanding -fno-builtin -Wall -Wextra -Werror -shared -nostdlib \
+    -fuse-ld=lld -Wl,-soname,libhardware_legacy.so \
+    "$here/hardware-legacy-compat.c" -o "$shims/libhardware_legacy.so"
 
 version=$(sed -n 's/^Version:[[:space:]]*//p' "$here/gts9wifi-fingerprint.spec" | head -1)
 src=$work/gts9wifi-fingerprint-$version
@@ -83,7 +87,7 @@ install -m0755 "$work/gts9wifi-fingerprint-secure-owner" \
     "$work/gts9wifi-binder-ctxmgr" "$src/usr/libexec/"
 mkdir -p "$src/usr/lib/gts9wifi/fingerprint"
 install -m0755 "$shims/liblog_capture.so" "$shims/libvmmem_shim.so" \
-    "$src/usr/lib/gts9wifi/fingerprint/"
+    "$shims/libhardware_legacy.so" "$src/usr/lib/gts9wifi/fingerprint/"
 (cd "$work" && tar -czf "$top/SOURCES/gts9wifi-fingerprint-$version.tar.gz" \
     "gts9wifi-fingerprint-$version")
 

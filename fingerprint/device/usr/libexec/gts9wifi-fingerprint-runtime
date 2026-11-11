@@ -108,6 +108,10 @@ def sources(system):
             todo.append(found)
     # ld-android.so is the linker's own soname, not a DT_NEEDED of the tools.
     files['lib64/ld-android.so'] = system / 'lib64/ld-android.so'
+    # The vendor libhardware_legacy pulls binder/hidl/suspend HAL and leaves
+    # spdaemon spinning before it opens /dev/vndbinder; ship the no-op stub.
+    files['lib64/libhardware_legacy.so'] = \
+        Path('/usr/lib/gts9wifi/fingerprint/libhardware_legacy.so')
     return files
 
 

@@ -208,6 +208,16 @@ def boot():
             children.append(child)
             if name == 'sec_nvm':
                 time.sleep(0.3)
+        # The daemons register for the SPCom link-up event before the remote
+        # boots; starting the remote earlier made them miss it.
+        time.sleep(1.0)
+        if (procs[0] / 'state').read_text().strip() == 'offline':
+            (procs[0] / 'state').write_text('start\n')
+        start_deadline = time.monotonic() + 10
+        while (procs[0] / 'state').read_text().strip() != 'running':
+            if time.monotonic() > start_deadline:
+                raise RuntimeError('SPSS remoteproc did not start')
+            time.sleep(0.1)
         deadline = time.monotonic() + 45
         while True:
             if any(c.poll() is not None for c in children):

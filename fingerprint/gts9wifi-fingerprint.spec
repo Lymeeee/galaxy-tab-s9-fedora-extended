@@ -6,7 +6,7 @@
 %global __requires_exclude ^libc[.]so[(]
 
 Name:           gts9wifi-fingerprint
-Version:        0.1.3
+Version:        0.1.4
 Release:        1%{?dist}
 Summary:        EL721 secure-start runtime for the Galaxy Tab S9 Wi-Fi
 License:        MIT AND LGPL-2.1-or-later AND BSD-3-Clause
@@ -61,6 +61,7 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %dir %{_prefix}/lib/gts9wifi/fingerprint
 %{_prefix}/lib/gts9wifi/fingerprint/liblog_capture.so
 %{_prefix}/lib/gts9wifi/fingerprint/libvmmem_shim.so
+%{_prefix}/lib/gts9wifi/fingerprint/libhardware_legacy.so
 %{_prefix}/lib/modules-load.d/gts9wifi-fingerprint.conf
 %{_unitdir}/gts9wifi-fingerprint-runtime.service
 %{_unitdir}/gts9wifi-fingerprint-secure.service
@@ -68,6 +69,13 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %{_unitdir}/fprintd.service.d/10-gts9wifi-el721.conf
 
 %changelog
+* Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.1.4-1
+- Replace the vendor libhardware_legacy.so with a no-op wake-lock stub:
+  the vendor build pulls binder/hidl/suspend HAL and left spdaemon spinning
+  before it opened /dev/vndbinder.
+- Start the SPSS remoteproc after the daemons register for the SPCom link-up
+  event; starting it earlier made them miss the event.
+
 * Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.1.3-1
 - Stop shipping gts9wifi-android-parts.service, vendor.mount and
   vendor-firmware_mnt.mount: gts9wifi-dynpart owns those units, and the
