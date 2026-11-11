@@ -538,9 +538,10 @@ class Settings(Adw.Application):
             '安装 libfprint EL721 和安全启动运行时。',
             '安装', lambda: self.confirm_simple(
                 '安装指纹组件？',
-                '安装两个 EL721 软件包并启用挂载/指纹服务。'
-                '校准和 authselect 仍需按文档后续处理。',
-                lambda: self.open_terminal(['pkexec', UPDATE, 'fingerprint'])))
+                '安装 libfprint EL721 和指纹运行时，并从本机 sec_efs '
+                '只读导入校准（calib.dat/egoptbds.dat）。装完重启即可录入。',
+                lambda: self.open_terminal(
+                    ['pkexec', UPDATE, 'fingerprint', '--calib-from-device'])))
         page.add(components)
 
         kernel = Adw.PreferencesGroup(

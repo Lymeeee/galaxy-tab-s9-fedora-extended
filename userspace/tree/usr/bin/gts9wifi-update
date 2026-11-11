@@ -11,7 +11,7 @@ REPO=${GTS9WIFI_REPO:-Lymeeee/galaxy-tab-s9-fedora-extended}
 DEFAULT_TAG=${GTS9WIFI_TAG:-latest}
 DEFAULT_FFMPEG_TAG=${GTS9WIFI_FFMPEG_TAG:-ffmpeg-8.1.3-gts9wifi-1}
 DEFAULT_LIBFPRINT_TAG=${GTS9WIFI_LIBFPRINT_TAG:-libfprint-1.94.100-gts9wifi-1}
-DEFAULT_FINGERPRINT_TAG=${GTS9WIFI_FINGERPRINT_TAG:-gts9wifi-fingerprint-0.1.1-1}
+DEFAULT_FINGERPRINT_TAG=${GTS9WIFI_FINGERPRINT_TAG:-gts9wifi-fingerprint-0.1.2-1}
 STATE=${GTS9WIFI_STATE:-/var/lib/gts9wifi}
 LOCKDIR=/usr/share/gts9wifi/versionlock.d
 BOOT_PARTS=(boot init_boot vendor_boot dtbo)
@@ -53,7 +53,7 @@ Options:
   --tag TAG             release tag (default: latest,
                         ffmpeg-8.1.3-gts9wifi-1 for ffmpeg)
   --libfprint-tag TAG   libfprint EL721 release (default: libfprint-1.94.100-gts9wifi-1)
-  --fingerprint-tag TAG runtime release (default: gts9wifi-fingerprint-0.1.1-1)
+  --fingerprint-tag TAG runtime release (default: gts9wifi-fingerprint-0.1.2-1)
   --calib DIR           copy calib.dat/egoptbds.dat from DIR into the firmware store
   --calib-from-device   import this unit's calibration from sec_efs (ro)
   --dry-run             print the plan without installing or writing

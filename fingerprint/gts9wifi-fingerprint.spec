@@ -1,7 +1,12 @@
 %define debug_package %{nil}
+# liblog_capture.so targets bionic and records libc.so/LIBC as NEEDED; inside
+# the Android runtime that resolves to the tablet's own libc.so, but on Fedora
+# no package provides it, so the automatic dependency makes dnf reject the
+# whole transaction.  Keep libc.so.6 and drop only the bionic soname.
+%global __requires_exclude ^libc[.]so[(]
 
 Name:           gts9wifi-fingerprint
-Version:        0.1.1
+Version:        0.1.2
 Release:        1%{?dist}
 Summary:        EL721 secure-start runtime for the Galaxy Tab S9 Wi-Fi
 License:        MIT AND LGPL-2.1-or-later AND BSD-3-Clause
@@ -65,6 +70,11 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %{_unitdir}/vendor-firmware_mnt.mount
 
 %changelog
+* Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.1.2-1
+- Stop leaking the bionic shim's libc.so requirement into the Fedora
+  dependency set; dnf refused the 0.1.1 transaction with "nothing provides
+  libc.so()(64bit)"
+
 * Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.1.1-1
 - Import this unit's calibration from sec_efs (read-only) instead of asking
   for Android /data paths, and keep calibration hashes in the runtime manifest

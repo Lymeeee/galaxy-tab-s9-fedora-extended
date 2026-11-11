@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.33
+Version:        0.17.34
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -222,6 +222,11 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 
 %changelog
+* Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.17.34-1
+- Install the fingerprint runtime 0.1.2 from the Settings button and pass
+  --calib-from-device so this unit's sec_efs calibration is imported
+  automatically
+
 * Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.17.33-1
 - Suppress the Shell brightness OSD only while the Quick Settings
   brightness slider is being dragged; the brightness keys, auto-brightness

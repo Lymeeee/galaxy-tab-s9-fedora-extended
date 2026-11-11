@@ -102,4 +102,12 @@ find "$top/RPMS" -name '*.rpm' -exec cp -t "$out" {} +
     } > BUILD-METADATA.txt
 )
 
+# The shims are preloaded into the tablet's Android runtime, where libc.so is
+# the bionic libc; on Fedora that soname has no provider and dnf refuses the
+# transaction, so fail the build if the spec filter ever stops matching.
+if rpm -qpR "$out"/gts9wifi-fingerprint-[0-9]*.rpm | grep -qE '^libc[.]so[(]'; then
+    echo "error: bionic libc.so dependency leaked into the runtime RPM" >&2
+    exit 1
+fi
+
 ls -l "$out"

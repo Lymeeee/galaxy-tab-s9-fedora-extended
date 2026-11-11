@@ -24,7 +24,7 @@ What is here:
 
 CI: `.github/workflows/fingerprint.yml` publishes the libfprint RPM to
 `libfprint-1.94.100-gts9wifi-1`; `.github/workflows/fingerprint-runtime.yml`
-publishes the runtime RPM to `gts9wifi-fingerprint-0.1.1-1`. Both are
+publishes the runtime RPM to `gts9wifi-fingerprint-0.1.2-1`. Both are
 arm64 and include `SHA256SUMS`/`BUILD-METADATA.txt`.
 
 ```sh
@@ -33,7 +33,7 @@ docker run --rm --platform linux/arm64 -v "$PWD:/work" -w /work \
 docker run --rm --platform linux/arm64 -v "$PWD:/work" -w /work \
   quay.io/fedora/fedora:44 bash /work/fingerprint/build-runtime-rpm.sh
 # -> out-fingerprint/libfprint-1.94.100-100.gts9wifi1.fc44.aarch64.rpm
-# -> out-fingerprint/gts9wifi-fingerprint-0.1.1-1.fc44.aarch64.rpm
+# -> out-fingerprint/gts9wifi-fingerprint-0.1.2-1.fc44.aarch64.rpm
 ```
 
 Install both and lock them.  fprintd and GNOME then see a normal reader;
@@ -41,7 +41,7 @@ no fprintd patch is needed for basic login.
 
 ```sh
 sudo dnf install ./libfprint-1.94.100-100.gts9wifi1.fc44.aarch64.rpm \
-  ./gts9wifi-fingerprint-0.1.1-1.fc44.aarch64.rpm
+  ./gts9wifi-fingerprint-0.1.2-1.fc44.aarch64.rpm
 sudo dnf versionlock add libfprint gts9wifi-fingerprint
 ```
 
