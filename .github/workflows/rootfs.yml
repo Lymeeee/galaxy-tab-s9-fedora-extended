@@ -81,6 +81,22 @@ jobs:
           # so the checksum step below can add SHA256SUMS next to it.
           sudo chown -R "$(id -u):$(id -g)" out
 
+      - name: Verify file capabilities survived packing
+        run: |
+          command -v getcap >/dev/null || {
+            sudo apt-get update
+            sudo apt-get install -y libcap2-bin
+          }
+          mkdir -p /tmp/capcheck
+          sudo tar --xattrs --xattrs-include='*' \
+            -xzf out/gts9wifi-fedora-*-rootfs.tar.gz -C /tmp/capcheck \
+            ./usr/bin/newuidmap ./usr/bin/newgidmap
+          sudo getcap /tmp/capcheck/usr/bin/newuidmap /tmp/capcheck/usr/bin/newgidmap
+          sudo getcap /tmp/capcheck/usr/bin/newuidmap | grep -q 'cap_'
+          sudo getcap /tmp/capcheck/usr/bin/newgidmap | grep -q 'cap_'
+          tar tzf out/gts9wifi-fedora-*-rootfs.tar.gz \
+            | grep -q './usr/lib/systemd/system/gts9wifi-filecaps.service'
+
       - name: Checksum
         run: |
           cd out && sha256sum *.tar.gz rootfs-manifest.txt > SHA256SUMS && cat SHA256SUMS

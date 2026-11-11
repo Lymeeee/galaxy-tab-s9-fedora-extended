@@ -1,0 +1,36 @@
+#!/bin/bash
+# Re-apply security.capability from RPM's own file metadata.  Older rootfs
+# tarballs were packed without xattrs and TWRP's tar may not restore them,
+# so the installed binaries can otherwise lose cap_net_raw, cap_setuid, ...
+# Only the capability xattr is touched; ownership, modes and timestamps are
+# left alone.
+set -u
+
+list=$(mktemp) || exit 0
+trap 'rm -f "$list"' EXIT
+
+rpm -qa --qf '[%{FILENAMES}\t%{FILECAPS}\n]' 2>/dev/null |
+    awk 'NF >= 2 && $NF ~ /^cap_/' > "$list" || true
+
+if [ ! -s "$list" ]; then
+    # The array query format is not guaranteed on older rpm builds; the
+    # per-package --filecaps query is the documented fallback.
+    rpm -qa 2>/dev/null | while IFS= read -r pkg; do
+        rpm -q --filecaps "$pkg" 2>/dev/null || true
+    done | awk 'NF >= 2 { print $1 "\t" $2 }' > "$list"
+fi
+
+rc=0
+while IFS=$'\t' read -r path caps; do
+    case "$caps" in
+        cap_*) ;;
+        *) continue ;;
+    esac
+    [ -f "$path" ] || continue
+    if ! setcap "$caps" "$path" 2>/dev/null; then
+        echo "gts9wifi-filecaps: failed to set $caps on $path" >&2
+        rc=1
+    fi
+done < "$list"
+
+exit "$rc"

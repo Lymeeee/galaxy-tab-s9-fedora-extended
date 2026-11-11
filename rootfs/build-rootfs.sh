@@ -419,7 +419,7 @@ for unit in \
     gts9wifi-panel-coldboot-recover \
     gts9wifi-grow-rootfs \
     gts9wifi-usb-net gts9wifi-wifi-recover gts9wifi-sensor-registry-perms \
-    gts9wifi-x11-dir-fix.path gts9wifi-chronyd \
+    gts9wifi-x11-dir-fix.path gts9wifi-chronyd gts9wifi-filecaps \
     mnt-vendor-persist.mount vendor-dsp.mount vendor-firmware_mnt.mount
 do
     systemctl --root="$rootfs" enable "$unit" >/dev/null 2>&1 \
@@ -448,7 +448,9 @@ echo ">>> Packing"
 rpm -qa --root "$rootfs" --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort \
     > "$outdir/rootfs-manifest.txt"
 archive="$outdir/gts9wifi-fedora-$fedora_release-rootfs.tar.gz"
-tar -C "$rootfs" -czf "$archive" .
+# security.capability lives in the security.* xattr namespace; without this
+# newuidmap/newgidmap, arping and the sssd helpers lose their capabilities.
+tar --xattrs --xattrs-include='*' -C "$rootfs" -czf "$archive" .
 
 echo ">>> Done: $archive"
 if [ "${#missing_assets[@]}" -gt 0 ]; then

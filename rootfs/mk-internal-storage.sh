@@ -147,13 +147,20 @@ umount /data 2>/dev/null || true
 mke2fs -F -t ext4 -m 1 -U '"$root_uuid"' -L pmOS_root "$DEV"
 mkdir -p /rmnt
 mount -t ext4 "$DEV" /rmnt
-tar xzf /tmp/gts9-rootfs.tar.gz -C /rmnt
+extract_tar() {
+    if tar --help 2>&1 | grep -q -- --xattrs; then
+        tar --xattrs --xattrs-include="*" -xzf "$1" -C "$2"
+    else
+        tar -xzf "$1" -C "$2"
+    fi
+}
+extract_tar /tmp/gts9-rootfs.tar.gz /rmnt
 if [ -f /tmp/gts9-firmware.tar.gz ]; then
-    tar xzf /tmp/gts9-firmware.tar.gz -C /rmnt
+    extract_tar /tmp/gts9-firmware.tar.gz /rmnt
 fi
 if [ -f /tmp/gts9-modules.tar.gz ]; then
     mkdir -p /rmnt/usr/lib/modules
-    tar xzf /tmp/gts9-modules.tar.gz -C /rmnt/usr/lib/modules
+    extract_tar /tmp/gts9-modules.tar.gz /rmnt/usr/lib/modules
 fi
 # Root-only fstab: the tarball one mounts /boot by the SD ext2 UUID, and
 # no such partition exists here (90 s device timeout, then emergency mode).

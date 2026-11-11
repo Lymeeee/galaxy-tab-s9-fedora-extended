@@ -36,6 +36,14 @@ size_gib="${3:-12}"
 boot_uuid="b7869a36-d9a0-4403-b9fd-e0ebec016b76"
 root_uuid="d2a235a8-37cd-4bac-be53-16caf2bfdd21"
 
+extract_tar() {
+    if tar --help 2>&1 | grep -q -- --xattrs; then
+        tar --xattrs --xattrs-include='*' -xzf "$1" -C "$2"
+    else
+        tar -xzf "$1" -C "$2"
+    fi
+}
+
 boot_files="$assets/boot-files"
 # Optional: the eMMC boot chain (kernel + initramfs from the bundle) never
 # reads the SD /boot partition, so a fresh checkout without local assets
@@ -85,12 +93,12 @@ mount "$bp" "$m_boot"
 echo ">>> root partition"
 m_root="$(mktemp -d)"
 mount "$rp" "$m_root"
-tar xzf "$rootfs_tar" -C "$m_root"
+extract_tar "$rootfs_tar" "$m_root"
 
 echo ">>> injecting local assets (CI rootfs ships without them)"
 kver="${GTS9_KERNEL_VERSION:-7.2}"
 if [ -f "$assets/firmware.tar.gz" ]; then
-    tar xzf "$assets/firmware.tar.gz" -C "$m_root"
+    extract_tar "$assets/firmware.tar.gz" "$m_root"
 else
     echo "    WARN: no firmware payload — Wi-Fi/BT/audio/sensors will be dead"
 fi

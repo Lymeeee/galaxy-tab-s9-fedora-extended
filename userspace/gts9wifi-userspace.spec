@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.29
+Version:        0.17.30
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -114,6 +114,20 @@ fi
 if command -v plymouth-set-default-theme >/dev/null 2>&1; then
     plymouth-set-default-theme gts9wifi >/dev/null 2>&1 || :
 fi
+# Older rootfs tarballs (and TWRP's tar) dropped security.capability; re-apply
+# what RPM recorded so newuidmap/newgidmap and rootless containers work
+# without reinstalling or reflashing the affected packages.
+if command -v rpm >/dev/null 2>&1 && command -v setcap >/dev/null 2>&1; then
+    rpm -qa --qf '[%%{FILENAMES} %%{FILECAPS}\n]' 2>/dev/null |
+    while read -r cap_path cap_value; do
+        case "$cap_value" in
+            cap_*) ;;
+            *) continue ;;
+        esac
+        [ -f "$cap_path" ] || continue
+        setcap "$cap_value" "$cap_path" >/dev/null 2>&1 || :
+    done
+fi
 
 %postun
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
@@ -207,6 +221,11 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 
 %changelog
+* Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.17.30-1
+- Re-apply file capabilities from RPM's own metadata after install, repairing
+  newuidmap/newgidmap, arping and the sssd helpers that older xattr-less
+  rootfs tarballs stripped
+
 * Tue Nov 10 2026 Lymeeee <mr_xunyu@163.com> - 0.17.29-1
 - Shorten logind's post-resume lid holdoff to 5 s so closing the cover right
   after waking suspends the tablet instead of being ignored
