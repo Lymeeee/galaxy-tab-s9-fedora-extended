@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-fingerprint
-Version:        0.1.0
+Version:        0.1.1
 Release:        1%{?dist}
 Summary:        EL721 secure-start runtime for the Galaxy Tab S9 Wi-Fi
 License:        MIT AND LGPL-2.1-or-later AND BSD-3-Clause
@@ -17,6 +17,7 @@ Requires:       util-linux
 Requires:       device-mapper
 Requires:       kmod
 Requires:       fprintd
+Requires:       fprintd-pam
 Requires:       libfprint >= 1.94.100-100.gts9wifi1
 
 %description
@@ -64,5 +65,11 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %{_unitdir}/vendor-firmware_mnt.mount
 
 %changelog
+* Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.1.1-1
+- Import this unit's calibration from sec_efs (read-only) instead of asking
+  for Android /data paths, and keep calibration hashes in the runtime manifest
+- Require fprintd-pam: Fedora's GDM uses the dedicated gdm-fingerprint PAM
+  service, so no authselect feature or fprintd rebuild is needed
+
 * Wed Nov 04 2026 Lymeeee <mr_xunyu@163.com> - 0.1.0-1
 - Initial EL721 secure-start runtime, mounts and fprintd drop-in

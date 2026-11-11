@@ -11,7 +11,7 @@ REPO=${GTS9WIFI_REPO:-Lymeeee/galaxy-tab-s9-fedora-extended}
 DEFAULT_TAG=${GTS9WIFI_TAG:-latest}
 DEFAULT_FFMPEG_TAG=${GTS9WIFI_FFMPEG_TAG:-ffmpeg-8.1.3-gts9wifi-1}
 DEFAULT_LIBFPRINT_TAG=${GTS9WIFI_LIBFPRINT_TAG:-libfprint-1.94.100-gts9wifi-1}
-DEFAULT_FINGERPRINT_TAG=${GTS9WIFI_FINGERPRINT_TAG:-gts9wifi-fingerprint-0.1.0-1}
+DEFAULT_FINGERPRINT_TAG=${GTS9WIFI_FINGERPRINT_TAG:-gts9wifi-fingerprint-0.1.1-1}
 STATE=${GTS9WIFI_STATE:-/var/lib/gts9wifi}
 LOCKDIR=/usr/share/gts9wifi/versionlock.d
 BOOT_PARTS=(boot init_boot vendor_boot dtbo)
@@ -30,6 +30,7 @@ tag=${GTS9WIFI_TAG:-}
 libfprint_tag=""
 fingerprint_tag=""
 calib_dir=""
+calib_from_device=0
 dry=0
 flash=0
 reboot_after=0
@@ -52,8 +53,9 @@ Options:
   --tag TAG             release tag (default: latest,
                         ffmpeg-8.1.3-gts9wifi-1 for ffmpeg)
   --libfprint-tag TAG   libfprint EL721 release (default: libfprint-1.94.100-gts9wifi-1)
-  --fingerprint-tag TAG runtime release (default: gts9wifi-fingerprint-0.1.0-1)
+  --fingerprint-tag TAG runtime release (default: gts9wifi-fingerprint-0.1.1-1)
   --calib DIR           copy calib.dat/egoptbds.dat from DIR into the firmware store
+  --calib-from-device   import this unit's calibration from sec_efs (ro)
   --dry-run             print the plan without installing or writing
   --flash               allow kernel boot-partition writes (kernel command only)
   --reboot              reboot after a successful kernel update/rollback
@@ -71,6 +73,7 @@ while [ $# -gt 0 ]; do
         --libfprint-tag) libfprint_tag=${2:?missing value}; shift 2 ;;
         --fingerprint-tag) fingerprint_tag=${2:?missing value}; shift 2 ;;
         --calib) calib_dir=${2:?missing value}; shift 2 ;;
+        --calib-from-device) calib_from_device=1; shift ;;
         --dry-run) dry=1; shift ;;
         --flash) flash=1; shift ;;
         --reboot) reboot_after=1; shift ;;
@@ -504,6 +507,9 @@ cmd_fingerprint() {
     [ -n "$libfprint_tag" ] || libfprint_tag=$DEFAULT_LIBFPRINT_TAG
     [ -n "$fingerprint_tag" ] || fingerprint_tag=$DEFAULT_FINGERPRINT_TAG
     local line name url dir lrpm frpm
+    if [ "$calib_from_device" -eq 1 ] && [ -n "$calib_dir" ]; then
+        die "use either --calib or --calib-from-device, not both"
+    fi
 
     api_json "$libfprint_tag" >/dev/null || die "release $libfprint_tag not found"
     api_json "$fingerprint_tag" >/dev/null || die "release $fingerprint_tag not found"
@@ -511,7 +517,9 @@ cmd_fingerprint() {
     if [ "$dry" -eq 1 ]; then
         echo "would install libfprint from $libfprint_tag"
         echo "would install the runtime from $fingerprint_tag"
-        if [ -n "$calib_dir" ]; then
+        if [ "$calib_from_device" -eq 1 ]; then
+            echo "would import this unit's calibration from sec_efs"
+        elif [ -n "$calib_dir" ]; then
             echo "would install calibration from $calib_dir"
         fi
         return 0
@@ -558,18 +566,6 @@ EOF
     fi
     update_end
 
-    if [ -n "$calib_dir" ]; then
-        install -d -m0700 /var/lib/gts9wifi/fingerprint/firmware
-        for f in calib.dat egoptbds.dat; do
-            if [ -f "$calib_dir/$f" ]; then
-                install -m0600 "$calib_dir/$f" \
-                    "/var/lib/gts9wifi/fingerprint/firmware/$f"
-            else
-                echo "warning: $calib_dir/$f not found" >&2
-            fi
-        done
-    fi
-
     systemctl daemon-reload >/dev/null 2>&1 || true
     for unit in gts9wifi-android-parts.service vendor.mount \
                 vendor-firmware_mnt.mount \
@@ -584,10 +580,20 @@ EOF
     systemctl start gts9wifi-fingerprint-runtime.service >/dev/null 2>&1 ||
         echo "warning: runtime assembly failed; check /vendor and apnhlos mounts" >&2
 
+    if [ "$calib_from_device" -eq 1 ]; then
+        /usr/libexec/gts9wifi-fingerprint-runtime import-calibration ||
+            echo "warning: sec_efs calibration import failed" >&2
+    elif [ -n "$calib_dir" ]; then
+        /usr/libexec/gts9wifi-fingerprint-runtime import-calibration "$calib_dir" ||
+            echo "warning: calibration import from $calib_dir failed" >&2
+    fi
+
     echo "fingerprint stack installed and locked"
     echo "  runtime assets: /var/lib/gts9wifi/fingerprint"
     echo "  calibration: calib.dat and egoptbds.dat in .../firmware (0600)"
-    echo "  after the first enrollment: sudo authselect enable-feature with-fingerprint"
+    echo "  reboot, then enroll with GNOME Settings or: fprintd-enroll"
+    echo "  GDM uses its own gdm-fingerprint PAM service;"
+    echo "  do not enable authselect with-fingerprint (it adds a second prompt)"
 }
 
 cmd_kernel() {

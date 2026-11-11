@@ -55,9 +55,9 @@ Build (Fedora aarch64 container; needs gcc, glib2-devel and libgtop2-devel):
 
 ```sh
 mkdir -p ~/rpmbuild/SOURCES
-mkdir -p /tmp/src/gts9wifi-userspace-0.17.30
-cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.17.30/
-tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.17.30.tar.gz gts9wifi-userspace-0.17.30
+mkdir -p /tmp/src/gts9wifi-userspace-0.17.31
+cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.17.31/
+tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.17.31.tar.gz gts9wifi-userspace-0.17.31
 cp userspace/cpuinfo/gts9-cpuinfo.c ~/rpmbuild/SOURCES/
 rpmbuild -bb userspace/gts9wifi-userspace.spec
 ```
@@ -65,7 +65,7 @@ rpmbuild -bb userspace/gts9wifi-userspace.spec
 Install:
 
 ```sh
-sudo dnf install ./gts9wifi-userspace-0.17.30-1.fc44.aarch64.rpm
+sudo dnf install ./gts9wifi-userspace-0.17.31-1.fc44.aarch64.rpm
 ```
 
 The package also wraps `gnome-control-center` in `/usr/local/bin`: arm64
@@ -102,9 +102,13 @@ the runtime `*-free` packages and leaves devel/debuginfo assets alone.
 `fingerprint` installs the EL721 libfprint build and the secure-start
 runtime, locks both, enables the vendor/apnhlos mounts and fingerprint
 units, and assembles the TA/firmware from the tablet's own partitions.
-`--calib DIR` copies `calib.dat` and `egoptbds.dat` into the firmware
-store (0600). After the first enrollment, enable the PAM path with
-`sudo authselect enable-feature with-fingerprint`.
+`--calib-from-device` mounts `sec_efs` read-only and imports this unit's
+`biometrics/meta/egis_calibration_data.bin` as `calib.dat` plus
+`egoptbds.dat` when present; `--calib DIR` imports both from a directory
+instead. Reboot, then enroll with GNOME Settings or `fprintd-enroll`.
+Do **not** enable authselect's `with-fingerprint` feature: Fedora's GDM
+already uses the dedicated `gdm-fingerprint` PAM service, and adding the
+module to the password stack causes a second fingerprint prompt.
 
 `kernel` without `--flash` only downloads and verifies the pair. With
 `--flash` it backs up the four boot partitions and the running modules,

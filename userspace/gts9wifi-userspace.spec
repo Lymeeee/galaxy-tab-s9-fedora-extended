@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.30
+Version:        0.17.31
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -221,6 +221,13 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 
 %changelog
+* Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.17.31-1
+- Import the fingerprint calibration from this unit's sec_efs with
+  `--calib-from-device`; keep the supplied-directory path as `--calib`
+- Stop recommending authselect's with-fingerprint feature: Fedora's GDM
+  already uses the dedicated gdm-fingerprint PAM service, and the feature
+  adds a second fingerprint prompt to the password stack
+
 * Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.17.30-1
 - Re-apply file capabilities from RPM's own metadata after install, repairing
   newuidmap/newgidmap, arping and the sssd helpers that older xattr-less

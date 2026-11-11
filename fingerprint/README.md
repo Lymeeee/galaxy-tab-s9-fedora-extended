@@ -24,7 +24,7 @@ What is here:
 
 CI: `.github/workflows/fingerprint.yml` publishes the libfprint RPM to
 `libfprint-1.94.100-gts9wifi-1`; `.github/workflows/fingerprint-runtime.yml`
-publishes the runtime RPM to `gts9wifi-fingerprint-0.1.0-1`. Both are
+publishes the runtime RPM to `gts9wifi-fingerprint-0.1.1-1`. Both are
 arm64 and include `SHA256SUMS`/`BUILD-METADATA.txt`.
 
 ```sh
@@ -33,7 +33,7 @@ docker run --rm --platform linux/arm64 -v "$PWD:/work" -w /work \
 docker run --rm --platform linux/arm64 -v "$PWD:/work" -w /work \
   quay.io/fedora/fedora:44 bash /work/fingerprint/build-runtime-rpm.sh
 # -> out-fingerprint/libfprint-1.94.100-100.gts9wifi1.fc44.aarch64.rpm
-# -> out-fingerprint/gts9wifi-fingerprint-0.1.0-1.fc44.aarch64.rpm
+# -> out-fingerprint/gts9wifi-fingerprint-0.1.1-1.fc44.aarch64.rpm
 ```
 
 Install both and lock them.  fprintd and GNOME then see a normal reader;
@@ -41,7 +41,7 @@ no fprintd patch is needed for basic login.
 
 ```sh
 sudo dnf install ./libfprint-1.94.100-100.gts9wifi1.fc44.aarch64.rpm \
-  ./gts9wifi-fingerprint-0.1.0-1.fc44.aarch64.rpm
+  ./gts9wifi-fingerprint-0.1.1-1.fc44.aarch64.rpm
 sudo dnf versionlock add libfprint gts9wifi-fingerprint
 ```
 
@@ -56,12 +56,26 @@ sudo systemctl enable --now gts9wifi-fingerprint-runtime.service
 sudo systemctl enable --now gts9wifi-fingerprint-secure.service
 ```
 
-Not included yet:
+Import this unit's calibration (never another tablet's):
 
-- device calibration (`calib.dat`, `egoptbds.dat`): copy them into
-  `/var/lib/gts9wifi/fingerprint/firmware/` (0600) once, from this
-  tablet's own Android data/backup;
-- PAM/authselect enablement and the GNOME overlay/presented bridge;
+```sh
+# mounts sec_efs read-only and copies biometrics/meta/egis_calibration_data.bin
+# as calib.dat; egoptbds.dat is taken from the same partition when present
+sudo /usr/libexec/gts9wifi-fingerprint-runtime import-calibration
+# or point it at a directory containing calib.dat/egoptbds.dat
+sudo /usr/libexec/gts9wifi-fingerprint-runtime import-calibration DIR
+```
+
+`fprintd-pam` is required. Fedora's GDM uses the dedicated
+`gdm-fingerprint` PAM service, so do **not** run
+`authselect enable-feature with-fingerprint`: that adds a second fingerprint
+prompt to the password stack. Reboot after importing calibration, then enroll
+with GNOME Settings or `fprintd-enroll`.
+
+Still open:
+
+- the GNOME overlay/presented bridge (animated lock-screen fingerprint UI);
+  basic GDM login and lock-screen authentication do not need it;
 - hardware validation: the stack was built and inspected but has not run
   on the tablet yet.
 

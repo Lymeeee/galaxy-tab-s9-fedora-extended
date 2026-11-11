@@ -32,10 +32,16 @@ jobs:
             quay.io/fedora/fedora:44 \
             bash -lc '
               set -euxo pipefail
-              dnf -y install rpm-build systemd-rpm-macros glib2 glib2-devel libgtop2-devel gcc findutils tar gzip sed python3 desktop-file-utils python3-gobject gtk4 libadwaita libcap iputils >/dev/null
+              dnf -y install rpm-build systemd-rpm-macros glib2 glib2-devel libgtop2-devel gcc findutils tar gzip sed python3 desktop-file-utils python3-gobject gtk4 libadwaita libcap shadow-utils >/dev/null
               # The %post capability repair depends on this exact query format.
               command -v setcap >/dev/null
-              rpm -qa --qf "[%{FILENAMES} %{FILECAPS}\n]" | grep -q "^/usr/bin/ping cap_"
+              if ! rpm -qa --qf "[%{FILENAMES} %{FILECAPS}\n]" \
+                    | grep -q "^/usr/bin/newuidmap cap_"; then
+                echo "rpm query format did not report newuidmap caps" >&2
+                rpm -qa --qf "[%{FILENAMES} %{FILECAPS}\n]" \
+                    | grep newuidmap >&2 || true
+                exit 1
+              fi
               python3 -m py_compile /work/userspace/tree/usr/bin/gts9wifi-settings /work/userspace/tree/usr/libexec/gts9wifi-power-key /work/userspace/tree/usr/libexec/gts9wifi-wifi-bdf /work/userspace/tree/usr/libexec/gts9wifi-spen-remote /work/userspace/tree/usr/libexec/gts9wifi-rtc-time
               rm -rf /work/userspace/tree/usr/bin/__pycache__ /work/userspace/tree/usr/libexec/__pycache__
               python3 /work/userspace/tests/settings-smoke.py

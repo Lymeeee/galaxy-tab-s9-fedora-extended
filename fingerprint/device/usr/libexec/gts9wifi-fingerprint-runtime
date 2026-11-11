@@ -3,21 +3,25 @@
 
   gts9wifi-fingerprint-runtime assemble   copy into /var/lib/gts9wifi/fingerprint
   gts9wifi-fingerprint-runtime check      show what is present (read-only)
+  gts9wifi-fingerprint-runtime import-calibration [DIR]
+                                          import this unit's calibration
 
 The SPU needs Samsung's sec_nvm and spdaemon running before Keymaster can be
 configured (see docs/gts9wifi/FINGERPRINT.md).  They are Android binaries, so
 they run under Android's bootstrap linker with the libraries they need, and
 the dualfp trusted app is loaded from its signed segments.  Nothing of that is
 in this repository: everything is copied from the tablet's own read-only
-partitions (vendor, system, apnhlos).  The calibration blobs calib.dat and
-egoptbds.dat only exist in Android's encrypted /data and have to be imported
-separately.  super is only ever mapped read-only.
+partitions (vendor, system, apnhlos, sec_efs).  The per-unit calibration is
+sec_efs/biometrics/meta/egis_calibration_data.bin (stored as calib.dat) and
+egoptbds.dat from the same partition when present.  super is only ever mapped
+read-only.
 """
 import hashlib
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 DEST = Path('/var/lib/gts9wifi/fingerprint')
@@ -26,6 +30,10 @@ FIRMWARE = DEST / 'firmware'
 SYSTEM_MNT = Path('/run/gts9wifi-android-system')
 VENDOR = Path('/vendor')
 TA_DIR = Path('/vendor/firmware_mnt/image')
+CALIB_NAMES = ('calib.dat', 'egis_calibration_data.bin')
+BDS_NAME = 'egoptbds.dat'
+SEC_EFS_DEVICES = (Path('/dev/disk/by-partlabel/sec_efs'),
+                   Path('/dev/block/by-name/sec_efs'))
 
 BINARIES = {'bin/linker64': 'system/bin/bootstrap/linker64',
             'bin/sec_nvm': 'vendor/bin/sec_nvm',
@@ -114,6 +122,101 @@ def copy(src, dst, mode):
     return hashlib.sha256(dst.read_bytes()).hexdigest()
 
 
+def manifest_add(rel):
+    manifest = DEST / 'SHA256SUMS'
+    if not manifest.is_file():
+        raise RuntimeError('runtime manifest missing; run assemble first')
+    digest = hashlib.sha256((DEST / rel).read_bytes()).hexdigest()
+    lines = [line for line in manifest.read_text().splitlines()
+             if line.split(None, 1)[-1] != rel]
+    lines.append(f'{digest}  {rel}')
+    manifest.write_text('\n'.join(lines) + '\n')
+    os.chmod(manifest, 0o600)
+
+
+def pick(root, names):
+    for name in names:
+        path = root / name
+        if path.is_file():
+            return path
+    return None
+
+
+def import_calibration(source=None):
+    """Import this unit's sec_efs calibration, never another unit's."""
+    if os.geteuid() != 0:
+        sys.exit('root required')
+    if not (DEST / 'SHA256SUMS').is_file():
+        sys.exit('runtime manifest missing; run assemble first')
+    calib = None
+    bds = None
+    mounted = None
+    temporary = None
+    try:
+        if source is not None:
+            src = Path(source)
+            if src.is_file():
+                if src.name in CALIB_NAMES:
+                    calib = src
+                elif src.name == BDS_NAME:
+                    bds = src
+                else:
+                    sys.exit(f'unexpected calibration file: {src.name}')
+            elif src.is_dir():
+                calib = pick(src, CALIB_NAMES)
+                bds = pick(src, (BDS_NAME,))
+            else:
+                sys.exit(f'no such file or directory: {src}')
+        else:
+            device = next((p for p in SEC_EFS_DEVICES if p.exists()), None)
+            if device is None:
+                sys.exit('sec_efs not found; pass a directory containing '
+                         'calib.dat and egoptbds.dat')
+            temporary = tempfile.mkdtemp(prefix='gts9wifi-sec-efs-')
+            for options in ('ro,noload', 'ro'):
+                if subprocess.run(['mount', '-o', options, str(device),
+                                   temporary],
+                                  capture_output=True).returncode == 0:
+                    mounted = temporary
+                    break
+            if mounted is None:
+                sys.exit(f'could not mount {device} read-only')
+            root = Path(temporary)
+            calib = pick(root / 'biometrics/meta', CALIB_NAMES)
+            bds = pick(root / 'biometrics/meta', (BDS_NAME,))
+            if bds is None:
+                bds = pick(root / 'biometrics', (BDS_NAME,))
+            if bds is None:
+                bds = next(iter(root.rglob(BDS_NAME)), None)
+            if bds is None:
+                for extra in (Path('/mnt/vendor/persist'),
+                              Path('/vendor/firmware'),
+                              Path('/vendor/etc/firmware')):
+                    if extra.is_dir():
+                        bds = pick(extra, (BDS_NAME,))
+                        if bds is not None:
+                            break
+        if calib is None:
+            sys.exit('calib.dat / egis_calibration_data.bin not found')
+        FIRMWARE.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for src, rel in ((calib, 'firmware/calib.dat'),
+                         (bds, 'firmware/egoptbds.dat')):
+            if src is None:
+                continue
+            digest = copy(src, DEST / rel, 0o600)
+            manifest_add(rel)
+            print(f'{rel}: {src} ({digest})')
+        if bds is None:
+            print('warning: egoptbds.dat not found; enrollment will fail '
+                  'until it is supplied with: gts9wifi-fingerprint-runtime '
+                  'import-calibration DIR')
+    finally:
+        if mounted is not None:
+            subprocess.run(['umount', mounted], capture_output=True)
+        if temporary is not None:
+            shutil.rmtree(temporary, ignore_errors=True)
+
+
 def assemble():
     if os.geteuid() != 0:
         sys.exit('root required')
@@ -125,12 +228,18 @@ def assemble():
         manifest.append(f'{copy(src, RUNTIME / dst, mode)}  runtime/{dst}')
     for name in TA_SEGMENTS:
         manifest.append(f'{copy(TA_DIR / name, FIRMWARE / name, 0o644)}  firmware/{name}')
+    for name in ('calib.dat', 'egoptbds.dat'):
+        path = FIRMWARE / name
+        if path.is_file():
+            manifest.append(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  '
+                            f'firmware/{name}')
     (DEST / 'SHA256SUMS').write_text('\n'.join(manifest) + '\n')
     os.chmod(DEST / 'SHA256SUMS', 0o600)
     print(f'{len(manifest)} files in {DEST}')
     for blob in ('calib.dat', 'egoptbds.dat'):
         if not (FIRMWARE / blob).exists():
-            print(f'still missing: firmware/{blob} (to-ubuntu.sh copies it from Android)')
+            print(f'still missing: firmware/{blob} '
+                  '(run: gts9wifi-fingerprint-runtime import-calibration)')
 
 
 def check():
@@ -140,5 +249,12 @@ def check():
 
 
 if __name__ == '__main__':
-    {'assemble': assemble, 'check': check}.get(
-        sys.argv[1] if len(sys.argv) > 1 else '', lambda: sys.exit(__doc__))()
+    command = sys.argv[1] if len(sys.argv) > 1 else ''
+    if command == 'assemble':
+        assemble()
+    elif command == 'check':
+        check()
+    elif command == 'import-calibration':
+        import_calibration(sys.argv[2] if len(sys.argv) > 2 else None)
+    else:
+        sys.exit(__doc__)
