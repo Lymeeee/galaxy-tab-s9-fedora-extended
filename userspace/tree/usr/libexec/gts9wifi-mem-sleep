@@ -1,0 +1,8 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+set -eu
+state=/sys/power/mem_sleep
+[ -w "$state" ] || exit 0
+grep -qw deep "$state" || exit 0
+current=$(sed -n 's/.*\[\(.*\)\].*/\1/p' "$state")
+[ "$current" = deep ] || echo deep > "$state"

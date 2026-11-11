@@ -1,0 +1,12 @@
+[Unit]
+Description=Use deep system suspend by default
+ConditionPathExists=/sys/power/mem_sleep
+After=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/gts9wifi-mem-sleep
+
+[Install]
+WantedBy=multi-user.target
