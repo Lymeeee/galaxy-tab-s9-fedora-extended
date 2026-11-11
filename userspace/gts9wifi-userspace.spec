@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.31
+Version:        0.17.32
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -23,6 +23,7 @@ Requires:       curl
 Requires:       python3
 Requires:       unzip
 Requires:       util-linux
+Requires:       libcap
 Requires:       iw
 Requires:       systemd
 Requires:       polkit
@@ -221,6 +222,10 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 
 %changelog
+* Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.17.32-1
+- Require libcap explicitly so the file-capability repair has setcap
+- Syntax-check gts9wifi-update in CI
+
 * Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.17.31-1
 - Import the fingerprint calibration from this unit's sec_efs with
   `--calib-from-device`; keep the supplied-directory path as `--calib`

@@ -55,9 +55,9 @@ Build (Fedora aarch64 container; needs gcc, glib2-devel and libgtop2-devel):
 
 ```sh
 mkdir -p ~/rpmbuild/SOURCES
-mkdir -p /tmp/src/gts9wifi-userspace-0.17.31
-cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.17.31/
-tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.17.31.tar.gz gts9wifi-userspace-0.17.31
+mkdir -p /tmp/src/gts9wifi-userspace-0.17.32
+cp -a userspace/tree/. /tmp/src/gts9wifi-userspace-0.17.32/
+tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-0.17.32.tar.gz gts9wifi-userspace-0.17.32
 cp userspace/cpuinfo/gts9-cpuinfo.c ~/rpmbuild/SOURCES/
 rpmbuild -bb userspace/gts9wifi-userspace.spec
 ```
@@ -65,7 +65,7 @@ rpmbuild -bb userspace/gts9wifi-userspace.spec
 Install:
 
 ```sh
-sudo dnf install ./gts9wifi-userspace-0.17.31-1.fc44.aarch64.rpm
+sudo dnf install ./gts9wifi-userspace-0.17.32-1.fc44.aarch64.rpm
 ```
 
 The package also wraps `gnome-control-center` in `/usr/local/bin`: arm64

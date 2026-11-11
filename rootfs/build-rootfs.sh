@@ -67,7 +67,7 @@ dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
     libqmi libqrtr-glib protobuf-c libmbim \
     systemd-pam \
     atheros-firmware qcom-firmware \
-    e2fsprogs kmod
+    e2fsprogs kmod libcap
 
 if [ "$desktop" = "gnome" ]; then
     echo ">>> Installing the GNOME Workstation environment"
