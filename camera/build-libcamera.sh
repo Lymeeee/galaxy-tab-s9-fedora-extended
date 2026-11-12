@@ -29,10 +29,10 @@ sed -i 's/^Release:.*/Release: 3%{?dist}.gts9wifi1/' "$spec"
 rpmbuild -bb "$spec"
 
 mkdir -p "$out"
-for pattern in 'libcamera-[0-9]*.aarch64.rpm' 'libcamera-ipa-*.aarch64.rpm' \
-               'libcamera-tools-*.aarch64.rpm' 'libcamera-gstreamer-*.aarch64.rpm' \
-               'libcamera-v4l2-*.aarch64.rpm' 'libcamera-qcam-*.aarch64.rpm' \
-               'python3-libcamera-*.aarch64.rpm'; do
+for pattern in 'libcamera-[0-9]*.aarch64.rpm' 'libcamera-ipa-[0-9]*.aarch64.rpm' \
+               'libcamera-tools-[0-9]*.aarch64.rpm' 'libcamera-gstreamer-[0-9]*.aarch64.rpm' \
+               'libcamera-v4l2-[0-9]*.aarch64.rpm' 'libcamera-qcam-[0-9]*.aarch64.rpm' \
+               'python3-libcamera-[0-9]*.aarch64.rpm'; do
 	cp /root/rpmbuild/RPMS/aarch64/$pattern "$out"/ 2>/dev/null || true
 done
 ls -l "$out"
