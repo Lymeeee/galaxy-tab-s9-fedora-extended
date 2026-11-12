@@ -1,8 +1,0 @@
-#!/bin/sh
-# SPDX-License-Identifier: MIT
-set -eu
-case "${1:-}" in
-  on) install -D -m0644 /dev/null /etc/gts9wifi/spen-airmouse ;;
-  off) rm -f /etc/gts9wifi/spen-airmouse ;;
-  *) echo "usage: $0 on|off" >&2; exit 2 ;;
-esac

@@ -1,0 +1,19 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+set -eu
+conf=/etc/gts9wifi/spen-button
+case "${1:-}" in
+	set)
+		[ "$#" -eq 2 ] || { echo "usage: $0 set <mapping>" >&2; exit 2; }
+		install -d -m 0755 /etc/gts9wifi
+		printf '%s\n' "$2" > "$conf"
+		chmod 0644 "$conf"
+		;;
+	get)
+		cat "$conf" 2>/dev/null || :
+		;;
+	*)
+		echo "usage: $0 set <mapping>|get" >&2
+		exit 2
+		;;
+esac

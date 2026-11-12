@@ -30,8 +30,23 @@ PROTECT = '/usr/libexec/gts9wifi-protect'
 IME = '/usr/libexec/gts9wifi-ime'
 OFFICE = '/usr/libexec/gts9wifi-office'
 POWERKEY = '/usr/libexec/gts9wifi-powerkey-mode'
-SPEN_AIRMOUSE = '/usr/libexec/gts9wifi-spen-airmouse'
-SPEN_AIRMOUSE_FLAG = '/etc/gts9wifi/spen-airmouse'
+SPEN_BUTTON = '/usr/libexec/gts9wifi-spen-button'
+SPEN_BUTTON_CONF = '/etc/gts9wifi/spen-button'
+LOGGING = '/usr/libexec/gts9wifi-logging'
+LOGGING_FLAG = '/etc/gts9wifi/logging-off'
+SPEN_BUTTON_DEFAULT = 'KEY_PAGEDOWN'
+SPEN_BUTTON_PRESETS = [
+    ('下一页', 'KEY_PAGEDOWN'),
+    ('上一页', 'KEY_PAGEUP'),
+    ('播放/暂停', 'KEY_PLAYPAUSE'),
+    ('音量 +', 'KEY_VOLUMEUP'),
+    ('音量 -', 'KEY_VOLUMEDOWN'),
+    ('空格', 'KEY_SPACE'),
+    ('回车', 'KEY_ENTER'),
+    ('Esc', 'KEY_ESC'),
+    ('无操作', 'none'),
+    ('自定义…', None),
+]
 DEFAULT_KERNEL_TAG = 'latest'
 POWER_IDS = ['powersave', 'sticky', 'balanced', 'performance']
 MIRROR_IDS = ['ustc', 'tuna']
@@ -155,42 +170,78 @@ class Settings(Adw.Application):
     def spen_page(self):
         page = Adw.PreferencesPage(title='S Pen', icon_name='input-tablet-symbolic')
         group = Adw.PreferencesGroup(
-            title='隔空操作',
-            description='S Pen 离开笔槽后通过蓝牙陀螺仪移动鼠标指针，'
-                        '按笔身按钮单击。')
-        row = Adw.SwitchRow(
-            title='隔空鼠标指针',
-            subtitle='仅在 S Pen 抽出时生效，需要保持蓝牙连接。',
-            active=os.path.exists(SPEN_AIRMOUSE_FLAG))
-        guard = {'busy': False}
+            title='远端按键',
+            description='S Pen 离开数位板感应区时，笔身按键会发送下面的快捷键；'
+                        '笔尖靠近屏幕时按键仍由数位板原生处理，不会重复触发。')
+        values = [value for _label, value in SPEN_BUTTON_PRESETS]
+        labels = Gtk.StringList.new(
+            [label for label, _value in SPEN_BUTTON_PRESETS])
+        current = read(SPEN_BUTTON_CONF) or SPEN_BUTTON_DEFAULT
+        custom_index = len(values) - 1
+        if current in values:
+            selected = values.index(current)
+        else:
+            selected = custom_index
+        row = Adw.ComboRow(title='按键映射', model=labels, selected=selected)
+        custom = Adw.EntryRow(title='按键组合（例如 KEY_LEFTCTRL+KEY_S）')
+        custom.set_text(current if selected == custom_index else '')
+        custom.set_show_apply_button(True)
+        custom.set_visible(selected == custom_index)
+        group.add(row)
+        group.add(custom)
+        page.add(group)
 
-        def toggled(row, _pspec):
+        guard = {'busy': False}
+        state = {'index': selected}
+
+        def store(value, revert=None):
             if guard['busy']:
                 return
-            action = 'on' if row.get_active() else 'off'
             guard['busy'] = True
             row.set_sensitive(False)
+            custom.set_sensitive(False)
 
             def worker():
-                result = run(['pkexec', SPEN_AIRMOUSE, action])
+                result = run(['pkexec', SPEN_BUTTON, 'set', value], timeout=60)
                 GLib.idle_add(finish, result)
 
             def finish(result):
                 guard['busy'] = False
                 row.set_sensitive(True)
+                custom.set_sensitive(True)
                 if result is None or result.returncode != 0:
-                    guard['busy'] = True
-                    row.set_active(not row.get_active())
-                    guard['busy'] = False
-                    self.alert('无法切换隔空指针',
+                    if revert is not None:
+                        guard['busy'] = True
+                        row.set_selected(revert)
+                        guard['busy'] = False
+                    self.alert('无法保存 S Pen 按键映射',
                                '请确认 S Pen 服务已安装并完成授权。')
+                else:
+                    state['index'] = row.get_selected()
+                    if row.get_selected() != custom_index:
+                        custom.set_text('')
                 return False
 
             threading.Thread(target=worker, daemon=True).start()
 
-        row.connect('notify::active', toggled)
-        group.add(row)
-        page.add(group)
+        def changed(row, _pspec):
+            if guard['busy']:
+                return
+            value = values[row.get_selected()]
+            if value is None:
+                custom.set_visible(True)
+                custom.grab_focus()
+                return
+            custom.set_visible(False)
+            store(value, revert=state['index'])
+
+        def applied(entry):
+            value = entry.get_text().strip()
+            if value:
+                store(value)
+
+        row.connect('notify::selected', changed)
+        custom.connect('apply', applied)
         return page
 
     def controls(self):
@@ -334,6 +385,70 @@ class Settings(Adw.Application):
         row.connect('notify::active', changed)
         group.add(row)
         page.add(group)
+
+        logs = Adw.PreferencesGroup(
+            title='日志',
+            description='关闭 journald 存储、rsyslog/auditd/ABRT 等日志服务，'
+                        '并清空 journal、/var/log、崩溃转储和内核缓冲区。'
+                        '内核环形缓冲区无法停写，只能在开关时和每次启动时清空；'
+                        '关闭后睡眠、崩溃等问题将无法再诊断，重新打开也不会'
+                        '恢复已删除的日志。')
+        logrow = Adw.SwitchRow(
+            title='关闭所有日志',
+            active=os.path.exists(LOGGING_FLAG))
+        logguard = {'busy': False}
+
+        def apply_logging(row, action):
+            logguard['busy'] = True
+            row.set_sensitive(False)
+
+            def worker():
+                result = run(['pkexec', LOGGING, action], timeout=120)
+                GLib.idle_add(finish, result)
+
+            def finish(result):
+                logguard['busy'] = False
+                row.set_sensitive(True)
+                if result is None or result.returncode != 0:
+                    self.alert('无法切换日志',
+                               '需要 root 授权，日志服务可能正忙。')
+                logguard['busy'] = True
+                row.set_active(os.path.exists(LOGGING_FLAG))
+                logguard['busy'] = False
+                return False
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def log_changed(row, _pspec):
+            if logguard['busy']:
+                return
+            if not row.get_active():
+                apply_logging(row, 'on')
+                return
+            dialog = Adw.AlertDialog(
+                heading='关闭日志并清空现有记录？',
+                body='将停止所有持久化日志并删除现有日志、崩溃转储和'
+                     '内核缓冲区。此操作不可撤销，之后也无法诊断睡眠或'
+                     '崩溃问题。')
+            dialog.add_response('cancel', '取消')
+            dialog.add_response('confirm', '关闭并清空')
+            dialog.set_response_appearance(
+                'confirm', Adw.ResponseAppearance.DESTRUCTIVE)
+
+            def answered(_dialog, response):
+                if response == 'confirm':
+                    apply_logging(row, 'off')
+                else:
+                    logguard['busy'] = True
+                    row.set_active(False)
+                    logguard['busy'] = False
+
+            dialog.connect('response', answered)
+            dialog.present(self.window)
+
+        logrow.connect('notify::active', log_changed)
+        logs.add(logrow)
+        page.add(logs)
         return page
 
     def setup_page(self):

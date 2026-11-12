@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.37
+Version:        0.17.38
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -89,6 +89,7 @@ systemctl enable gts9wifi-speaker-protection.service >/dev/null 2>&1 || :
 systemctl enable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-spen-remote.service >/dev/null 2>&1 || :
 systemctl try-restart gts9wifi-spen-remote.service >/dev/null 2>&1 || :
+systemctl enable gts9wifi-nologs.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-mem-sleep-deep.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-device-name.service >/dev/null 2>&1 || :
 systemctl enable gts9wifi-rtc-time.service >/dev/null 2>&1 || :
@@ -139,6 +140,7 @@ if [ "$1" = 0 ]; then
     systemctl disable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
     systemctl disable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
     systemctl disable --now gts9wifi-spen-remote.service >/dev/null 2>&1 || :
+    systemctl disable --now gts9wifi-nologs.service >/dev/null 2>&1 || :
     systemctl disable --now gts9wifi-mem-sleep-deep.service >/dev/null 2>&1 || :
     systemctl disable --now gts9wifi-device-name.service >/dev/null 2>&1 || :
     systemctl disable --now gts9wifi-rtc-time.service >/dev/null 2>&1 || :
@@ -168,7 +170,8 @@ fi
 %{_libexecdir}/gts9wifi-panel-coldboot-check
 %{_libexecdir}/gts9wifi-bt-provision
 %{_libexecdir}/gts9wifi-spen-remote
-%{_libexecdir}/gts9wifi-spen-airmouse
+%{_libexecdir}/gts9wifi-spen-button
+%{_libexecdir}/gts9wifi-logging
 %{_libexecdir}/gts9wifi-mem-sleep
 %{_libexecdir}/gts9wifi-office
 %{_libexecdir}/gts9wifi-device-name
@@ -207,6 +210,7 @@ fi
 %{_unitdir}/gts9wifi-charge-guard.timer
 %{_unitdir}/gts9wifi-keyboard-fw.service
 %{_unitdir}/gts9wifi-spen-remote.service
+%{_unitdir}/gts9wifi-nologs.service
 %{_unitdir}/gts9wifi-mem-sleep-deep.service
 %{_unitdir}/gts9wifi-device-name.service
 %{_unitdir}/gts9wifi-rtc-time.service
@@ -229,6 +233,15 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-ath11k-sleep
 
 %changelog
+* Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.38-1
+- Remove the S Pen air-mouse pointer and gyro subscription.  The pen's
+  BLE button now taps a configurable KEY_* shortcut (Settings > S Pen)
+  and is ignored while the tip is in digitizer range, so the native
+  stylus button keeps working without a double trigger.
+- Add a "disable all logging" switch: stops journald storage,
+  rsyslog/auditd/ABRT, clears /var/log, the journal, crash dumps and the
+  kernel ring buffer, and a boot unit keeps it in effect.
+
 * Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.37-1
 - Unbind ath11k_pci around deep suspend and probe it again on resume.
   The WoW policy keeps the WCN6855 powered, which drained roughly a

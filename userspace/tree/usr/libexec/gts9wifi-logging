@@ -1,0 +1,115 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Stop everything on the tablet that keeps a record of what happened, and
+# wipe the records that already exist.  The kernel ring buffer cannot be
+# switched off, only emptied; the boot action empties it once per start.
+set -eu
+
+conf=/etc/gts9wifi/logging-off
+state=/var/lib/gts9wifi/logging-units
+journald_dropin=/etc/systemd/journald.conf.d/99-gts9wifi-nologs.conf
+coredump_dropin=/etc/systemd/coredump.conf.d/99-gts9wifi-nologs.conf
+units="rsyslog.service auditd.service abrtd.service abrt-journal-core.service
+       abrt-oops.service abrt-xorg.service abrt-vmcore.service"
+
+journal_off() {
+	install -d -m 0755 /etc/systemd/journald.conf.d
+	cat > "$journald_dropin" <<'CONF'
+[Journal]
+Storage=none
+CONF
+	install -d -m 0755 /etc/systemd/coredump.conf.d
+	cat > "$coredump_dropin" <<'CONF'
+[Coredump]
+Storage=none
+CONF
+	systemctl restart systemd-journald.service 2>/dev/null || true
+}
+
+journal_on() {
+	rm -f "$journald_dropin" "$coredump_dropin"
+	systemctl restart systemd-journald.service 2>/dev/null || true
+}
+
+record_units() {
+	install -d -m 0755 /var/lib/gts9wifi
+	: > "$state"
+	for unit in $units; do
+		systemctl cat "$unit" >/dev/null 2>&1 || continue
+		if systemctl is-enabled --quiet "$unit" 2>/dev/null; then
+			echo "enable $unit" >> "$state"
+		fi
+		if systemctl is-active --quiet "$unit" 2>/dev/null; then
+			echo "start $unit" >> "$state"
+		fi
+	done
+}
+
+disable_units() {
+	for unit in $units; do
+		systemctl cat "$unit" >/dev/null 2>&1 || continue
+		systemctl disable --now "$unit" >/dev/null 2>&1 || \
+			systemctl stop "$unit" >/dev/null 2>&1 || true
+	done
+}
+
+restore_units() {
+	[ -f "$state" ] || return 0
+	while read -r action unit; do
+		case "$action" in
+			enable) systemctl enable "$unit" >/dev/null 2>&1 || true ;;
+			start) systemctl start "$unit" >/dev/null 2>&1 || true ;;
+		esac
+	done < "$state"
+	rm -f "$state"
+}
+
+wipe() {
+	# journald has been restarted with Storage=none; nothing reopens these.
+	rm -rf /var/log/journal/* /run/log/journal/* 2>/dev/null || true
+	if [ -d /var/log ]; then
+		find /var/log -xdev -type f ! -path '/var/log/journal/*' \
+			-exec truncate -s 0 {} + 2>/dev/null || true
+		find /var/log -xdev -type f \( -name '*.gz' -o -name '*.xz' \
+			-o -name '*.bz2' -o -name '*.old' \) \
+			! -path '/var/log/journal/*' -delete 2>/dev/null || true
+	fi
+	find /var/lib/systemd/coredump -type f -delete 2>/dev/null || true
+	find /var/crash -type f -delete 2>/dev/null || true
+	find /var/spool/abrt -type f -delete 2>/dev/null || true
+	dmesg --clear 2>/dev/null || true
+	rm -rf /sys/fs/pstore/* 2>/dev/null || true
+}
+
+case "${1:-}" in
+	off)
+		# Record the original unit state only on the first run; a repeat
+		# would otherwise remember everything as already disabled.
+		if [ ! -f "$conf" ]; then
+			: > "$conf"
+			record_units
+		fi
+		disable_units
+		journal_off
+		wipe
+		;;
+	on)
+		journal_on
+		restore_units
+		rm -f "$conf"
+		;;
+	boot)
+		[ -f "$conf" ] || exit 0
+		disable_units
+		journal_off
+		dmesg --clear 2>/dev/null || true
+		;;
+	status)
+		[ -f "$conf" ]
+		;;
+	*)
+		echo "usage: $0 off|on|boot|status" >&2
+		exit 2
+		;;
+esac

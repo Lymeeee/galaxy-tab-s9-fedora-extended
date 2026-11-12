@@ -1,0 +1,11 @@
+[Unit]
+Description=Keep gts9wifi logging disabled
+ConditionPathExists=/etc/gts9wifi/logging-off
+After=systemd-journald.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gts9wifi-logging boot
+
+[Install]
+WantedBy=multi-user.target
