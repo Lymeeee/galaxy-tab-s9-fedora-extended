@@ -685,6 +685,15 @@ class Settings(Adw.Application):
                 'libcamera、指纹和 ffmpeg 的更新。内核不在其中。'
                 '完成后可能需要重启或重新登录。',
                 lambda: self.open_terminal(['pkexec', UPDATE, 'all'])))
+        self.action_row(components, '指纹校准',
+            '只读导入本机 sec_efs 的 calib.dat/egoptbds.dat；'
+            '一键更新只装包，不做校准。',
+            '导入', lambda: self.confirm_simple(
+                '导入指纹校准？',
+                '从本机 sec_efs 只读导入 calib.dat 和 egoptbds.dat，'
+                '需要已安装指纹栈。',
+                lambda: self.open_terminal(
+                    ['pkexec', UPDATE, 'calib', '--calib-from-device'])))
         self.action_row(components, '用户态软件包',
             '单独重装最新的用户态控制项和更新工具。',
             '安装', lambda: self.confirm_simple(

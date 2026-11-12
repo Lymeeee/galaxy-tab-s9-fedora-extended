@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.40
+Version:        0.17.41
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -235,6 +235,12 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.41-1
+- gts9wifi-update: add "calib" to import the fingerprint calibration on
+  its own, without touching the installed packages.
+- Settings: add the separate fingerprint-calibration button; "update all"
+  still carries the installed fingerprint and ffmpeg packages.
+
 * Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.40-1
 - gts9wifi-update: add check-all and all.  The update now covers
   userspace, dynpart, the patched libcamera (with LIBCAMERA-SHA256SUMS

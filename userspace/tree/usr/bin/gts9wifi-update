@@ -49,6 +49,8 @@ Commands:
   ffmpeg                install the rebuilt ffmpeg-free (v4l2m2m) RPMs
   libcamera             install the patched libcamera (HI1337 AWB/autofocus)
   fingerprint           install libfprint EL721 + the secure-start runtime
+  calib [--calib-from-device|--calib DIR]
+                        import the fingerprint calibration only
   kernel [--flash]      download/verify the kernel pair; write boot partitions with --flash
   rollback [--backup D] restore the latest (or D) boot-partition backup
 
@@ -876,6 +878,21 @@ cmd_libcamera() {
     echo "libcamera updated; reboot or log out so PipeWire loads the new library"
 }
 
+cmd_calib() {
+    need_root
+    [ -x /usr/libexec/gts9wifi-fingerprint-runtime ] ||
+        die "fingerprint runtime is not installed; run 'gts9wifi-update fingerprint' first"
+    if [ "$calib_from_device" -eq 1 ] && [ -n "$calib_dir" ]; then
+        die "use either --calib or --calib-from-device, not both"
+    elif [ "$calib_from_device" -eq 1 ]; then
+        /usr/libexec/gts9wifi-fingerprint-runtime import-calibration
+    elif [ -n "$calib_dir" ]; then
+        /usr/libexec/gts9wifi-fingerprint-runtime import-calibration "$calib_dir"
+    else
+        die "pass --calib-from-device or --calib DIR"
+    fi
+}
+
 cmd_all() {
     need_root
     local latest=${tag:-$DEFAULT_TAG}
@@ -953,6 +970,7 @@ case "$cmd" in
     ffmpeg) cmd_ffmpeg ;;
     libcamera) cmd_libcamera ;;
     fingerprint) cmd_fingerprint ;;
+    calib) cmd_calib ;;
     kernel) cmd_kernel ;;
     rollback) cmd_rollback ;;
     -h|--help|help) usage ;;
