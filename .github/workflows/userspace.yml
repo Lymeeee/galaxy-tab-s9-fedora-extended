@@ -33,7 +33,7 @@ jobs:
             bash -lc '
               set -euxo pipefail
               dnf -y install rpm-build systemd-rpm-macros glib2 glib2-devel libgtop2-devel gcc findutils tar gzip sed python3 desktop-file-utils python3-gobject gtk4 libadwaita nodejs >/dev/null
-              python3 -m py_compile /work/userspace/tree/usr/bin/gts9wifi-settings /work/userspace/tree/usr/libexec/gts9wifi-power-key /work/userspace/tree/usr/libexec/gts9wifi-wifi-bdf /work/userspace/tree/usr/libexec/gts9wifi-spen-remote /work/userspace/tree/usr/libexec/gts9wifi-rtc-time
+              python3 -m py_compile /work/userspace/tree/usr/bin/gts9wifi-settings /work/userspace/tree/usr/libexec/gts9wifi-power-key /work/userspace/tree/usr/libexec/gts9wifi-wifi-bdf /work/userspace/tree/usr/libexec/gts9wifi-spen-remote /work/userspace/tree/usr/libexec/gts9wifi-rtc-time /work/userspace/tree/usr/libexec/gts9wifi-zh-translations
               rm -rf /work/userspace/tree/usr/bin/__pycache__ /work/userspace/tree/usr/libexec/__pycache__
               python3 /work/userspace/tests/settings-smoke.py
               python3 /work/userspace/tests/libwacom-tablet.py
@@ -49,7 +49,6 @@ jobs:
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-spen-button
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-logging
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-mem-sleep
-              sh -n /work/userspace/tree/usr/lib/systemd/system-sleep/gts9wifi-ath11k-sleep
               sh -n /work/userspace/tree/usr/lib/systemd/system-sleep/gts9wifi-camera-suspend
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-camera-resume
               bash -n /work/userspace/tree/usr/bin/gts9wifi-update
