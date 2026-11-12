@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.39
+Version:        0.17.40
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -235,6 +235,14 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.40-1
+- gts9wifi-update: add check-all and all.  The update now covers
+  userspace, dynpart, the patched libcamera (with LIBCAMERA-SHA256SUMS
+  verification and a versionlock), fingerprint and ffmpeg; the kernel
+  still requires an explicit --flash.  check-all can run unprivileged.
+- Settings: replace the separate ffmpeg/fingerprint update rows with one
+  "check all" dialog and one "update all" action.
+
 * Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.39-1
 - Stop the user's PipeWire stack for the sleep window if a camera stream
   is still holding a video node, and restart it through a transient system

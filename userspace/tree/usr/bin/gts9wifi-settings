@@ -672,27 +672,25 @@ class Settings(Adw.Application):
 
         components = Adw.PreferencesGroup(
             title='组件',
-            description='将要打开带终端；更新工具会自行校验下载内容。')
+            description='检查并更新 userspace、dynpart、libcamera、指纹和 ffmpeg；'
+                        '内核仍需在下方单独刷写。更新会打开终端。')
+        self.action_row(components, '检查所有组件更新',
+            '只读取已安装版本和 GitHub Releases 资产，不安装任何东西。',
+            '检查', self.check_all_updates)
+        self.action_row(components, '一键更新所有组件',
+            '安装所有已安装组件的 RPM 更新；内核不在其中。',
+            '更新', lambda: self.confirm_simple(
+                '更新所有组件？',
+                '从 GitHub Releases 下载并安装 userspace、dynpart、'
+                'libcamera、指纹和 ffmpeg 的更新。内核不在其中。'
+                '完成后可能需要重启或重新登录。',
+                lambda: self.open_terminal(['pkexec', UPDATE, 'all'])))
         self.action_row(components, '用户态软件包',
-            '安装最新的用户态控制项和更新。',
+            '单独重装最新的用户态控制项和更新工具。',
             '安装', lambda: self.confirm_simple(
                 '更新用户态软件包？',
                 '从Github Releases安装用户态软件包',
                 lambda: self.open_terminal(['pkexec', UPDATE, 'userspace'])))
-        self.action_row(components, 'FFmpeg编解码器',
-            '安装为硬解而改造的ffmpeg。',
-            '安装', lambda: self.confirm_simple(
-                '安装FFmpeg编解码器？',
-                '下载并校验ffmpeg-free运行时 RPM。',
-                lambda: self.open_terminal(['pkexec', UPDATE, 'ffmpeg'])))
-        self.action_row(components, '指纹组件',
-            '安装EL721和TEE驱动。',
-            '安装', lambda: self.confirm_simple(
-                '安装指纹组件？',
-                '安装 libfprint EL721 和指纹运行时，并从本机 sec_efs '
-                '只读导入校准（calib.dat/egoptbds.dat）。装完重启即可录入。',
-                lambda: self.open_terminal(
-                    ['pkexec', UPDATE, 'fingerprint', '--calib-from-device'])))
         page.add(components)
 
         kernel = Adw.PreferencesGroup(
@@ -744,6 +742,36 @@ class Settings(Adw.Application):
         dialog.add_response('close', '关闭')
         dialog.set_default_response('close')
         dialog.present(self.window)
+
+    def text_dialog(self, heading, text):
+        dialog = Adw.AlertDialog(heading=heading)
+        view = Gtk.TextView()
+        view.set_editable(False)
+        view.set_monospace(True)
+        view.get_buffer().set_text(text)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_child(view)
+        scroller.set_min_content_width(560)
+        scroller.set_min_content_height(300)
+        dialog.set_extra_child(scroller)
+        dialog.add_response('close', '关闭')
+        dialog.present(self.window)
+
+    def check_all_updates(self):
+        def worker():
+            result = run([UPDATE, 'check-all'], timeout=180)
+            GLib.idle_add(show, result)
+
+        def show(result):
+            if result is None or result.returncode != 0:
+                detail = (result.stderr or '').strip() if result else ''
+                self.alert('检查更新失败',
+                           detail or '无法访问 GitHub Releases 或更新工具缺失。')
+            else:
+                self.text_dialog('组件更新检查', result.stdout.strip())
+            return False
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def confirm_simple(self, heading, body, callback):
         dialog = Adw.AlertDialog(heading=heading, body=body)

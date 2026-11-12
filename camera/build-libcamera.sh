@@ -35,4 +35,5 @@ for pattern in 'libcamera-[0-9]*.aarch64.rpm' 'libcamera-ipa-[0-9]*.aarch64.rpm'
                'python3-libcamera-[0-9]*.aarch64.rpm'; do
 	cp /root/rpmbuild/RPMS/aarch64/$pattern "$out"/ 2>/dev/null || true
 done
+(cd "$out" && sha256sum *.rpm > LIBCAMERA-SHA256SUMS)
 ls -l "$out"
