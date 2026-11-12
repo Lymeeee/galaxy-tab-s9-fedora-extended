@@ -14,6 +14,7 @@ aarch64 RPM with the Phase 1 userspace pieces from the Ubuntu port:
 - `gts9wifi-keyboard-fw.service` retries the V37 keyboard firmware update after
   the root filesystem is mounted
 - the Chinese setup also sets the per-user GNOME language through AccountsService
+  and reinstalls packages whose zh_CN translations the image build skipped
 - NetworkManager dispatcher that disables Wi-Fi background scanning
 - `gts9wifi-update ffmpeg`, which installs the rebuilt ffmpeg-free RPMs
   (v4l2m2m H.264/HEVC), verifies their SHA256SUMS, sets Firefox's

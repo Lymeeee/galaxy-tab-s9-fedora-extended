@@ -28,6 +28,7 @@ KEYBOARD_FW_SHA256 = '1b48d88c23523ae205cd960e6d42725268638a15a47d8a5e52854eb011
 UPDATE = '/usr/bin/gts9wifi-update'
 PROTECT = '/usr/libexec/gts9wifi-protect'
 IME = '/usr/libexec/gts9wifi-ime'
+ZH_TRANSLATIONS = '/usr/libexec/gts9wifi-zh-translations'
 OFFICE = '/usr/libexec/gts9wifi-office'
 POWERKEY = '/usr/libexec/gts9wifi-powerkey-mode'
 SPEN_BUTTON = '/usr/libexec/gts9wifi-spen-button'
@@ -514,8 +515,8 @@ class Settings(Adw.Application):
 
         locale = Adw.PreferencesGroup(title='语言')
         self.action_row(locale, '简体中文',
-            '安装zh_CN语言包，设置系统语言和 GNOME 区域'
-            '（之后需要注销再登录）。', '设为简体中文', self.enable_chinese)
+            '安装zh_CN语言包，设置系统语言和 GNOME 区域，并重装缺少中文'
+            '翻译的软件包（之后需要注销再登录）。', '设为简体中文', self.enable_chinese)
         self.action_row(locale, '中文输入法（ibus-rime+万象拼音）',
             ' Base；不安装语法模型，关闭行内预编辑并设为默认输入源。',
             '安装', self.install_rime)
@@ -631,12 +632,13 @@ class Settings(Adw.Application):
             'pkexec /usr/bin/gdbus call --system --dest org.freedesktop.Accounts '
             '--object-path /org/freedesktop/Accounts/User$(id -u) '
             "--method org.freedesktop.Accounts.User.SetLanguage 'zh_CN.UTF-8' && "
-            "gsettings set org.gnome.system.locale region 'zh_CN.UTF-8'")
+            "gsettings set org.gnome.system.locale region 'zh_CN.UTF-8' && "
+            f'pkexec {ZH_TRANSLATIONS}')
         self.confirm_simple(
             '切换到简体中文？',
-            '安装语言包，设置系统和用户语言'
-            '以及 GNOME 区域。注销并重新登录后'
-            '界面语言生效；部分移植工具仍为英文。',
+            '安装语言包，设置系统和用户语言以及 GNOME 区域，'
+            '并重装缺少中文翻译的软件包（可能需要下载数百MB）。'
+            '注销并重新登录后界面语言生效；部分移植工具仍为英文。',
             lambda: self.open_terminal(['bash', '-lc', command]))
 
     def install_onlyoffice(self):

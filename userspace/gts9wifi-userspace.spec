@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.41
+Version:        0.17.42
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -21,6 +21,7 @@ Requires:       wpa_supplicant
 Requires:       bash
 Requires:       curl
 Requires:       python3
+Requires:       python3-rpm
 Requires:       unzip
 Requires:       util-linux
 Requires:       libcap
@@ -185,6 +186,7 @@ fi
 %{_libexecdir}/gts9wifi-usb-net-off
 %{_libexecdir}/gts9wifi-mirrors
 %{_libexecdir}/gts9wifi-protect
+%{_libexecdir}/gts9wifi-zh-translations
 %{_libexecdir}/gts9wifi-ime
 %{_libexecdir}/gts9wifi-power-key
 %{_libexecdir}/gts9wifi-powerkey-mode
@@ -235,6 +237,10 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.42-1
+- gts9wifi-settings: the Simplified Chinese action now reinstalls packages
+  whose zh_CN .mo files were never written by the rootfs build.
+
 * Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.41-1
 - gts9wifi-update: add "calib" to import the fingerprint calibration on
   its own, without touching the installed packages.

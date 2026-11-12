@@ -1,0 +1,85 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+"""Reinstall packages whose zh_CN translation files are missing.
+
+Fedora images built with dnf --installroot and a restricted %_install_langs
+keep the filenames in the RPM database but never write the zh_CN .mo files to
+disk. Upgrading and reinstalling those packages restores the translations.
+"""
+
+import os
+import subprocess
+import sys
+
+LOCALE_PREFIX = '/usr/share/locale/zh_CN/'
+
+
+def missing_packages():
+    try:
+        import rpm
+    except ImportError:
+        sys.exit('python3-rpm is required')
+
+    found = {}
+    for header in rpm.TransactionSet().dbMatch():
+        files = [path for path in (header['filenames'] or [])
+                 if path.startswith(LOCALE_PREFIX)]
+        if not files:
+            continue
+        absent = sum(1 for path in files if not os.path.lexists(path))
+        if absent:
+            found[header['name']] = absent
+    return found
+
+
+def dnf(*arguments):
+    command = ['/usr/bin/dnf', '-y', '--refresh']
+    # Some images ship the Tailscale repository without its GPG key; an
+    # interactive key import would otherwise stop the whole transaction.
+    if os.path.lexists('/etc/yum.repos.d/tailscale.repo'):
+        command.append('--disablerepo=tailscale-stable')
+    command.extend(arguments)
+    print('+ ' + ' '.join(command), flush=True)
+    return subprocess.run(command).returncode
+
+
+def main():
+    check_only = '--check' in sys.argv[1:]
+    missing = missing_packages()
+    if not missing:
+        print('所有已安装软件包的中文翻译文件都齐全。')
+        return 0
+
+    print('发现 %d 个软件包缺少 %d 个中文翻译文件：'
+          % (len(missing), sum(missing.values())))
+    for name in sorted(missing)[:20]:
+        print('  - ' + name)
+    if len(missing) > 20:
+        print('  ... 还有 %d 个' % (len(missing) - 20))
+
+    if check_only:
+        return 0
+    if os.geteuid() != 0:
+        print('需要 root 权限；请通过 pkexec 运行。', file=sys.stderr)
+        return 1
+
+    packages = sorted(missing)
+    # Upgrade first: dnf5 refuses to reinstall a package whose installed
+    # version is no longer present in the enabled repositories.
+    dnf('upgrade', *packages)
+    dnf('reinstall', *packages)
+
+    remaining = missing_packages()
+    if remaining:
+        print('仍有 %d 个软件包缺少翻译文件：' % len(remaining),
+              file=sys.stderr)
+        for name in sorted(remaining)[:20]:
+            print('  - ' + name, file=sys.stderr)
+        return 1
+
+    print('中文翻译文件已补齐；注销并重新登录后界面生效。')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
