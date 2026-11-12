@@ -1,0 +1,54 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# A camera stream keeps CAMSS, the sensor and the DW9808 VCM active while the
+# tablet suspends.  The VCM already uses DEFINE_RUNTIME_DEV_PM_OPS, so this is
+# only a safety net for the "lid closed while a camera app is still running"
+# case: stop the user's PipeWire stack for the sleep window and restart it
+# after resume.  Runs on s2idle as well; closing the stream costs nothing.
+
+set -u
+
+user=lyme
+state=/run/gts9wifi-camera-suspend
+
+camera_busy() {
+	for fd in /proc/[0-9]*/fd/*; do
+		target=$(readlink "$fd" 2>/dev/null) || continue
+		case "$target" in
+		/dev/video* | /dev/v4l-subdev*) return 0 ;;
+		esac
+	done
+	return 1
+}
+
+user_systemctl() {
+	runuser -u "$user" -- env XDG_RUNTIME_DIR="/run/user/$uid" \
+		systemctl --user "$@" 2>/dev/null
+}
+
+case "${1:-}" in
+pre)
+	# The pre hooks run before systemd-sleep freezes user.slice, so the
+	# user manager can still process these stop jobs here.
+	camera_busy || exit 0
+	uid=$(id -u "$user" 2>/dev/null) || exit 0
+	[ -d "/run/user/$uid" ] || exit 0
+	: > "$state"
+	user_systemctl stop pipewire.socket pipewire-pulse.socket \
+		pipewire.service pipewire-pulse.service || true
+	logger -t gts9wifi-camera-suspend \
+		"camera was busy; PipeWire stopped for suspend"
+	;;
+post)
+	[ -f "$state" ] || exit 0
+	rm -f "$state"
+	# user.slice is still frozen in the post phase; a transient system
+	# unit does the restart once the user manager can be reached again.
+	systemctl reset-failed gts9wifi-camera-resume >/dev/null 2>&1 || true
+	/usr/bin/systemd-run --unit=gts9wifi-camera-resume --collect \
+		--no-block /usr/libexec/gts9wifi-camera-resume || true
+	;;
+esac
+
+exit 0

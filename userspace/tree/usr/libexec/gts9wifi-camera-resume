@@ -1,0 +1,27 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Runs as a transient system unit after a camera-cancelled suspend.  The user
+# manager is thawed shortly after systemd-sleep's post hooks, so retry until
+# it accepts the start jobs.
+
+set -u
+
+user=lyme
+uid=$(id -u "$user" 2>/dev/null) || exit 0
+[ -d "/run/user/$uid" ] || exit 0
+
+i=0
+while [ "$i" -lt 10 ]; do
+	if runuser -u "$user" -- env XDG_RUNTIME_DIR="/run/user/$uid" \
+		systemctl --user start pipewire.socket pipewire-pulse.socket \
+			pipewire.service pipewire-pulse.service; then
+		logger -t gts9wifi-camera-suspend "PipeWire restarted after suspend"
+		exit 0
+	fi
+	i=$((i + 1))
+	sleep 1
+done
+
+logger -t gts9wifi-camera-suspend "failed to restart PipeWire after suspend"
+exit 1

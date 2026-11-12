@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.38
+Version:        0.17.39
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -172,6 +172,7 @@ fi
 %{_libexecdir}/gts9wifi-spen-remote
 %{_libexecdir}/gts9wifi-spen-button
 %{_libexecdir}/gts9wifi-logging
+%{_libexecdir}/gts9wifi-camera-resume
 %{_libexecdir}/gts9wifi-mem-sleep
 %{_libexecdir}/gts9wifi-office
 %{_libexecdir}/gts9wifi-device-name
@@ -231,8 +232,16 @@ fi
 %dir %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-ath11k-sleep
+%{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.39-1
+- Stop the user's PipeWire stack for the sleep window if a camera stream
+  is still holding a video node, and restart it through a transient system
+  unit after resume.  The VCM driver already has the runtime-only PM ops;
+  this only releases the userspace owner so CAMSS and the lens cannot
+  block deep suspend.
+
 * Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.38-1
 - Remove the S Pen air-mouse pointer and gyro subscription.  The pen's
   BLE button now taps a configurable KEY_* shortcut (Settings > S Pen)
