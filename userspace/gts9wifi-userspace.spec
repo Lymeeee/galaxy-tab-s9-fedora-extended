@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.44
+Version:        0.17.45
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -238,10 +238,17 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/zram-generator.conf.d/10-gts9wifi-zstd.conf
 %config(noreplace) %{_sysconfdir}/systemd/logind.conf.d/11-gts9wifi-lid-holdoff.conf
 %dir %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d
+%config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-wait-sensor-proxy.service
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.45-1
+- Fix the keyboard firmware helper's executable mode and stop ordering it
+  before the display manager.
+- Override the rootfs sensor-proxy unit so GDM does not wait for ADSP
+  bring-up; the sensor proxy still runs after login.
+
 * Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.44-1
 - Drop the ath11k deep-suspend unbind hook.  The kernel now keeps WoW for
   s2idle and uses the normal power-down path for deep suspend, which lets

@@ -1,7 +1,6 @@
 [Unit]
 Description=Apply the GTS9 keyboard V37 firmware after the root filesystem is up
 After=local-fs.target
-Before=display-manager.service
 ConditionPathExists=/lib/firmware/keyboard_stm/stm32_gts9family.bin
 
 [Service]

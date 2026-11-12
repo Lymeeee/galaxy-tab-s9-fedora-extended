@@ -1,0 +1,19 @@
+# /etc override of the rootfs unit: do not order the sensor proxy before the
+# display manager.  The ADSP bring-up can take tens of seconds, and GDM must
+# not hold the Plymouth splash until the sensors are ready.  The service still
+# runs after the ADSP and finishes in the background.
+[Unit]
+Description=Recover Qualcomm SSC and start the desktop sensor proxy
+After=gts9wifi-install-sensor-packages.service
+After=gts9wifi-panel-coldboot-recover.service
+After=hexagonrpcd-adsp-sensorspd.service
+ConditionPathExists=/usr/bin/ssccli
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/libexec/gts9wifi-sensors-resume
+TimeoutStartSec=210
+
+[Install]
+WantedBy=multi-user.target
