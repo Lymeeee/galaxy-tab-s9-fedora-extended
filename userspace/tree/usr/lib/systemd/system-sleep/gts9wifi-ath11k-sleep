@@ -1,0 +1,58 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# The kernel forces ATH11K_PM_WOW on this machine (patches-gts9wifi/0005):
+# keeping the WCN6855 powered is what makes s2idle resume fast, but deep
+# suspend takes the PCIe power domains down underneath the live firmware.
+# The chip then dumps (MHI SYS ERROR / RDDM), spends the whole sleep powered
+# and beacon-tracking, and the resume can come back without Wi-Fi; a second
+# suspend right after such a resume has been seen to panic.  Unbind the
+# endpoint around deep suspend and let it probe again afterwards, the same
+# way the Tab S9 Ultra port handles its ath12k.
+#
+# s2idle keeps the WoW behaviour: nothing below runs unless [deep] is chosen.
+
+set -u
+
+driver=/sys/bus/pci/drivers/ath11k_pci
+state=/run/gts9wifi-ath11k-sleep.bdf
+
+case "${1:-}" in
+	pre)
+		[ -d "$driver" ] || exit 0
+		grep -q '\[deep\]' /sys/power/mem_sleep 2>/dev/null || exit 0
+		for device in "$driver"/????:??:??.?; do
+			[ -L "$device" ] || continue
+			bdf=${device##*/}
+			printf '%s\n' "$bdf" > "$state"
+			if printf '%s' "$bdf" > "$driver/unbind"; then
+				logger -t gts9wifi-ath11k-sleep "unbound $bdf before deep suspend"
+				exit 0
+			fi
+			rm -f "$state"
+			logger -t gts9wifi-ath11k-sleep "failed to unbind $bdf"
+			exit 1
+		done
+		;;
+	post)
+		[ -f "$state" ] || exit 0
+		IFS= read -r bdf < "$state"
+		case "$bdf" in
+		????:??:??.?) ;;
+		*)
+			rm -f "$state"
+			exit 1
+			;;
+		esac
+		if [ "$(readlink -f "/sys/bus/pci/devices/$bdf/driver" 2>/dev/null)" = "$driver" ] ||
+			printf '%s' "$bdf" > "$driver/bind"; then
+			rm -f "$state"
+			logger -t gts9wifi-ath11k-sleep "bound $bdf after deep resume"
+		else
+			logger -t gts9wifi-ath11k-sleep "failed to bind $bdf"
+			exit 1
+		fi
+		;;
+esac
+
+exit 0

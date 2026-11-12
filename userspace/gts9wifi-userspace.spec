@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.36
+Version:        0.17.37
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -226,8 +226,15 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/logind.conf.d/11-gts9wifi-lid-holdoff.conf
 %dir %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
+%{_prefix}/lib/systemd/system-sleep/gts9wifi-ath11k-sleep
 
 %changelog
+* Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.37-1
+- Unbind ath11k_pci around deep suspend and probe it again on resume.
+  The WoW policy keeps the WCN6855 powered, which drained roughly a
+  quarter of the battery over one night and left the morning resume
+  without Wi-Fi; the following suspend panicked.
+
 * Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.36-1
 - Switch /sys/power/mem_sleep to deep at boot now that RTC alarm wake
   from deep has been verified on the tablet.
