@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.42
+Version:        0.17.43
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -69,6 +69,9 @@ install -m 0755 libgts9-cpuinfo.so %{buildroot}%{_libdir}/gts9wifi/libgts9-cpuin
 
 %post
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database %{_datadir}/applications >/dev/null 2>&1 || :
+fi
 udevadm control --reload-rules >/dev/null 2>&1 || :
 udevadm trigger --subsystem-match=block >/dev/null 2>&1 || :
 # 0.17.2: double-tap-to-wake was removed from the kernel driver.
@@ -136,6 +139,9 @@ fi
 
 %postun
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database %{_datadir}/applications >/dev/null 2>&1 || :
+fi
 systemctl daemon-reload >/dev/null 2>&1 || :
 if [ "$1" = 0 ]; then
     systemctl disable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
@@ -237,6 +243,9 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.43-1
+- gts9wifi-settings: rename the desktop entry to 平板杂项设置.
+
 * Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.42-1
 - gts9wifi-settings: the Simplified Chinese action now reinstalls packages
   whose zh_CN .mo files were never written by the rootfs build.

@@ -30,7 +30,7 @@ aarch64 RPM with the Phase 1 userspace pieces from the Ubuntu port:
   changes authenticate through pkexec
 - the GTS9 Plymouth splash theme for the rootfs (selected on install; the
   boot bundle carries the same theme for the initramfs)
-- `Tab9 Settings`, a GTK4/libadwaita application in the app grid that
+- `平板杂项设置` (Tab9 Settings), a GTK4/libadwaita application in the app grid that
   aggregates the device controls, power profile, USB debug switch and
   system/firmware status (`gts9wifi-settings`); its Setup page adds
   EasyEffects, a LibreOffice -> ONLYOFFICE swap, IBus Rime with the Wanxiang
