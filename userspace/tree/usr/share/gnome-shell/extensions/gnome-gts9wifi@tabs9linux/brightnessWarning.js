@@ -91,7 +91,7 @@ export class BrightnessWarning {
             '/org/freedesktop/Notifications',
             'org.freedesktop.Notifications', 'Notify',
             new GLib.Variant('(susssasa{sv}i)', [
-                'gts9wifi', 0, 'dialog-warning-symbolic',
+                'System', 0, 'dialog-warning-symbolic',
                 '亮度警告', TEXT,
                 ['default', '将亮度调到 36%'],
                 {

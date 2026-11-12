@@ -57,7 +57,7 @@ export class SpenOsd {
 
         if (!docked) {
             const text = battery === null
-                ? 'S Pen 已拔出' : `S Pen 已拔出 · 上次 ${battery}%`;
+                ? 'S Pen 已离开' : `S Pen 已离开 电量 ${battery}%`;
             this._osd.show('document-edit-symbolic', text, battery);
             return;
         }
@@ -66,13 +66,13 @@ export class SpenOsd {
         const status = readFile(`${SUPPLY}/status`);
         if (status === 'full') {
             this._osd.show('battery-level-100-symbolic',
-                `S Pen 已入坞 · 已充满${suffix}`, battery ?? 100);
+                `S Pen 已吸附 已充满${suffix}`, battery ?? 100);
         } else if (status === 'charging') {
             this._osd.show('battery-level-100-charging-symbolic',
-                `S Pen 已入坞 · 充电中${suffix}`, battery);
+                `S Pen 已吸附 充电中${suffix}`, battery);
         } else {
             this._osd.show('document-edit-symbolic',
-                `S Pen 已入坞${suffix}`, battery);
+                `S Pen 已吸附${suffix}`, battery);
         }
     }
 

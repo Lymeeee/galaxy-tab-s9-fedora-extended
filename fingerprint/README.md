@@ -17,7 +17,7 @@ What is here:
   statically linked pinned QCBOR and quic-teec, then `rpmbuild` with
   release `100.gts9wifi1` so a plain install upgrades over Fedora's.
 - `build-runtime-rpm.sh` / `gts9wifi-fingerprint.spec` — the secure-start
-  runtime: `gts9wifi-fingerprint-secure-owner`, the binder context manager,
+  runtime: `-fingerprint-secure-owner`, the binder context manager,
   the two bionic LD_PRELOAD shims, the runtime/secure supervisors, the
   `/vendor` and apnhlos read-only mounts, the SPSS module list and the
   fprintd drop-in.

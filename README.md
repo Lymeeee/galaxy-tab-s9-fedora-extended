@@ -1,67 +1,31 @@
 > [!IMPORTANT]
-> ### Fork Note: Official Book Cover Keyboard (EF-DX710) Enablement & Experiments
-> 
-> Due to my own limited technical expertise, this work is conducted with extensive assistance from AI tools.
-> 
-> The primary purpose of this fork is to build directly upon the outstanding upstream work by **nacht20-de**, with the specific goal of testing and adding hardware support for the 11-inch model's official Book Cover Keyboard and Touchpad (**EF-DX710**).
->
-> **Key Adaptations & Progress:**
-> 1. **Kernel Driver**: Ported and adapted `samsung_stm32_pogo.c` from the Tab S9 Ultra project, removing the mandatory MAX77816 booster check (which caused `-EINVAL / -22` on the 11" model) and adding geometry handling for the 11" touchpad (`1560x820`).
-> 2. **Firmware Handling**: Integrated in-kernel automatic firmware verification and update directly in `samsung_stm32_pogo.c`. If the STM32 MCU is detected on stock Android V34 firmware, the kernel asynchronously requests and programs the required V37 payload (`stm32_gts9family.bin`), making it completely autonomous without userland scripts.
-> 3. **Experimental Decoupling**: Minor tweaks to boot services (e.g. `gts9wifi-panel-coldboot-recover`) to allow experimenting with other Wayland compositors in the future.
-
-
-# Fedora on the Samsung Galaxy Tab S9 Wi-Fi (SM-X710)
-
-<img width="2560" height="1600" alt="Screenshot From 2026-09-19 21-11-57" src="https://github.com/user-attachments/assets/02131237-9f32-4939-8583-e29a04e767c9" />
-
-Mainline Linux (stable **7.2** plus a small patch set) with a **Fedora 44**
-userland on the Samsung Galaxy Tab S9 Wi-Fi — codename `gts9wifi`, model
-`SM-X710`.
-
-The tablet boots through its **stock Android boot chain** into a Fedora root on
-the **internal UFS storage**. No microSD is required, and there is no
-second-stage bootloader: the bootloader loads a mainline kernel + board DTB +
-dracut initramfs from the `boot`/`init_boot`/`vendor_boot` partitions, and that
-initramfs mounts the Fedora root by UUID.
-
-This repo builds everything for that: the rootfs, a kernel RPM, the Android
-boot-image-v4 bundle, and a TWRP flash zip.
-
-> **Installing destroys Android's data** — the `userdata` partition is
-> reformatted. Android remains restorable via TWRP *Format Data* or an Odin
-> firmware flash. The boot-chain partitions and recovery are never touched.
+> ### 开宗明义：完全可以日用。
+> ### 严重警告：安装Linux需要解锁BL，需要一个可以用的Recovery，而且安装时会清空你平板上的的所有数据。运行安装脚本需要一台Linux系统的电脑，或者mac也行，实在不行安卓手机装个termux也不是不能跑
 
 ---
 
-## Documentation
 
-[INSTALL.md](INSTALL.md) is the full install walk-through. Everything else
-lives in `docs/`:
+## 状态
 
-| Page | Contents |
+我自己在用，所以说稳定性没必要担心，哪里不能用的话我比你还急
+
+| 硬件/功能 | 状态 |
 |---|---|
-| [Known Issues](docs/Known-Issues.md) | the issue register referenced by commits and scripts |
-| [Hardware Notes](docs/Hardware-Notes.md) | per-subsystem debugging notes |
-| [Device Controls](docs/Device-Controls.md) | the double-tap-to-wake and fast-charging switches |
-| [Port Kit](docs/PORT-KIT.md) | the extraction inventory behind the port (developer notes) |
+| CPU | 正常 |
+| GPU | 正常 |
+| WLAN | 正常 |
+| 蓝牙 | 不完全正常，更新完开机以后需要再重启一次要不然用不了 |
+| 休眠 | 是深睡，具体睡眠掉电多不多还没认真测 |
+| 扬声器 | 正常，就是声音有点空 |
+| 震动 | 应该正常，但好像也没啥用 |
+| 相机和闪光灯 | 应该正常，还没测 |
+| 充电 | 最高可以握手45W PPS，真正进去电池的应该不到三十瓦，而且可以开启满电自动直供电 |
+| 屏幕 | 正常，三星不给HDR我真的很生气，亮度低于36%离开DC调光的时候会提醒你保护视力 |
+| 官方皮套键盘 | 要安装一下V37固件，我忘记去哪里找了，你可以让AI在Vendor分区翻一翻，反正按键正常，合盖休眠开盖唤醒也正常 |
+| USBC接口 | 满速3.2，干啥都行，包括扩展坞，外接屏幕什么的 |
+| 传感器 | 没认真测试过，不确定是不是都好用 |
 
----
-
-## Status
-
-Verified on hardware end to end: cold start, GPU acceleration from the first
-probe, ambient-light sensing over D-Bus, password login.
-
-| Working | Partial / in progress |
-|---|---|
-| Display (2560×1600 AMOLED), touchscreen, double-tap-to-wake | S Pen tilt sensor |
-| Wi-Fi (5 GHz included), Bluetooth | Charging bypass on 25 W+ adapters — needs a desktop patch |
-| Speakers + DMIC capture, with speaker-protection DSP firmware | Under-display fingerprint — secure processor is up, blocked at the TEE |
-| Battery/charging, Type-C PD, USB-C DisplayPort alt-mode | `/vendor` (Android `super`) is not mounted |
-| GPU (Adreno 740), sensors incl. auto-rotate, both cameras | No autofocus anywhere in the camera stack |
-| Hardware video decode (VP9 / H.264 / HEVC) | Only some applications can reach the VPU — see [Hardware Notes](docs/Hardware-Notes.md) |
-| Power/volume keys, book-cover lid, suspend | SELinux runs permissive |
+  注意：关机充电我没做，插入充电器直接开机属于正常，确定你设置了插入电源时自动熄灭屏幕或者休眠超时，要不然到时候烧屏了别去贴吧挂我。
 
 ---
 
@@ -113,67 +77,10 @@ or fetched from a pinned source with a verified checksum.
 
 ---
 
-## Updating
+## 前人栽树后人乘凉
 
-The updater pulls from the rolling `latest` release by default:
-
-```sh
-sudo gts9wifi-update userspace        # userspace + dynpart RPMs
-sudo gts9wifi-update check            # installed vs release versions
-sudo gts9wifi-update kernel --flash   # kernel RPM + matching boot bundle
-```
-
-Pin or roll back a kernel with `--tag kernel-7.2.0-<YYYYMMDD>.<run>`. Take the
-bundle and the RPM from the same release: the kernel's version magic has to
-match the modules on the rootfs or they will not load — and the first thing
-you notice is Wi-Fi and Bluetooth being dead.
-
----
-
-## Layout
-
-| Path | Contents |
-|---|---|
-| `rootfs/` | `build-rootfs.sh` (Fedora aarch64 rootfs build), `overlay/` (device services, mounts, udev rules, ALSA UCM), `mk-internal-storage.sh` (internal-storage install), `mk-sd-card.sh` (rescue SD card), `fetch-local-assets.sh` (device firmware/modules/SSH key) |
-| `kernel/` | `prepare.sh` + `kernel.spec` (kernel RPM), the port patches, out-of-tree drivers, board DTS, config fragment |
-| `boot/` | `build-bundle.sh` (Android boot-image-v4 bundle), cmdline, bootconfig, dracut config, initramfs USB-net module |
-| `specs/` | RPM specs carrying the vendored patches (`hexagonrpcd`, `iio-sensor-proxy`, `libcamera-hi1337`) |
-| `tools/` | vendored AOSP `avbtool`/`mkbootimg`, TWRP zip packer and installer |
-| `docs/` | issue register, hardware notes, device controls, port kit |
-
-`kernel/files/spu/spss-irq/` and `specs/libcamera-hi1337/` carry their own
-READMEs.
-
----
-
-## How it boots
-
-Samsung's bootloader loads `vendor_boot`, whose DTB is the one that actually
-gets used and whose cmdline carries `root=UUID=…`. `dtbo` is deliberately
-invalid so the bootloader falls back to the appended DTB, and `vbmeta` is
-zeroed so verified boot is off. The kernel is mainline plus out-of-tree drivers
-for the touchscreen, panel, charger, USB-PD, fuel gauge, redriver and pen
-digitizer, and the initramfs carries the GPU's zap/GMU firmware because the GPU
-probes before the root filesystem exists. Several Android partitions are still
-needed **at runtime**, not just at first boot — `persist` is mounted read-write
-because Samsung's sensor registry and Wi-Fi calibration live there.
-
----
-
-## Contributing
-
-Check [Known Issues](docs/Known-Issues.md)
-before opening an issue. Issue numbers in commits and scripts refer to the
-register in `docs/Known-Issues.md`, not to GitHub issue numbers.
-
----
-
-## Prior art
-
-- [Azkali](https://github.com/Azkali)'s gts9wifi port — a mainline tree plus the
-  firmware payload ([Azkali/gts9wifi-firmware](https://github.com/Azkali/gts9wifi-firmware))
-  this port's speaker-protection and VPU staging pulls from.
-- [agcarbajo](https://github.com/agcarbajo)'s port — kernel and userspace subsystems.
+- 感谢[Azkali](https://github.com/Azkali)对这个平板的的主线化工作，以及对系统固件的慷慨提供
+- 感谢[agcarbajo](https://github.com/agcarbajo)在他的Tab S9 Ultra仓库的辛勤耕耘。这个仓库的功能修复很大一部分来源于此。
 
 ---
 
