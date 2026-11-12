@@ -1,0 +1,45 @@
+name: Camera (libcamera)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'camera/**'
+      - '.github/workflows/camera.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-camera:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build patched libcamera aarch64 RPMs
+        run: |
+          mkdir -p out-camera
+          docker run --rm \
+            -v "$PWD:/work" -w /work \
+            quay.io/fedora/fedora:44 \
+            bash /work/camera/build-libcamera.sh
+
+      - name: Publish to latest
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          gh release view latest >/dev/null 2>&1 || \
+            gh release create latest --target "$GITHUB_SHA" --latest \
+              --title "GTS9 Latest" \
+              --notes "Rolling channel: newest userspace/dynpart/kernel/camera builds."
+          old=$(gh release view latest --json assets --jq '.assets[].name' \
+            | grep -E '\.gts9wifi[0-9]+\.' || true)
+          gh release upload latest --clobber out-camera/*.rpm
+          for name in $old; do
+            [ -f "out-camera/$name" ] && continue
+            gh release delete-asset latest "$name" --yes || true
+          done
