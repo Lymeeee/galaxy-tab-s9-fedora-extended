@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.43
+Version:        0.17.44
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -239,10 +239,14 @@ fi
 %config(noreplace) %{_sysconfdir}/systemd/logind.conf.d/11-gts9wifi-lid-holdoff.conf
 %dir %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
-%{_prefix}/lib/systemd/system-sleep/gts9wifi-ath11k-sleep
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.44-1
+- Drop the ath11k deep-suspend unbind hook.  The kernel now keeps WoW for
+  s2idle and uses the normal power-down path for deep suspend, which lets
+  the PCIe/pwrseq stack cut the WCN6855 rails.
+
 * Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.43-1
 - gts9wifi-settings: rename the desktop entry to 平板杂项设置.
 

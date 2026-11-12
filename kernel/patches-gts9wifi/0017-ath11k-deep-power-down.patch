@@ -1,0 +1,41 @@
+wifi: ath11k: power down the WCN6855 for deep suspend on gts9wifi
+
+The port's WoW quirk keeps the endpoint powered across suspend, which is
+fine for s2idle but wrong for deep suspend: the PCIe power domains go
+down underneath the live WoW firmware, leaving the chip beacon-tracking
+(~800 mW) and occasionally returning with a dead MHI.  Use the normal
+power-down path when the target is PM_SUSPEND_MEM; s2idle keeps WoW.
+
+--- a/drivers/net/wireless/ath/ath11k/core.c
++++ b/drivers/net/wireless/ath/ath11k/core.c
+@@ -10,6 +10,7 @@
+ #include <linux/remoteproc.h>
+ #include <linux/firmware.h>
+ #include <linux/of.h>
++#include <linux/suspend.h>
+
+ #include "core.h"
+ #include "dp_tx.h"
+@@ -1251,6 +1252,22 @@
+ {
+ 	int ret;
+
++	/*
++	 * The gts9wifi WoW quirk exists to keep s2idle resume fast.  In a
++	 * deep suspend the PCIe power domains are removed underneath the
++	 * live WoW firmware: the chip stays powered and beacon-tracking
++	 * (roughly 800 mW) and the resume can come back with a dead MHI.
++	 * Use the normal power-down path for deep suspend, which lets the
++	 * PCIe/pwrseq stack cut the WCN6855 rails; resume then cold-probes
++	 * the endpoint.  s2idle keeps WoW.
++	 */
++	if (ab->pm_policy == ATH11K_PM_WOW &&
++	    pm_suspend_target_state == PM_SUSPEND_MEM &&
++	    of_machine_is_compatible("samsung,gts9wifi"))
++		ab->actual_pm_policy = ATH11K_PM_DEFAULT;
++	else
++		ab->actual_pm_policy = ab->pm_policy;
++
+ 	ret = ath11k_core_continue_suspend_resume(ab);
+ 	if (ret <= 0)
+ 		return ret;

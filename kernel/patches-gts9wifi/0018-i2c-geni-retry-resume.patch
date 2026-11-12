@@ -1,0 +1,51 @@
+i2c: qcom-geni: retry runtime resume after -EACCES
+
+Right after system resume the GENI interconnect path can still be coming
+up; pm_runtime_get_sync() then fails with -EACCES and every I2C transfer
+in that window is dropped.  The touchscreen, Wacom and SM5714 USB-PD IRQ
+paths all hit it.  Retry the runtime PM get for the transient errors
+instead of failing the transfer immediately.
+
+--- a/drivers/i2c/busses/i2c-qcom-geni.c
++++ b/drivers/i2c/busses/i2c-qcom-geni.c
+@@ -3,6 +3,7 @@
+
+ #include <linux/acpi.h>
+ #include <linux/clk.h>
++#include <linux/delay.h>
+ #include <linux/dmaengine.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/dma/qcom-gpi-dma.h>
+@@ -909,15 +910,29 @@
+ {
+ 	struct geni_i2c_dev *gi2c = i2c_get_adapdata(adap);
+ 	int ret;
++	int retry;
+
+ 	gi2c->err = 0;
+ 	reinit_completion(&gi2c->done);
+-	ret = pm_runtime_get_sync(gi2c->se.dev);
+-	if (ret < 0) {
+-		dev_err(gi2c->se.dev, "error turning SE resources:%d\n", ret);
++	for (retry = 0; retry < 3; retry++) {
++		ret = pm_runtime_get_sync(gi2c->se.dev);
++		if (ret >= 0)
++			break;
+ 		pm_runtime_put_noidle(gi2c->se.dev);
+ 		/* Set device in suspended since resume failed */
+ 		pm_runtime_set_suspended(gi2c->se.dev);
++		/*
++		 * The interconnect path can still be coming up right after a
++		 * system resume; the first runtime-PM get then fails with
++		 * -EACCES and every I2C transfer in that window is dropped.
++		 */
++		if (ret != -EACCES && ret != -EAGAIN &&
++		    ret != -EPROBE_DEFER)
++			break;
++		usleep_range(1000, 2000);
++	}
++	if (ret < 0) {
++		dev_err(gi2c->se.dev, "error turning SE resources:%d\n", ret);
+ 		return ret;
+ 	}
+

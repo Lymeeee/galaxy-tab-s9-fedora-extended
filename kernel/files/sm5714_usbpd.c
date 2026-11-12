@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/of.h>
+#include <linux/pm.h>
 #include <linux/regmap.h>
 #include <linux/usb/pd.h>
 #include <linux/usb/tcpm.h>
@@ -79,7 +80,12 @@ struct sm5714_usbpd {
 	struct fwnode_handle *connector;
 	struct delayed_work cc_resync_work;
 	struct delayed_work otg_det_work;
+	struct delayed_work irq_retry_work;
 	struct gpio_desc *otg_det_gpio;
+	int irq;
+	bool irq_masked;
+	bool wake_armed;
+	bool removing;
 	enum typec_cc_polarity polarity;
 	bool pr_swap_src_to_snk;
 	bool pr_swap_snk_to_src;
@@ -693,19 +699,16 @@ acknowledge:
 	regmap_write(sm->regmap, SM5714_REG_RX_BUF, 0x80);
 }
 
-static irqreturn_t sm5714_usbpd_irq(int irq, void *data)
+static int sm5714_usbpd_handle_interrupts(struct sm5714_usbpd *sm)
 {
-	struct sm5714_usbpd *sm = data;
 	u8 intr[5];
 	int ret;
 
 	mutex_lock(&sm->lock);
 	ret = regmap_bulk_read(sm->regmap, SM5714_REG_INT1,
 			       intr, sizeof(intr));
-	if (ret) {
-		mutex_unlock(&sm->lock);
-		return IRQ_NONE;
-	}
+	if (ret)
+		goto out;
 
 	if (intr[3] & SM5714_INT4_RX_DONE)
 		sm5714_usbpd_receive(sm);
@@ -717,8 +720,11 @@ static irqreturn_t sm5714_usbpd_irq(int irq, void *data)
 		tcpm_pd_transmit_complete(sm->port, TCPC_TX_FAILED);
 	if (intr[3] & SM5714_INT4_HRST_RX)
 		tcpm_pd_hard_reset(sm->port);
-
+out:
 	mutex_unlock(&sm->lock);
+
+	if (ret)
+		return ret;
 
 	if (intr[0] & (SM5714_INT1_ATTACH | SM5714_INT1_DETACH) ||
 	    intr[1] & SM5714_INT2_SRC_ADV)
@@ -727,8 +733,100 @@ static irqreturn_t sm5714_usbpd_irq(int irq, void *data)
 	    intr[1] & SM5714_INT2_VBUS_0V)
 		tcpm_vbus_change(sm->port);
 
+	return 0;
+}
+
+static void sm5714_usbpd_irq_retry_work(struct work_struct *work)
+{
+	struct sm5714_usbpd *sm =
+		container_of(to_delayed_work(work), struct sm5714_usbpd,
+			     irq_retry_work);
+
+	if (sm->removing)
+		return;
+
+	if (sm5714_usbpd_handle_interrupts(sm)) {
+		schedule_delayed_work(&sm->irq_retry_work,
+				      msecs_to_jiffies(100));
+		return;
+	}
+
+	if (sm->irq_masked) {
+		sm->irq_masked = false;
+		enable_irq(sm->irq);
+	}
+}
+
+static irqreturn_t sm5714_usbpd_irq(int irq, void *data)
+{
+	struct sm5714_usbpd *sm = data;
+
+	if (sm->removing)
+		return IRQ_HANDLED;
+
+	if (sm5714_usbpd_handle_interrupts(sm)) {
+		/*
+		 * The controller IRQ is level-triggered and may fire while the
+		 * I2C adapter is still resuming.  If the status read fails the
+		 * line cannot be acknowledged, so mask it here and retry from
+		 * process context once the bus is usable again.
+		 */
+		if (!sm->irq_masked) {
+			sm->irq_masked = true;
+			disable_irq_nosync(sm->irq);
+		}
+		schedule_delayed_work(&sm->irq_retry_work,
+				      msecs_to_jiffies(50));
+	}
+
 	return IRQ_HANDLED;
 }
+
+static int sm5714_usbpd_suspend(struct device *dev)
+{
+	struct sm5714_usbpd *sm = dev_get_drvdata(dev);
+	int vbus = sm5714_usbpd_get_vbus(&sm->tcpc);
+	bool allow_wake = device_may_wakeup(dev) && vbus == 0 &&
+			  !sm5714_battery_is_otg_active();
+
+	/*
+	 * A charger detach must not wake the system: the wake IRQ runs while
+	 * the I2C controller is still resuming, and an unacknowledged level
+	 * IRQ storms until the tablet resets.  Plugging a charger into a
+	 * battery-powered tablet may still wake it; if the charger state
+	 * cannot be read, stay conservative and do not arm the wakeup.
+	 */
+	if (allow_wake) {
+		if (!sm->wake_armed) {
+			sm->wake_armed = true;
+			enable_irq_wake(sm->irq);
+		}
+	} else if (sm->wake_armed) {
+		sm->wake_armed = false;
+		disable_irq_wake(sm->irq);
+	}
+
+	return 0;
+}
+
+static int sm5714_usbpd_resume(struct device *dev)
+{
+	struct sm5714_usbpd *sm = dev_get_drvdata(dev);
+
+	if (sm->wake_armed) {
+		sm->wake_armed = false;
+		disable_irq_wake(sm->irq);
+	}
+
+	if (sm->irq_masked)
+		schedule_delayed_work(&sm->irq_retry_work,
+				      msecs_to_jiffies(100));
+
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(sm5714_usbpd_pm_ops,
+				sm5714_usbpd_suspend, sm5714_usbpd_resume);
 
 static int sm5714_usbpd_probe(struct i2c_client *client)
 {
@@ -743,6 +841,7 @@ static int sm5714_usbpd_probe(struct i2c_client *client)
 		return -ENOMEM;
 
 	sm->dev = dev;
+	sm->irq = client->irq;
 	sm->regmap = devm_regmap_init_i2c(client,
 					  &sm5714_usbpd_regmap_config);
 	if (IS_ERR(sm->regmap))
@@ -750,6 +849,7 @@ static int sm5714_usbpd_probe(struct i2c_client *client)
 	mutex_init(&sm->lock);
 	INIT_DELAYED_WORK(&sm->cc_resync_work, sm5714_usbpd_cc_resync_work);
 	INIT_DELAYED_WORK(&sm->otg_det_work, sm5714_usbpd_otg_det_work);
+	INIT_DELAYED_WORK(&sm->irq_retry_work, sm5714_usbpd_irq_retry_work);
 	i2c_set_clientdata(client, sm);
 
 	sm->otg_det_gpio = devm_gpiod_get_optional(dev, "otg-det",
@@ -844,7 +944,6 @@ static int sm5714_usbpd_probe(struct i2c_client *client)
 		goto unregister_port;
 
 	device_init_wakeup(dev, true);
-	enable_irq_wake(client->irq);
 	/*
 	 * CC comparators settle after the autonomous DRP machine is enabled.
 	 * tcpm_register_port() can see Rp before the charger has raised VBUS:
@@ -881,11 +980,21 @@ static void sm5714_usbpd_remove(struct i2c_client *client)
 {
 	struct sm5714_usbpd *sm = i2c_get_clientdata(client);
 
+	sm->removing = true;
+	synchronize_irq(sm->irq);
 	cancel_delayed_work_sync(&sm->cc_resync_work);
 	cancel_delayed_work_sync(&sm->otg_det_work);
+	cancel_delayed_work_sync(&sm->irq_retry_work);
 	if (sm->otg_det_gpio)
 		gpiod_set_value_cansleep(sm->otg_det_gpio, 0);
-	disable_irq_wake(client->irq);
+	if (sm->irq_masked) {
+		sm->irq_masked = false;
+		enable_irq(sm->irq);
+	}
+	if (sm->wake_armed) {
+		sm->wake_armed = false;
+		disable_irq_wake(sm->irq);
+	}
 	tcpm_unregister_port(sm->port);
 	fwnode_handle_put(sm->connector);
 }
@@ -900,6 +1009,7 @@ static struct i2c_driver sm5714_usbpd_driver = {
 	.driver = {
 		.name = "sm5714-usbpd",
 		.of_match_table = sm5714_usbpd_of_match,
+		.pm = pm_sleep_ptr(&sm5714_usbpd_pm_ops),
 	},
 	.probe = sm5714_usbpd_probe,
 	.remove = sm5714_usbpd_remove,
