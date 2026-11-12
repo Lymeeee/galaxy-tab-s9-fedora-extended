@@ -30,6 +30,7 @@ struct ps5169 {
 	struct regmap *regmap;
 	struct mutex lock;
 	struct typec_switch_dev *sw;
+	struct typec_mux_dev *mux;
 	struct typec_retimer *retimer;
 	struct typec_switch *typec_switch;
 	struct typec_mux *typec_mux;
@@ -90,7 +91,7 @@ static int ps5169_program(struct ps5169 *ps)
 		if (ret)
 			return ret;
 		ret = regmap_write(ps->regmap, PS5169_REG_USB_DIRECTION,
-				   role == USB_ROLE_HOST ? 0x00 : 0x44);
+				   role == USB_ROLE_DEVICE ? 0x44 : 0x00);
 		if (ret)
 			return ret;
 		ret = regmap_write(ps->regmap, 0x8d, 0x01);
@@ -153,6 +154,28 @@ static int ps5169_switch_set(struct typec_switch_dev *sw,
 	ret = ps5169_program(ps);
 	mutex_unlock(&ps->lock);
 	return ret;
+}
+
+static int ps5169_mux_set(struct typec_mux_dev *mux,
+			  struct typec_mux_state *state)
+{
+	struct ps5169 *ps = typec_mux_get_drvdata(mux);
+	struct typec_mux_state mux_state = {
+		.alt = state->alt,
+		.data = state->data,
+		.mode = state->mode,
+	};
+	int ret;
+
+	mutex_lock(&ps->lock);
+	ps->mode = state->mode;
+	ps->svid = state->alt ? state->alt->svid : 0;
+	ret = ps5169_program(ps);
+	mutex_unlock(&ps->lock);
+	if (ret)
+		return ret;
+
+	return typec_mux_set(ps->typec_mux, &mux_state);
 }
 
 static int ps5169_retimer_set(struct typec_retimer *retimer,
@@ -228,6 +251,7 @@ static const struct regmap_config ps5169_regmap_config = {
 static int ps5169_probe(struct i2c_client *client)
 {
 	struct typec_retimer_desc retimer_desc = { };
+	struct typec_mux_desc mux_desc = { };
 	struct typec_switch_desc switch_desc = { };
 	struct device *dev = &client->dev;
 	struct ps5169 *ps;
@@ -292,6 +316,16 @@ static int ps5169_probe(struct i2c_client *client)
 		goto put_role;
 	}
 
+	mux_desc.drvdata = ps;
+	mux_desc.fwnode = dev_fwnode(dev);
+	mux_desc.set = ps5169_mux_set;
+	ps->mux = typec_mux_register(dev, &mux_desc);
+	if (IS_ERR(ps->mux)) {
+		ret = dev_err_probe(dev, PTR_ERR(ps->mux),
+				    "failed to register mode switch\n");
+		goto unregister_switch;
+	}
+
 	retimer_desc.drvdata = ps;
 	retimer_desc.fwnode = dev_fwnode(dev);
 	retimer_desc.set = ps5169_retimer_set;
@@ -299,12 +333,14 @@ static int ps5169_probe(struct i2c_client *client)
 	if (IS_ERR(ps->retimer)) {
 		ret = dev_err_probe(dev, PTR_ERR(ps->retimer),
 				    "failed to register retimer\n");
-		goto unregister_switch;
+		goto unregister_mux;
 	}
 
 	i2c_set_clientdata(client, ps);
 	return 0;
 
+unregister_mux:
+	typec_mux_unregister(ps->mux);
 unregister_switch:
 	typec_switch_unregister(ps->sw);
 put_role:
@@ -321,6 +357,7 @@ static void ps5169_remove(struct i2c_client *client)
 	struct ps5169 *ps = i2c_get_clientdata(client);
 
 	typec_retimer_unregister(ps->retimer);
+	typec_mux_unregister(ps->mux);
 	typec_switch_unregister(ps->sw);
 	usb_role_switch_put(ps->role_switch);
 	typec_mux_put(ps->typec_mux);

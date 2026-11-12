@@ -1376,6 +1376,7 @@
 		parade,reg54 = <0x02>;
 		parade,reg5d = <0x40>;
 		usb-role-switch = <&usb_1>;
+		mode-switch;
 		retimer-switch;
 		orientation-switch;
 
