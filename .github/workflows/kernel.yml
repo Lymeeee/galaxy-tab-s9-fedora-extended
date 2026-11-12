@@ -81,7 +81,7 @@ jobs:
                   openssl openssl-devel elfutils-libelf-devel python3 tar xz \
                   zstd rpm-build ccache dtc findutils dwarves dracut \
                   cpio lz4 iproute plymouth plymouth-plugin-script \
-                  pkgconf-pkg-config cairo-devel freetype-devel >/dev/null
+                  pkgconf-pkg-config >/dev/null
 
               # --- kernel ---
               mkdir -p /tmp/kcache
@@ -113,14 +113,7 @@ jobs:
                 "$FIRMWARE_URL" -o /tmp/fw.tar.gz
               echo "$FIRMWARE_SHA256  /tmp/fw.tar.gz" | sha256sum -c -
               tar xzf /tmp/fw.tar.gz -C /
-              # Off-mode charging screen: binary, fonts and dracut module.
-              install -d /usr/share/fonts/gts9wifi
-              install -m0644 /work/charger/fonts/*.ttf /usr/share/fonts/gts9wifi/
-              gcc -O2 -Wall -Wextra -o /usr/libexec/gts9wifi-lpcharge \
-                  /work/charger/gts9wifi-lpcharge.c \
-                  $(pkg-config --cflags --libs cairo freetype2) -lm
               cp -a /work/boot/dracut/90gts9wifi-usbnet \
-                  /work/boot/dracut/95gts9wifi-lpcharge \
                   /usr/lib/dracut/modules.d/
               cp /work/boot/dracut/dracut.conf.d/gts9wifi.conf /usr/lib/dracut/dracut.conf.d/
               install -d /usr/share/plymouth/themes/gts9wifi
