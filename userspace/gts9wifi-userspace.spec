@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.45
+Version:        0.17.46
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -243,6 +243,12 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 13 2026 Lymeeee <mr_xunyu@163.com> - 0.17.46-1
+- Verify downloaded release assets against the asset size/digest and resume
+  interrupted transfers.  A truncated kernel RPM used to be accepted by
+  curl and only failed at rpm install time, after the boot partitions had
+  already been written.
+
 * Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.45-1
 - Fix the keyboard firmware helper's executable mode and stop ordering it
   before the display manager.

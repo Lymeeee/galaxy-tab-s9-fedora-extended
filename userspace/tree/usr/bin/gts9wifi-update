@@ -163,15 +163,78 @@ PY
     printf '%s\n' "$line"
 }
 
+# asset_meta <name> <url> -> "size<TAB>sha256" for release downloads.
+asset_meta() {
+    local name=$1 url=$2 t json
+    t=$(printf '%s\n' "$url" |
+        sed -n 's#^https://github.com/[^/]*/[^/]*/releases/download/\([^/]*\)/.*#\1#p')
+    [ -n "$t" ] || return 0
+    # Always refresh: the rolling latest release clobbers its assets, so a
+    # cached JSON may describe a different file under the same name.
+    json=$(GTS9WIFI_REFRESH=1 api_json "$t" 2>/dev/null) || return 0
+    python3 - "$json" "$name" <<'PY'
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+for item in data.get("assets", []):
+    if item.get("name") == sys.argv[2]:
+        digest = item.get("digest") or ""
+        print("%s\t%s" % (item.get("size") or "",
+                          digest[7:] if digest.startswith("sha256:") else ""))
+        break
+PY
+}
+
+asset_complete() {
+    local f=$1 size=$2 sha=$3 actual
+    [ -s "$f" ] || return 1
+    if [ -n "$size" ]; then
+        actual=$(stat -c%s "$f" 2>/dev/null || echo 0)
+        [ "$actual" -eq "$size" ] || return 1
+    fi
+    if [ -n "$sha" ]; then
+        actual=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1 || true)
+        [ "$actual" = "$sha" ] || return 1
+    fi
+    return 0
+}
+
 download_asset() {
     local name=$1 url=$2 dir=$3
+    local f="$dir/$name" meta size sha i rc actual
     mkdir -p "$dir"
-    if [ ! -s "$dir/$name" ]; then
-        echo "downloading $name" >&2
-        curl -fL --retry 3 --retry-delay 2 -o "$dir/$name.part" "$url"
-        mv "$dir/$name.part" "$dir/$name"
+    meta=$(asset_meta "$name" "$url" 2>/dev/null) || meta=
+    size=$(printf '%s\n' "$meta" | cut -f1)
+    sha=$(printf '%s\n' "$meta" | cut -f2)
+    if [ -s "$f" ] && { [ -z "$size" ] || asset_complete "$f" "$size" "$sha"; }; then
+        printf '%s\n' "$f"
+        return 0
     fi
-    printf '%s\n' "$dir/$name"
+    rm -f "$f"
+    echo "downloading $name" >&2
+    for i in 1 2 3 4 5 6; do
+        rc=1
+        # -C - resumes after a TLS EOF; a truncated body can still exit 0,
+        # so completeness is decided by the release metadata, not curl.
+        curl -fL --retry 5 --retry-all-errors --retry-delay 2 -C - -o "$f" "$url" && rc=0
+        if [ -n "$size" ]; then
+            if asset_complete "$f" "$size" "$sha"; then
+                rc=0
+            else
+                rc=1
+                actual=$(stat -c%s "$f" 2>/dev/null || echo 0)
+                if [ "$actual" -ge "$size" ]; then
+                    rm -f "$f"
+                fi
+            fi
+        fi
+        [ "$rc" -eq 0 ] && [ -s "$f" ] && break
+        sleep 2
+    done
+    [ "$rc" -eq 0 ] && [ -s "$f" ] || die "download failed or incomplete: $name"
+    printf '%s\n' "$f"
 }
 
 # assets <regex> -> "name<TAB>url" for every matching release asset
