@@ -248,6 +248,8 @@ fi
   interrupted transfers.  A truncated kernel RPM used to be accepted by
   curl and only failed at rpm install time, after the boot partitions had
   already been written.
+- Unify the S Pen dock OSD wording as "S Pen 已离开/已吸附/充电中/已充满
+  <battery>%".
 
 * Thu Nov 12 2026 Lymeeee <mr_xunyu@163.com> - 0.17.45-1
 - Fix the keyboard firmware helper's executable mode and stop ordering it
