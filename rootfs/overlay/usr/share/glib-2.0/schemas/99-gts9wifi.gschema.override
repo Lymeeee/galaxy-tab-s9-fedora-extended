@@ -11,5 +11,11 @@ enabled-extensions = ['gnome-gts9wifi@tabs9linux']
 
 [org.gnome.settings-daemon.plugins.power]
 power-button-action = 'nothing'
-sleep-inactive-battery-type = 'nothing'
-sleep-inactive-ac-type = 'nothing'
+# Suspend after 30 minutes idle on battery and AC.
+sleep-inactive-battery-type = 'suspend'
+sleep-inactive-battery-timeout = 1800
+sleep-inactive-ac-type = 'suspend'
+sleep-inactive-ac-timeout = 1800
+
+[org.gnome.desktop.session]
+idle-delay = uint32 300
