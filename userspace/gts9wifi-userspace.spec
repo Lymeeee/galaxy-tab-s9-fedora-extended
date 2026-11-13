@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.46
+Version:        0.17.47
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -236,6 +236,7 @@ fi
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-usb0-unmanaged.conf
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 %config(noreplace) %{_sysconfdir}/systemd/zram-generator.conf.d/10-gts9wifi-zstd.conf
+%config(noreplace) %{_sysconfdir}/sysctl.d/99-gts9wifi-zram.conf
 %config(noreplace) %{_sysconfdir}/systemd/logind.conf.d/11-gts9wifi-lid-holdoff.conf
 %dir %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-wait-sensor-proxy.service
@@ -243,6 +244,12 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 13 2026 Lymeeee <mr_xunyu@163.com> - 0.17.47-1
+- Raise the zram cap to 6 GiB and set vm.swappiness=100.  With the browser,
+  WeChat, QQ and OnlyOFFICE open, the 4 GiB device already used 2.3 GiB of
+  swap with only 1.5 GiB available, and the default 60 frees anonymous pages
+  reluctantly.
+
 * Fri Nov 13 2026 Lymeeee <mr_xunyu@163.com> - 0.17.46-1
 - Verify downloaded release assets against the asset size/digest and resume
   interrupted transfers.  A truncated kernel RPM used to be accepted by
