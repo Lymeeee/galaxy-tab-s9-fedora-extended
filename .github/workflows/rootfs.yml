@@ -14,13 +14,13 @@ on:
         options: [gnome, core]
       kernel_rpm_url:
         description: "Kernel RPM URL — must be the same release users flash as the TWRP boot bundle"
-        # Pinned to the kernel-7.2.0-gts9wifi-1 release; re-pin together
+        # Pinned to the kernel-7.2.0-20261112.30 release; re-pin together
         # with the kernel whenever a new kernel build is published.
-        default: "https://github.com/nacht20-de/gts9wifi-fedora/releases/download/kernel-7.2.0-gts9wifi-1/linux-gts9wifi-7.2.0-0.1.fc44.aarch64.rpm"
+        default: "https://github.com/Lymeeee/galaxy-tab-s9-fedora-extended/releases/download/kernel-7.2.0-20261112.30/linux-gts9wifi-7.2.0-20261112.30.fc44.aarch64.rpm"
         type: string
       kernel_sha256:
         description: "sha256 of the RPM"
-        default: "fad7972cb7c187a271fd33ce6f0767174326493aa8fe2a85ba6f7f6b8b766d4d"
+        default: "9bba8971377489712e9943bc718a341f55e67ecb5197d59d343833a7dff73567"
         type: string
       firmware_url:
         description: "Device firmware payload (extracted from the stock partitions)"
