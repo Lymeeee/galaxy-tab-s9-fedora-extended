@@ -1,0 +1,35 @@
+name: Sensors build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rpm:
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: fedora:44
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          dnf install -y rpm-build gcc meson ninja-build glib2-devel \
+            libgudev-devel polkit-devel libqmi-devel libmbim-devel \
+            libqrtr-glib-devel protobuf-c-devel protobuf-devel \
+            python3-devel python3-protobuf systemd-rpm-macros libxml2
+
+      - name: Build gts9wifi-sensors RPM
+        run: |
+          mkdir -p out
+          rpmbuild -ba userspace/sensors/gts9wifi-sensors.spec \
+            --define "_sourcedir $PWD/userspace/sensors" \
+            --define "_specdir $PWD/userspace/sensors" \
+            --define "_builddir $PWD/out/BUILD" \
+            --define "_rpmdir $PWD/out/RPMS" \
+            --define "_srcrpmdir $PWD/out/SRPMS"
+
+      - name: Upload RPM
+        uses: actions/upload-artifact@v4
+        with:
+          name: gts9wifi-sensors-rpm
+          path: out/**/*.rpm
