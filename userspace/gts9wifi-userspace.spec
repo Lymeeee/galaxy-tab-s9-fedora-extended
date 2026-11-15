@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.49
+Version:        0.17.50
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -242,12 +242,19 @@ fi
 %dir %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-wait-sensor-proxy.service
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
-%{_libexecdir}/gts9wifi-camera-suspend-pre
+%attr(0755, root, root) %{_libexecdir}/gts9wifi-camera-suspend-pre
 %dir %{_unitdir}/systemd-suspend.service.d
 %{_unitdir}/systemd-suspend.service.d/10-gts9wifi-camera-suspend.conf
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Sun Nov 15 2026 Lymeeee <mr_xunyu@163.com> - 0.17.50-1
+- Fix the executable bit on gts9wifi-camera-suspend-pre.  It was installed
+  0644, so systemd-suspend.service failed at ExecStartPre with 203/EXEC
+  and every suspend attempt aborted before reaching sleep.
+- CI now rejects non-executable helpers under /usr/bin, /usr/libexec and
+  /usr/lib/systemd/system-sleep.
+
 * Sun Nov 15 2026 Lymeeee <mr_xunyu@163.com> - 0.17.49-1
 - Settings: add a Display page with switches for the automatic-brightness
   floor and the low-brightness warning.  The floor raises gsd-power's
