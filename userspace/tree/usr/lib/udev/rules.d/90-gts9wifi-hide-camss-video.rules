@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+#
+# The CAMSS VFE video nodes are internal media-controller endpoints, not
+# standalone cameras. GStreamer's v4l2 device provider otherwise lists them
+# next to the two libcamera cameras and the camera UI shows extra "rear"
+# entries. Keep them out of the v4l2 provider; libcamera opens the media
+# graph directly and is unaffected.
+SUBSYSTEM=="video4linux", ENV{ID_V4L_PRODUCT}=="Qualcomm Camera Subsystem", ENV{ID_V4L_VERSION}="1"

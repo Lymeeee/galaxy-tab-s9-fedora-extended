@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.52
+Version:        0.17.53
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -234,6 +234,7 @@ fi
 %{_udevrulesdir}/72-gts9wifi-charger-perms.rules
 %{_udevrulesdir}/60-gts9wifi-sd-uuid.rules
 %{_udevrulesdir}/90-gts9wifi-hide-internal.rules
+%{_udevrulesdir}/90-gts9wifi-hide-camss-video.rules
 %config(noreplace) %{_sysconfdir}/NetworkManager/dispatcher.d/90-gts9wifi-no-bgscan
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-usb0-unmanaged.conf
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
@@ -249,6 +250,12 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Mon Nov 16 2026 Lymeeee <mr_xunyu@163.com> - 0.17.53-1
+- Hide the internal CAMSS VFE video nodes from GStreamer's v4l2 device
+  provider.  The camera app listed them as extra "rear" cameras next to
+  the two libcamera cameras.  libcamera opens the media graph directly
+  and is unaffected.
+
 * Mon Nov 16 2026 Lymeeee <mr_xunyu@163.com> - 0.17.52-1
 - Camera calibration: target the kernel's per-variant sensor model names
   (hi1337-gts9u-rear/front/front-uw) instead of the CCI instance names.
