@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.50
+Version:        0.17.51
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -181,6 +181,7 @@ fi
 %{_libexecdir}/gts9wifi-spen-button
 %{_libexecdir}/gts9wifi-logging
 %{_libexecdir}/gts9wifi-camera-resume
+%{_libexecdir}/gts9wifi-camera-calib
 %{_libexecdir}/gts9wifi-mem-sleep
 %{_libexecdir}/gts9wifi-office
 %{_libexecdir}/gts9wifi-device-name
@@ -248,6 +249,12 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Sun Nov 15 2026 Lymeeee <mr_xunyu@163.com> - 0.17.51-1
+- Settings: add "导入相机校准" under 高级 -> 相机.  It decodes the OEM
+  Samsung Chromatix colour matrices from this unit's vendor partition and
+  rewrites the libcamera HI1337 tuning file.  No kernel or libcamera
+  rebuild is needed on the device.
+
 * Sun Nov 15 2026 Lymeeee <mr_xunyu@163.com> - 0.17.50-1
 - Fix the executable bit on gts9wifi-camera-suspend-pre.  It was installed
   0644, so systemd-suspend.service failed at ExecStartPre with 203/EXEC

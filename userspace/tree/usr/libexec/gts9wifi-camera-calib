@@ -1,0 +1,304 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+"""
+Import the OEM Samsung Chromatix colour matrices for the HI1337 camera.
+
+The stock vendor partition ships per-model tuning blobs under
+/vendor/lib64/camera.  They are QTI Chromatix "Parameter Parser V3.5.1"
+descriptors with a 60-byte node table.  The colour-correction node
+(mod_cc14_trigger_data) carries one 3x3 matrix per colour-temperature
+range; this helper extracts those matrices and writes the libcamera
+software-ISP tuning file for the HI1337.
+
+The operation is read-only on /vendor and only replaces the libcamera
+tuning file, so it does not need a kernel or libcamera update.
+"""
+
+import argparse
+import datetime
+import hashlib
+import math
+import os
+import shutil
+import struct
+import sys
+import tempfile
+import zlib
+
+HEADER = b"QTI Chromatix Header"
+PARSER_VERSION = b"Parameter Parser V3.5.1"
+TARGET = "/usr/share/libcamera/ipa/simple/hi1337-gts9u.yaml"
+STATE_DIR = "/var/lib/gts9wifi/camera-calib"
+DESCRIPTORS = {
+    "rear": (
+        "/vendor/lib64/camera/com.samsung.tuned.hynix_hi1337.bin",
+        "/vendor/lib/camera/com.samsung.tuned.hynix_hi1337.bin",
+    ),
+    "front": (
+        "/vendor/lib64/camera/com.samsung.tuned.hynix_hi1337_front.bin",
+        "/vendor/lib/camera/com.samsung.tuned.hynix_hi1337_front.bin",
+    ),
+    "front-full": (
+        "/vendor/lib64/camera/com.samsung.tuned.hynix_hi1337_front_full.bin",
+        "/vendor/lib/camera/com.samsung.tuned.hynix_hi1337_front_full.bin",
+    ),
+}
+CCM_NODE_NAMES = ("mod_cc14_trigger_data", "mod_cc13_trigger_data")
+
+
+class CalibrationError(Exception):
+    pass
+
+
+def u32(blob, offset):
+    return struct.unpack_from("<I", blob, offset)[0]
+
+
+def descriptor_nodes(blob):
+    """Validate a Chromatix descriptor and return {id: (name, payload)}."""
+    if len(blob) < 384 or not blob.startswith(HEADER):
+        raise CalibrationError("不是 QTI Chromatix 描述符")
+    if u32(blob, 28) != len(blob) - 4:
+        raise CalibrationError("描述符长度字段不匹配")
+    if zlib.crc32(blob[:-4]) != u32(blob, len(blob) - 4):
+        raise CalibrationError("描述符 CRC32 校验失败")
+    version = blob[40:88].split(b"\0", 1)[0]
+    if not version.startswith(PARSER_VERSION):
+        raise CalibrationError("不支持的解析器版本: %r" % version)
+    if struct.unpack_from("<II", blob, 160) != (168, 3):
+        raise CalibrationError("不支持的段目录")
+
+    sections = []
+    for index in range(3):
+        kind, offset, size = struct.unpack_from("<III", blob, 168 + 12 * index)
+        if kind != index or offset < 204 or offset + size > len(blob) - 4:
+            raise CalibrationError("段 %d 越界或顺序错误" % index)
+        sections.append((offset, size))
+
+    schema_offset, schema_size = sections[0]
+    data_offset, data_size = sections[1]
+    if schema_offset != 204 or schema_size % 60:
+        raise CalibrationError("不支持的节点表布局")
+
+    nodes = {}
+    for offset in range(schema_offset, schema_offset + schema_size, 60):
+        row = blob[offset:offset + 60]
+        node_id = u32(row, 0)
+        name = row[4:36].split(b"\0", 1)[0].decode("ascii", "replace")
+        relative, size, _reference = struct.unpack_from("<III", row, 48)
+        if relative + size > data_size:
+            raise CalibrationError("节点 %d 的数据越界" % node_id)
+        if node_id in nodes:
+            raise CalibrationError("节点 ID %d 重复" % node_id)
+        nodes[node_id] = (
+            name,
+            blob[data_offset + relative:data_offset + relative + size],
+        )
+    if not nodes:
+        raise CalibrationError("节点表为空")
+    return nodes
+
+
+def matrix_from_region(payload):
+    """The first nine floats of a region payload are the 3x3 CCM."""
+    if len(payload) < 36:
+        return None
+    values = struct.unpack_from("<9f", payload, 0)
+    if any(not math.isfinite(value) or abs(value) > 8.0 for value in values):
+        return None
+    rows = (values[0:3], values[3:6], values[6:9])
+    if any(abs(sum(row) - 1.0) > 0.02 for row in rows):
+        return None
+    if values[0] <= 0 or values[4] <= 0 or values[8] <= 0:
+        return None
+    return values
+
+
+def is_identity(matrix):
+    identity = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+    return all(abs(value - expected) < 1e-4
+               for value, expected in zip(matrix, identity))
+
+
+def collect_ccms(nodes, root_id):
+    """Walk a mod_cc* trigger tree and return [(lo_ct, hi_ct, matrix)]."""
+    pairs = []
+    seen = set()
+
+    def walk_trigger(node_id, depth):
+        if depth > 8 or node_id in seen:
+            return
+        seen.add(node_id)
+        name, payload = nodes.get(node_id, ("", b""))
+        if name != "trigger" or not payload or len(payload) % 24:
+            return
+        for offset in range(0, len(payload), 24):
+            lo_ct, hi_ct = struct.unpack_from("<2f", payload, offset)
+            _zero, trigger, count, region = struct.unpack_from(
+                "<4I", payload, offset + 8)
+            if count == 1:
+                region_name, region_payload = nodes.get(region, ("", b""))
+                matrix = (matrix_from_region(region_payload)
+                          if region_name == "region" else None)
+                if matrix is not None:
+                    pairs.append((lo_ct, hi_ct, matrix))
+            walk_trigger(trigger, depth + 1)
+
+    name, payload = nodes.get(root_id, ("", b""))
+    if name not in CCM_NODE_NAMES or len(payload) < 16:
+        return []
+    walk_trigger(u32(payload, 12), 0)
+    return pairs
+
+
+def extract(path):
+    """Return (sha256, [(ct, matrix)]) for the best CCM tree in path."""
+    with open(path, "rb") as stream:
+        blob = stream.read()
+    digest = hashlib.sha256(blob).hexdigest()
+    nodes = descriptor_nodes(blob)
+
+    best = []
+    for node_id, (name, _payload) in nodes.items():
+        if name not in CCM_NODE_NAMES:
+            continue
+        pairs = collect_ccms(nodes, node_id)
+        useful = [pair for pair in pairs if not is_identity(pair[2])]
+        if len(useful) > len(best):
+            best = useful
+    if not best:
+        raise CalibrationError("没有找到非单位 CCM 矩阵")
+
+    points = []
+    for lo_ct, hi_ct, matrix in best:
+        lo_ct = max(lo_ct, 1.0)
+        hi_ct = max(hi_ct, lo_ct)
+        ct = int(round((lo_ct + hi_ct) / 2.0))
+        points.append((ct, matrix))
+    points.sort(key=lambda point: point[0])
+
+    unique = []
+    for ct, matrix in points:
+        while unique and unique[-1][0] == ct:
+            ct += 1
+        unique.append((ct, matrix))
+    return digest, unique
+
+
+def render_yaml(path, digest, points):
+    lines = [
+        "# SPDX-License-Identifier: CC0-1.0",
+        "%YAML 1.1",
+        "---",
+        "version: 1",
+        "# Generated by gts9wifi-camera-calib from the vendor tuning",
+        "# source: %s" % path,
+        "# sha256: %s" % digest,
+        "algorithms:",
+        "  - BlackLevel:",
+        "  - Awb:",
+        "      algorithm: grey",
+        "  - Ccm:",
+        "      ccms:",
+    ]
+    for ct, matrix in points:
+        lines.extend([
+            "        - ct: %d" % ct,
+            "          ccm: [ %9.6f, %9.6f, %9.6f," %
+            (matrix[0], matrix[1], matrix[2]),
+            "                 %9.6f, %9.6f, %9.6f," %
+            (matrix[3], matrix[4], matrix[5]),
+            "                 %9.6f, %9.6f, %9.6f ]" %
+            (matrix[6], matrix[7], matrix[8]),
+            "          offsets: [ 0, 0, 0 ]",
+        ])
+    lines.extend(["  - Adjust:", "  - Agc:", "...", ""])
+    return "\n".join(lines)
+
+
+def find_descriptor(sensor):
+    for path in DESCRIPTORS[sensor]:
+        if os.path.isfile(path):
+            return path
+    raise CalibrationError(
+        "找不到 %s 相机的原厂调校文件（需要 vendor 分区已挂载）" % sensor)
+
+
+def install(yaml_text):
+    if not os.path.isdir(os.path.dirname(TARGET)):
+        raise CalibrationError(
+            "目标目录不存在，请先安装 camera 组件（gts9wifi-update libcamera）")
+    os.makedirs(STATE_DIR, exist_ok=True)
+
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup = os.path.join(STATE_DIR, "hi1337-gts9u.yaml.%s.bak" % stamp)
+    if os.path.isfile(TARGET):
+        shutil.copy2(TARGET, backup)
+    else:
+        backup = None
+
+    generated = os.path.join(STATE_DIR, "hi1337-gts9u.generated.yaml")
+    with open(generated, "w", encoding="utf-8") as stream:
+        stream.write(yaml_text)
+
+    fd, temporary = tempfile.mkstemp(
+        dir=os.path.dirname(TARGET), prefix=".hi1337-gts9u.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(yaml_text)
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, TARGET)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+    return backup, generated
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="从本机 vendor 分区导入 HI1337 原厂相机颜色校准")
+    parser.add_argument("--sensor", choices=sorted(DESCRIPTORS),
+                        default="rear", help="要导入的模组（默认后摄）")
+    parser.add_argument("--input", help="直接指定 Chromatix 调校文件")
+    parser.add_argument("--output", help="改写输出 YAML 而不是安装")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="只打印生成的 YAML，不写文件")
+    args = parser.parse_args()
+
+    try:
+        path = args.input or find_descriptor(args.sensor)
+        digest, points = extract(path)
+        yaml_text = render_yaml(path, digest, points)
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as stream:
+                stream.write(yaml_text)
+            print("已写入 %s" % args.output)
+            return 0
+        if args.dry_run:
+            sys.stdout.write(yaml_text)
+            return 0
+        if os.geteuid() != 0:
+            print("需要 root 权限；请通过 pkexec 或 sudo 运行。", file=sys.stderr)
+            return 1
+
+        backup, generated = install(yaml_text)
+        print("已从 %s" % path)
+        print("提取 %d 组 CCM：色温 %s" %
+              (len(points), ", ".join(str(ct) for ct, _ in points)))
+        print("写入 %s" % TARGET)
+        if backup:
+            print("备份 %s" % backup)
+        print("参考副本 %s" % generated)
+        print("重新打开相机应用后生效。")
+        print("注意：后摄、前摄共用同一份 HI1337 tuning。")
+        return 0
+    except (CalibrationError, OSError) as error:
+        print("导入相机校准失败：%s" % error, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
