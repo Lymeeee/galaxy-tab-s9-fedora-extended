@@ -10,6 +10,7 @@
 #include <linux/unaligned.h>
 
 #include <media/v4l2-async.h>
+#include <media/v4l2-common.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-fwnode.h>
@@ -52,6 +53,8 @@ struct hi1337_mode {
 
 struct hi1337_variant {
 	struct hi1337_mode mode;
+	/* Sensor model reported to userspace; module tables are keyed by it. */
+	const char *name;
 };
 
 static const struct hi1337_variant hi1337_rear = {
@@ -63,6 +66,7 @@ static const struct hi1337_variant hi1337_rear = {
 		.num_regs = ARRAY_SIZE(hi1337_rear_4128x3096_regs),
 		.name = "rear-main",
 	},
+	.name = "hi1337-gts9u-rear",
 };
 
 static const struct hi1337_variant hi1337_front = {
@@ -74,6 +78,7 @@ static const struct hi1337_variant hi1337_front = {
 		.num_regs = ARRAY_SIZE(hi1337_front_3408x2556_regs),
 		.name = "front-main",
 	},
+	.name = "hi1337-gts9u-front",
 };
 
 static const struct hi1337_variant hi1337_front_uw = {
@@ -85,6 +90,7 @@ static const struct hi1337_variant hi1337_front_uw = {
 		.num_regs = ARRAY_SIZE(hi1337_front_uw_4000x3000_regs),
 		.name = "front-ultrawide",
 	},
+	.name = "hi1337-gts9u-front-uw",
 };
 
 struct hi1337 {
@@ -692,6 +698,7 @@ static int hi1337_probe(struct i2c_client *client)
 				     "invalid CSI-2 endpoint\n");
 
 	v4l2_i2c_subdev_init(&sensor->sd, client, &hi1337_subdev_ops);
+	v4l2_i2c_subdev_set_name(&sensor->sd, client, sensor->variant->name, NULL);
 	ret = hi1337_power_on(sensor);
 	if (ret)
 		return dev_err_probe(sensor->dev, ret,
