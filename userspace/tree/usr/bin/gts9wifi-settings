@@ -735,12 +735,14 @@ class Settings(Adw.Application):
             description='从本机 vendor 分区导入三星原厂颜色校准；'
                         '不更新内核或 libcamera，导入后重开相机生效。')
         self.action_row(camera, '导入相机校准',
-            '解析本机 vendor 里 HI1337 的 Chromatix 调校，写入 libcamera 的 CCM。'
+            '解析本机 vendor 里 HI1337 的 Chromatix 调校，'
+            '分别写入后摄和前摄的 libcamera CCM。'
             '刚刷完系统或发现颜色偏色时可点一次。',
             '导入', lambda: self.confirm_simple(
                 '导入相机校准？',
-                '只读解析本机 vendor 分区的相机调校文件，并覆盖 '
-                '/usr/share/libcamera/ipa/simple/hi1337-gts9u.yaml。'
+                '只读解析本机 vendor 分区的相机调校文件，并覆盖后摄'
+                '（hi1337-gts9u-1-0021.yaml）和前摄'
+                '（hi1337-gts9u-3-0021.yaml）的 tuning。'
                 '会先备份现有文件；重新打开相机后生效。',
                 lambda: self.open_terminal(['pkexec', CAMERA_CALIB])))
         page.add(camera)

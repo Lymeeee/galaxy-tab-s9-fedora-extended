@@ -27,7 +27,18 @@ import zlib
 
 HEADER = b"QTI Chromatix Header"
 PARSER_VERSION = b"Parameter Parser V3.5.1"
-TARGET = "/usr/share/libcamera/ipa/simple/hi1337-gts9u.yaml"
+TARGETS = {
+    "rear": (
+        "/usr/share/libcamera/ipa/simple/hi1337-gts9u-1-0021.yaml",
+        "/usr/share/libcamera/ipa/simple/hi1337-gts9u.yaml",
+    ),
+    "front": (
+        "/usr/share/libcamera/ipa/simple/hi1337-gts9u-3-0021.yaml",
+    ),
+    "front-full": (
+        "/usr/share/libcamera/ipa/simple/hi1337-gts9u-3-0021.yaml",
+    ),
+}
 STATE_DIR = "/var/lib/gts9wifi/camera-calib"
 DESCRIPTORS = {
     "rear": (
@@ -217,37 +228,42 @@ def render_yaml(path, digest, points):
 
 
 def find_descriptor(sensor):
-    for path in DESCRIPTORS[sensor]:
+    candidates = list(DESCRIPTORS[sensor])
+    if sensor == "front":
+        candidates += list(DESCRIPTORS["front-full"])
+    for path in candidates:
         if os.path.isfile(path):
             return path
     raise CalibrationError(
         "找不到 %s 相机的原厂调校文件（需要 vendor 分区已挂载）" % sensor)
 
 
-def install(yaml_text):
-    if not os.path.isdir(os.path.dirname(TARGET)):
+def install(yaml_text, target):
+    target_dir = os.path.dirname(target)
+    if not os.path.isdir(target_dir):
         raise CalibrationError(
             "目标目录不存在，请先安装 camera 组件（gts9wifi-update libcamera）")
     os.makedirs(STATE_DIR, exist_ok=True)
 
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup = os.path.join(STATE_DIR, "hi1337-gts9u.yaml.%s.bak" % stamp)
-    if os.path.isfile(TARGET):
-        shutil.copy2(TARGET, backup)
+    base = os.path.basename(target)
+    backup = os.path.join(STATE_DIR, "%s.%s.bak" % (base, stamp))
+    if os.path.isfile(target):
+        shutil.copy2(target, backup)
     else:
         backup = None
 
-    generated = os.path.join(STATE_DIR, "hi1337-gts9u.generated.yaml")
+    generated = os.path.join(STATE_DIR, base + ".generated")
     with open(generated, "w", encoding="utf-8") as stream:
         stream.write(yaml_text)
 
     fd, temporary = tempfile.mkstemp(
-        dir=os.path.dirname(TARGET), prefix=".hi1337-gts9u.", suffix=".tmp")
+        dir=target_dir, prefix=".%s." % base, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(yaml_text)
         os.chmod(temporary, 0o644)
-        os.replace(temporary, TARGET)
+        os.replace(temporary, target)
     except BaseException:
         try:
             os.unlink(temporary)
@@ -260,40 +276,62 @@ def install(yaml_text):
 def main():
     parser = argparse.ArgumentParser(
         description="从本机 vendor 分区导入 HI1337 原厂相机颜色校准")
-    parser.add_argument("--sensor", choices=sorted(DESCRIPTORS),
-                        default="rear", help="要导入的模组（默认后摄）")
+    parser.add_argument("--sensor", choices=["all"] + sorted(DESCRIPTORS),
+                        default="all", help="要导入的模组（默认前后摄）")
     parser.add_argument("--input", help="直接指定 Chromatix 调校文件")
     parser.add_argument("--output", help="改写输出 YAML 而不是安装")
     parser.add_argument("--dry-run", action="store_true",
                         help="只打印生成的 YAML，不写文件")
     args = parser.parse_args()
 
+    if args.input and args.sensor == "all":
+        args.sensor = "rear"
+    sensors = ["rear", "front"] if args.sensor == "all" else [args.sensor]
+    if args.output and len(sensors) != 1:
+        print("--output 需要配合单个 --sensor 使用。", file=sys.stderr)
+        return 1
+
     try:
-        path = args.input or find_descriptor(args.sensor)
-        digest, points = extract(path)
-        yaml_text = render_yaml(path, digest, points)
+        results = []
+        for sensor in sensors:
+            try:
+                path = args.input or find_descriptor(sensor)
+                digest, points = extract(path)
+                yaml_text = render_yaml(path, digest, points)
+            except CalibrationError as error:
+                if len(sensors) == 1 or args.input:
+                    raise
+                print("跳过 %s 相机：%s" % (sensor, error), file=sys.stderr)
+                continue
+            results.append((sensor, path, points, yaml_text))
+
+        if not results:
+            raise CalibrationError("没有可导入的相机调校")
         if args.output:
             with open(args.output, "w", encoding="utf-8") as stream:
-                stream.write(yaml_text)
+                stream.write(results[0][3])
             print("已写入 %s" % args.output)
             return 0
         if args.dry_run:
-            sys.stdout.write(yaml_text)
+            for sensor, path, _points, yaml_text in results:
+                sys.stdout.write("# %s: %s\n" % (sensor, path))
+                sys.stdout.write(yaml_text)
             return 0
         if os.geteuid() != 0:
             print("需要 root 权限；请通过 pkexec 或 sudo 运行。", file=sys.stderr)
             return 1
 
-        backup, generated = install(yaml_text)
-        print("已从 %s" % path)
-        print("提取 %d 组 CCM：色温 %s" %
-              (len(points), ", ".join(str(ct) for ct, _ in points)))
-        print("写入 %s" % TARGET)
-        if backup:
-            print("备份 %s" % backup)
-        print("参考副本 %s" % generated)
+        for sensor, path, points, yaml_text in results:
+            print("已从 %s" % path)
+            print("提取 %d 组 CCM：色温 %s" %
+                  (len(points), ", ".join(str(ct) for ct, _ in points)))
+            for target in TARGETS[sensor]:
+                backup, generated = install(yaml_text, target)
+                print("写入 %s" % target)
+                if backup:
+                    print("备份 %s" % backup)
+                print("参考副本 %s" % generated)
         print("重新打开相机应用后生效。")
-        print("注意：后摄、前摄共用同一份 HI1337 tuning。")
         return 0
     except (CalibrationError, OSError) as error:
         print("导入相机校准失败：%s" % error, file=sys.stderr)
