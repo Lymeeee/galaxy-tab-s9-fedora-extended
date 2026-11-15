@@ -89,10 +89,10 @@ index 77328c5..69c083b 100644
  	metadataReady(uint32 frame, libcamera.ControlList metadata);
  };
 diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
-index 9457d62..bca88c5 100644
+index 9457d62..73ccac6 100644
 --- a/src/ipa/libipa/camera_sensor_helper.cpp
 +++ b/src/ipa/libipa/camera_sensor_helper.cpp
-@@ -520,6 +520,30 @@ public:
+@@ -520,6 +520,33 @@ public:
  };
  REGISTER_CAMERA_SENSOR_HELPER("gc08a3", CameraSensorHelperGc08a3)
  
@@ -107,6 +107,9 @@ index 9457d62..bca88c5 100644
 +	}
 +};
 +REGISTER_CAMERA_SENSOR_HELPER("hi1337-gts9u", CameraSensorHelperHi1337)
++REGISTER_CAMERA_SENSOR_HELPER("hi1337-gts9u-rear", CameraSensorHelperHi1337)
++REGISTER_CAMERA_SENSOR_HELPER("hi1337-gts9u-front", CameraSensorHelperHi1337)
++REGISTER_CAMERA_SENSOR_HELPER("hi1337-gts9u-front-uw", CameraSensorHelperHi1337)
 +
 +class CameraSensorHelperHi847 : public CameraSensorHelper
 +{
@@ -252,11 +255,11 @@ index 112d9f5..2e0bcd1 100644
  };
  
  } /* namespace ipa::soft::algorithms */
-diff --git a/src/ipa/simple/data/hi1337-gts9u-1-0021.yaml b/src/ipa/simple/data/hi1337-gts9u-1-0021.yaml
+diff --git a/src/ipa/simple/data/hi1337-gts9u-front-uw.yaml b/src/ipa/simple/data/hi1337-gts9u-front-uw.yaml
 new file mode 100644
-index 0000000..c0b1b86
+index 0000000..046a999
 --- /dev/null
-+++ b/src/ipa/simple/data/hi1337-gts9u-1-0021.yaml
++++ b/src/ipa/simple/data/hi1337-gts9u-front-uw.yaml
 @@ -0,0 +1,41 @@
 +# SPDX-License-Identifier: CC0-1.0
 +%YAML 1.1
@@ -267,54 +270,7 @@ index 0000000..c0b1b86
 +  - Awb:
 +      algorithm: grey
 +  - Ccm:
-+      # Rear module (CCI 1-0021). Matrices extracted from the OEM
-+      # Chromatix tuning; every row sums to one so neutral scenes stay
-+      # neutral.
-+      ccms:
-+        - ct: 2500
-+          ccm: [ 2.2814, -0.1952, -1.0862,
-+                -0.1125,  1.1201, -0.0076,
-+                -0.2096, -1.2013,  2.4109 ]
-+          offsets: [ 0, 0, 0 ]
-+        - ct: 2875
-+          ccm: [ 1.4124, -0.2213, -0.1911,
-+                -0.2823,  1.2444,  0.0380,
-+                -0.0848, -1.2444,  2.3292 ]
-+          offsets: [ 0, 0, 0 ]
-+        - ct: 3900
-+          ccm: [ 2.1981, -0.7510, -0.4471,
-+                -0.1232,  1.3634, -0.2401,
-+                 0.0174, -0.9505,  1.9330 ]
-+          offsets: [ 0, 0, 0 ]
-+        - ct: 5100
-+          ccm: [ 2.2087, -1.2345,  0.0258,
-+                -0.1409,  1.5213, -0.3804,
-+                 0.0446, -0.7803,  1.7357 ]
-+          offsets: [ 0, 0, 0 ]
-+        - ct: 7700
-+          ccm: [ 1.6163, -0.5750, -0.0414,
-+                -0.1420,  1.2465, -0.1044,
-+                 0.0327, -0.6916,  1.6589 ]
-+          offsets: [ 0, 0, 0 ]
-+  - Adjust:
-+  - Agc:
-+...
-diff --git a/src/ipa/simple/data/hi1337-gts9u-3-0021.yaml b/src/ipa/simple/data/hi1337-gts9u-3-0021.yaml
-new file mode 100644
-index 0000000..9c17a58
---- /dev/null
-+++ b/src/ipa/simple/data/hi1337-gts9u-3-0021.yaml
-@@ -0,0 +1,41 @@
-+# SPDX-License-Identifier: CC0-1.0
-+%YAML 1.1
-+---
-+version: 1
-+algorithms:
-+  - BlackLevel:
-+  - Awb:
-+      algorithm: grey
-+  - Ccm:
-+      # Front module (CCI 3-0021). Matrices extracted from the OEM
++      # Front ultra-wide module. Matrices extracted from the OEM
 +      # Chromatix tuning; every row sums to one so neutral scenes stay
 +      # neutral.
 +      ccms:
@@ -342,6 +298,100 @@ index 0000000..9c17a58
 +          ccm: [ 1.5857, -0.6036,  0.0178,
 +                -0.1070,  1.2228, -0.1158,
 +                 0.0374, -0.7115,  1.6741 ]
++          offsets: [ 0, 0, 0 ]
++  - Adjust:
++  - Agc:
++...
+diff --git a/src/ipa/simple/data/hi1337-gts9u-front.yaml b/src/ipa/simple/data/hi1337-gts9u-front.yaml
+new file mode 100644
+index 0000000..5e4c594
+--- /dev/null
++++ b/src/ipa/simple/data/hi1337-gts9u-front.yaml
+@@ -0,0 +1,41 @@
++# SPDX-License-Identifier: CC0-1.0
++%YAML 1.1
++---
++version: 1
++algorithms:
++  - BlackLevel:
++  - Awb:
++      algorithm: grey
++  - Ccm:
++      # Front module. Matrices extracted from the OEM
++      # Chromatix tuning; every row sums to one so neutral scenes stay
++      # neutral.
++      ccms:
++        - ct: 2500
++          ccm: [ 2.2814, -0.1952, -1.0862,
++                -0.1125,  1.1201, -0.0076,
++                -0.2096, -1.2013,  2.4109 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 2875
++          ccm: [ 1.4488, -0.2342, -0.2146,
++                -0.3026,  1.2983,  0.0043,
++                -0.2008, -1.3575,  2.5583 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 3900
++          ccm: [ 2.1981, -0.7510, -0.4471,
++                -0.1232,  1.3634, -0.2401,
++                 0.0174, -0.9505,  1.9330 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 5100
++          ccm: [ 2.2087, -1.2345,  0.0258,
++                -0.1409,  1.5213, -0.3804,
++                 0.0446, -0.7803,  1.7357 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 7700
++          ccm: [ 1.5857, -0.6036,  0.0178,
++                -0.1070,  1.2228, -0.1158,
++                 0.0374, -0.7115,  1.6741 ]
++          offsets: [ 0, 0, 0 ]
++  - Adjust:
++  - Agc:
++...
+diff --git a/src/ipa/simple/data/hi1337-gts9u-rear.yaml b/src/ipa/simple/data/hi1337-gts9u-rear.yaml
+new file mode 100644
+index 0000000..bd8e5f4
+--- /dev/null
++++ b/src/ipa/simple/data/hi1337-gts9u-rear.yaml
+@@ -0,0 +1,41 @@
++# SPDX-License-Identifier: CC0-1.0
++%YAML 1.1
++---
++version: 1
++algorithms:
++  - BlackLevel:
++  - Awb:
++      algorithm: grey
++  - Ccm:
++      # Rear module. Matrices extracted from the OEM
++      # Chromatix tuning; every row sums to one so neutral scenes stay
++      # neutral.
++      ccms:
++        - ct: 2500
++          ccm: [ 2.2814, -0.1952, -1.0862,
++                -0.1125,  1.1201, -0.0076,
++                -0.2096, -1.2013,  2.4109 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 2875
++          ccm: [ 1.4124, -0.2213, -0.1911,
++                -0.2823,  1.2444,  0.0380,
++                -0.0848, -1.2444,  2.3292 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 3900
++          ccm: [ 2.1981, -0.7510, -0.4471,
++                -0.1232,  1.3634, -0.2401,
++                 0.0174, -0.9505,  1.9330 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 5100
++          ccm: [ 2.2087, -1.2345,  0.0258,
++                -0.1409,  1.5213, -0.3804,
++                 0.0446, -0.7803,  1.7357 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 7700
++          ccm: [ 1.6163, -0.5750, -0.0414,
++                -0.1420,  1.2465, -0.1044,
++                 0.0327, -0.6916,  1.6589 ]
 +          offsets: [ 0, 0, 0 ]
 +  - Adjust:
 +  - Agc:
@@ -394,16 +444,17 @@ index 0000000..290426b
 +  - Agc:
 +...
 diff --git a/src/ipa/simple/data/meson.build b/src/ipa/simple/data/meson.build
-index 92795ee..9977b2d 100644
+index 92795ee..8adb9e8 100644
 --- a/src/ipa/simple/data/meson.build
 +++ b/src/ipa/simple/data/meson.build
-@@ -2,6 +2,9 @@
+@@ -2,6 +2,10 @@
  
  conf_files = files([
      'uncalibrated.yaml',
 +    'hi1337-gts9u.yaml',
-+    'hi1337-gts9u-1-0021.yaml',
-+    'hi1337-gts9u-3-0021.yaml',
++    'hi1337-gts9u-rear.yaml',
++    'hi1337-gts9u-front.yaml',
++    'hi1337-gts9u-front-uw.yaml',
  ])
  
  # The install_dir must match the name from the IPAModuleInfo
@@ -806,50 +857,10 @@ index 02651fe..3badd8b 100644
  	inputBufferCount_ = inputCfg.bufferCount;
  	outputBufferCount_ = outputCfg.bufferCount;
 diff --git a/src/libcamera/software_isp/software_isp.cpp b/src/libcamera/software_isp/software_isp.cpp
-index c73a16c..586b0bb 100644
+index c73a16c..7ad099f 100644
 --- a/src/libcamera/software_isp/software_isp.cpp
 +++ b/src/libcamera/software_isp/software_isp.cpp
-@@ -41,6 +41,39 @@ namespace libcamera {
- 
- LOG_DEFINE_CATEGORY(SoftwareIsp)
- 
-+namespace {
-+
-+/*
-+ * The kernel exposes every HI1337 module through the same driver name, so
-+ * sensor->model() alone cannot distinguish the rear and front cameras. The
-+ * media entity name carries the CCI instance (for example
-+ * "hi1337-gts9u 1-0021"); use it to look for a per-camera tuning file first.
-+ */
-+std::string tuningFileFor(const CameraSensor *sensor)
-+{
-+	const std::string model = sensor->model();
-+	const std::string entity = sensor->entity()->name();
-+	std::string suffix;
-+
-+	if (entity.compare(0, model.size(), model) != 0)
-+		return model + ".yaml";
-+
-+	for (char c : entity.substr(model.size())) {
-+		if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-+		    (c >= '0' && c <= '9') || c == '-')
-+			suffix += c;
-+		else if (!suffix.empty() && suffix.back() != '-')
-+			suffix += '-';
-+	}
-+	while (!suffix.empty() && suffix.back() == '-')
-+		suffix.pop_back();
-+
-+	return suffix.empty() ? model + ".yaml"
-+			      : model + "-" + suffix + ".yaml";
-+}
-+
-+} /* namespace */
-+
- /**
-  * \class SoftwareIsp
-  * \brief Class for the Software ISP
-@@ -79,7 +112,7 @@ LOG_DEFINE_CATEGORY(SoftwareIsp)
+@@ -79,7 +79,7 @@ LOG_DEFINE_CATEGORY(SoftwareIsp)
   * \param[out] ipaControls The IPA controls to update
   * handler
   */
@@ -858,17 +869,7 @@ index c73a16c..586b0bb 100644
  			 ControlInfoMap *ipaControls)
  	: ispWorkerThread_("SWIspWorker"),
  	  dmaHeap_(DmaBufAllocator::DmaBufAllocatorFlag::CmaHeap |
-@@ -148,7 +181,8 @@ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
- 	 * isn't found, fall back to the 'uncalibrated' file.
- 	 */
- 	std::string ipaTuningFile =
--		ipa_->configurationFile(sensor->model() + ".yaml", "uncalibrated.yaml");
-+		ipa_->configurationFile(tuningFileFor(sensor),
-+					sensor->model() + ".yaml");
- 
- 	IPACameraSensorInfo sensorInfo{};
- 	int ret = sensor->sensorInfo(&sensorInfo);
-@@ -162,6 +196,7 @@ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
+@@ -162,6 +162,7 @@ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
  			 sharedParams_.fd(),
  			 sensorInfo,
  			 sensor->controls(),
@@ -876,7 +877,7 @@ index c73a16c..586b0bb 100644
  			 ipaControls,
  			 &ccmEnabled_);
  	if (ret) {
-@@ -176,6 +211,10 @@ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
+@@ -176,6 +177,10 @@ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
  					    metadataReady.emit(frame, metadata);
  				    });
  	ipa_->setSensorControls.connect(this, &SoftwareIsp::setSensorCtrls);
