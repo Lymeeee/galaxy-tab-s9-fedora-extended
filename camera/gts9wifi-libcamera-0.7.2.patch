@@ -89,10 +89,10 @@ index 77328c5..69c083b 100644
  	metadataReady(uint32 frame, libcamera.ControlList metadata);
  };
 diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
-index 9457d62..73ccac6 100644
+index 9457d62..fb9d0b5 100644
 --- a/src/ipa/libipa/camera_sensor_helper.cpp
 +++ b/src/ipa/libipa/camera_sensor_helper.cpp
-@@ -520,6 +520,33 @@ public:
+@@ -520,6 +520,45 @@ public:
  };
  REGISTER_CAMERA_SENSOR_HELPER("gc08a3", CameraSensorHelperGc08a3)
  
@@ -106,10 +106,22 @@ index 9457d62..73ccac6 100644
 +		gain_ = AnalogueGainLinear{ 1, 16, 0, 16 };
 +	}
 +};
++class CameraSensorHelperHi1337Rear : public CameraSensorHelperHi1337
++{
++};
++
++class CameraSensorHelperHi1337Front : public CameraSensorHelperHi1337
++{
++};
++
++class CameraSensorHelperHi1337FrontUw : public CameraSensorHelperHi1337
++{
++};
++
 +REGISTER_CAMERA_SENSOR_HELPER("hi1337-gts9u", CameraSensorHelperHi1337)
-+REGISTER_CAMERA_SENSOR_HELPER("hi1337-gts9u-rear", CameraSensorHelperHi1337)
-+REGISTER_CAMERA_SENSOR_HELPER("hi1337-gts9u-front", CameraSensorHelperHi1337)
-+REGISTER_CAMERA_SENSOR_HELPER("hi1337-gts9u-front-uw", CameraSensorHelperHi1337)
++REGISTER_CAMERA_SENSOR_HELPER("hi1337-gts9u-rear", CameraSensorHelperHi1337Rear)
++REGISTER_CAMERA_SENSOR_HELPER("hi1337-gts9u-front", CameraSensorHelperHi1337Front)
++REGISTER_CAMERA_SENSOR_HELPER("hi1337-gts9u-front-uw", CameraSensorHelperHi1337FrontUw)
 +
 +class CameraSensorHelperHi847 : public CameraSensorHelper
 +{
