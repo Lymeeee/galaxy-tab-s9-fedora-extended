@@ -718,6 +718,15 @@ static int wacom_wez01_probe(struct i2c_client *client)
 		return dev_err_probe(dev, PTR_ERR(w->pen_supply),
 				     "failed to register S Pen power supply\n");
 
+	/*
+	 * The pen reports charge changes every few seconds while it sits in
+	 * its cradle.  Keep the supply visible but stop those reports from
+	 * waking the tablet; this supersedes the udev wakeup override.
+	 */
+	ret = device_init_wakeup(&w->pen_supply->dev, false);
+	if (ret)
+		dev_warn(dev, "failed to disable S Pen wakeup: %d\n", ret);
+
 	ret = devm_device_add_group(dev, &wacom_wez01_group);
 	if (ret)
 		return dev_err_probe(dev, ret,
