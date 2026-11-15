@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.47
+Version:        0.17.48
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -241,9 +241,18 @@ fi
 %dir %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-wait-sensor-proxy.service
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
+%{_libexecdir}/gts9wifi-camera-suspend-pre
+%dir %{_unitdir}/systemd-suspend.service.d
+%{_unitdir}/systemd-suspend.service.d/10-gts9wifi-camera-suspend.conf
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Sun Nov 15 2026 Lymeeee <mr_xunyu@163.com> - 0.17.48-1
+- Run the camera-stop half of the suspend safety net from a
+  systemd-suspend.service ExecStartPre drop-in.  systemd-sleep freezes
+  user.slice before the system-sleep pre hooks, so the old pre hook blocked
+  in `systemctl --user stop` for ~45 s and delayed every suspend.
+
 * Fri Nov 13 2026 Lymeeee <mr_xunyu@163.com> - 0.17.47-1
 - Raise the zram cap to 6 GiB and set vm.swappiness=100.  With the browser,
   WeChat, QQ and OnlyOFFICE open, the 4 GiB device already used 2.3 GiB of
