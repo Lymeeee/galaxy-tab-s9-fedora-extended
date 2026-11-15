@@ -26,7 +26,7 @@ dnf -y builddep /root/rpmbuild/SPECS/libcamera.spec
 cp "$patch" /root/rpmbuild/SOURCES/
 spec=/root/rpmbuild/SPECS/libcamera.spec
 sed -i '/^Patch02:/a Patch03: gts9wifi-libcamera-0.7.2.patch' "$spec"
-sed -i 's/^Release:.*/Release: 3%{?dist}.gts9wifi3/' "$spec"
+sed -i 's/^Release:.*/Release: 3%{?dist}.gts9wifi4/' "$spec"
 
 rpmbuild -bb "$spec"
 

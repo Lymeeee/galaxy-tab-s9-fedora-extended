@@ -124,10 +124,31 @@ index 9457d62..bca88c5 100644
  {
  public:
 diff --git a/src/ipa/simple/algorithms/agc.cpp b/src/ipa/simple/algorithms/agc.cpp
-index a13a755..ef6d8fb 100644
+index a13a755..03838aa 100644
 --- a/src/ipa/simple/algorithms/agc.cpp
 +++ b/src/ipa/simple/algorithms/agc.cpp
-@@ -61,10 +61,28 @@ static constexpr float kExpProportionalGain = 0.04;
+@@ -45,15 +45,15 @@ static constexpr float kExposureSatisfactory = 0.2;
+  *
+  *   factor = 1.0 + kExpProportionalGain * error
+  *
+- * With kExpProportionalGain = 0.04:
+- *   - max error ~2.5 -> factor 1.10 (~10% step, same as before)
+- *   - error 1.0      -> factor 1.04 (~4% step)
+- *   - error 0.3      -> factor 1.012 (~1.2% step)
++ * With kExpProportionalGain = 0.06:
++ *   - max error ~2.5 -> factor 1.15 (~15% step)
++ *   - error 1.0      -> factor 1.06 (~6% step)
++ *   - error 0.3      -> factor 1.018 (~1.8% step)
+  *
+  * This replaces the fixed 10% bang-bang step with a proportional correction
+  * that converges smoothly and avoids overshooting near the target.
+  */
+-static constexpr float kExpProportionalGain = 0.04;
++static constexpr float kExpProportionalGain = 0.06;
+ 
+ /*
+  * Maximum multiplicative step per frame, to bound the correction when the
+@@ -61,14 +61,47 @@ static constexpr float kExpProportionalGain = 0.04;
   */
  static constexpr float kExpMaxStep = 0.15;
  
@@ -155,8 +176,38 @@ index a13a755..ef6d8fb 100644
 +
  void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext, double exposureMSV)
  {
- 	int32_t &exposure = frameContext.sensor.exposure;
-@@ -125,7 +143,7 @@ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext, dou
+-	int32_t &exposure = frameContext.sensor.exposure;
+-	double &again = frameContext.sensor.gain;
++	int32_t exposure;
++	double again;
++
++	/*
++	 * Continue from the last requested value rather than the value the
++	 * sensor reports for the current frame. The pipeline applies exposure
++	 * two frames late, so starting from the sensor value would repeat the
++	 * same correction until the control catches up, turning an exponential
++	 * ramp into a crawl.
++	 */
++	if (context.activeState.agc.valid) {
++		exposure = context.activeState.agc.exposure;
++		again = context.activeState.agc.again;
++	} else {
++		exposure = frameContext.sensor.exposure;
++		again = frameContext.sensor.gain;
++	}
+ 
+ 	double error = kExposureOptimal - exposureMSV;
+ 
+@@ -115,6 +148,8 @@ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext, dou
+ 	again = std::clamp(again, context.configuration.agc.againMin,
+ 			   context.configuration.agc.againMax);
+ 
++	frameContext.sensor.exposure = exposure;
++	frameContext.sensor.gain = again;
+ 	context.activeState.agc.exposure = exposure;
+ 	context.activeState.agc.again = again;
+ 
+@@ -125,7 +160,7 @@ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext, dou
  }
  
  void Agc::process(IPAContext &context,
@@ -165,7 +216,7 @@ index a13a755..ef6d8fb 100644
  		  IPAFrameContext &frameContext,
  		  const SwIspStats *stats,
  		  ControlList &metadata)
-@@ -189,7 +207,13 @@ void Agc::process(IPAContext &context,
+@@ -189,7 +224,13 @@ void Agc::process(IPAContext &context,
  	}
  
  	float exposureMSV = (denom == 0 ? 0 : static_cast<float>(num) / denom);
@@ -201,6 +252,100 @@ index 112d9f5..2e0bcd1 100644
  };
  
  } /* namespace ipa::soft::algorithms */
+diff --git a/src/ipa/simple/data/hi1337-gts9u-1-0021.yaml b/src/ipa/simple/data/hi1337-gts9u-1-0021.yaml
+new file mode 100644
+index 0000000..c0b1b86
+--- /dev/null
++++ b/src/ipa/simple/data/hi1337-gts9u-1-0021.yaml
+@@ -0,0 +1,41 @@
++# SPDX-License-Identifier: CC0-1.0
++%YAML 1.1
++---
++version: 1
++algorithms:
++  - BlackLevel:
++  - Awb:
++      algorithm: grey
++  - Ccm:
++      # Rear module (CCI 1-0021). Matrices extracted from the OEM
++      # Chromatix tuning; every row sums to one so neutral scenes stay
++      # neutral.
++      ccms:
++        - ct: 2500
++          ccm: [ 2.2814, -0.1952, -1.0862,
++                -0.1125,  1.1201, -0.0076,
++                -0.2096, -1.2013,  2.4109 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 2875
++          ccm: [ 1.4124, -0.2213, -0.1911,
++                -0.2823,  1.2444,  0.0380,
++                -0.0848, -1.2444,  2.3292 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 3900
++          ccm: [ 2.1981, -0.7510, -0.4471,
++                -0.1232,  1.3634, -0.2401,
++                 0.0174, -0.9505,  1.9330 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 5100
++          ccm: [ 2.2087, -1.2345,  0.0258,
++                -0.1409,  1.5213, -0.3804,
++                 0.0446, -0.7803,  1.7357 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 7700
++          ccm: [ 1.6163, -0.5750, -0.0414,
++                -0.1420,  1.2465, -0.1044,
++                 0.0327, -0.6916,  1.6589 ]
++          offsets: [ 0, 0, 0 ]
++  - Adjust:
++  - Agc:
++...
+diff --git a/src/ipa/simple/data/hi1337-gts9u-3-0021.yaml b/src/ipa/simple/data/hi1337-gts9u-3-0021.yaml
+new file mode 100644
+index 0000000..9c17a58
+--- /dev/null
++++ b/src/ipa/simple/data/hi1337-gts9u-3-0021.yaml
+@@ -0,0 +1,41 @@
++# SPDX-License-Identifier: CC0-1.0
++%YAML 1.1
++---
++version: 1
++algorithms:
++  - BlackLevel:
++  - Awb:
++      algorithm: grey
++  - Ccm:
++      # Front module (CCI 3-0021). Matrices extracted from the OEM
++      # Chromatix tuning; every row sums to one so neutral scenes stay
++      # neutral.
++      ccms:
++        - ct: 2500
++          ccm: [ 2.2814, -0.1952, -1.0862,
++                -0.1125,  1.1201, -0.0076,
++                -0.2096, -1.2013,  2.4109 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 2875
++          ccm: [ 1.4488, -0.2342, -0.2146,
++                -0.3026,  1.2983,  0.0043,
++                -0.2008, -1.3575,  2.5583 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 3900
++          ccm: [ 2.1981, -0.7510, -0.4471,
++                -0.1232,  1.3634, -0.2401,
++                 0.0174, -0.9505,  1.9330 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 5100
++          ccm: [ 2.2087, -1.2345,  0.0258,
++                -0.1409,  1.5213, -0.3804,
++                 0.0446, -0.7803,  1.7357 ]
++          offsets: [ 0, 0, 0 ]
++        - ct: 7700
++          ccm: [ 1.5857, -0.6036,  0.0178,
++                -0.1070,  1.2228, -0.1158,
++                 0.0374, -0.7115,  1.6741 ]
++          offsets: [ 0, 0, 0 ]
++  - Adjust:
++  - Agc:
++...
 diff --git a/src/ipa/simple/data/hi1337-gts9u.yaml b/src/ipa/simple/data/hi1337-gts9u.yaml
 new file mode 100644
 index 0000000..290426b
@@ -249,19 +394,21 @@ index 0000000..290426b
 +  - Agc:
 +...
 diff --git a/src/ipa/simple/data/meson.build b/src/ipa/simple/data/meson.build
-index 92795ee..a72858b 100644
+index 92795ee..9977b2d 100644
 --- a/src/ipa/simple/data/meson.build
 +++ b/src/ipa/simple/data/meson.build
-@@ -2,6 +2,7 @@
+@@ -2,6 +2,9 @@
  
  conf_files = files([
      'uncalibrated.yaml',
 +    'hi1337-gts9u.yaml',
++    'hi1337-gts9u-1-0021.yaml',
++    'hi1337-gts9u-3-0021.yaml',
  ])
  
  # The install_dir must match the name from the IPAModuleInfo
 diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
-index 95cc63a..a7e410a 100644
+index 95cc63a..8992ef9 100644
 --- a/src/ipa/simple/soft_simple.cpp
 +++ b/src/ipa/simple/soft_simple.cpp
 @@ -5,7 +5,11 @@
@@ -416,7 +563,7 @@ index 95cc63a..a7e410a 100644
  
  	/* Sanity check */
  	if (!sensorControls.contains(V4L2_CID_EXPOSURE) ||
-@@ -323,10 +411,147 @@ void IPASoftSimple::processStats(const uint32_t frame,
+@@ -323,10 +411,148 @@ void IPASoftSimple::processStats(const uint32_t frame,
  	ctrls.set(V4L2_CID_EXPOSURE, frameContext.sensor.exposure);
  	ctrls.set(V4L2_CID_ANALOGUE_GAIN,
  		  static_cast<int32_t>(camHelper_ ? camHelper_->gainCode(againNew) : againNew));
@@ -455,17 +602,18 @@ index 95cc63a..a7e410a 100644
 +			return std::nullopt;
 +		}
 +		afLockedStats_++;
-+		/* Contrast can rise as well as fall after a scene change. */
-+		if (afLockedScore_ &&
-+		    (score * 4 < afLockedScore_ * 3 ||
-+		     score * 4 > afLockedScore_ * 5))
++		/* Only a sustained contrast drop means focus was lost. A rise is
++		 * normal while the AGC is still brightening the scene and must not
++		 * trigger a rescan.
++		 */
++		if (afLockedScore_ && score * 4 < afLockedScore_ * 3)
 +			afDropStats_++;
 +		else
 +			afDropStats_ = 0;
 +
 +		/* Thresholds are in 30 Hz statistics frames: retry a failed scan
 +		 * after about two seconds, and require about 0.4 s of consistently
-+		 * different contrast before declaring that focus was lost.
++		 * lower contrast before declaring that focus was lost.
 +		 */
 +		if (afState_ == controls::AfStateFailed &&
 +		    afLockedStats_ >= 60 && afFailedScans_ < 3)
@@ -658,10 +806,50 @@ index 02651fe..3badd8b 100644
  	inputBufferCount_ = inputCfg.bufferCount;
  	outputBufferCount_ = outputCfg.bufferCount;
 diff --git a/src/libcamera/software_isp/software_isp.cpp b/src/libcamera/software_isp/software_isp.cpp
-index c73a16c..7ad099f 100644
+index c73a16c..586b0bb 100644
 --- a/src/libcamera/software_isp/software_isp.cpp
 +++ b/src/libcamera/software_isp/software_isp.cpp
-@@ -79,7 +79,7 @@ LOG_DEFINE_CATEGORY(SoftwareIsp)
+@@ -41,6 +41,39 @@ namespace libcamera {
+ 
+ LOG_DEFINE_CATEGORY(SoftwareIsp)
+ 
++namespace {
++
++/*
++ * The kernel exposes every HI1337 module through the same driver name, so
++ * sensor->model() alone cannot distinguish the rear and front cameras. The
++ * media entity name carries the CCI instance (for example
++ * "hi1337-gts9u 1-0021"); use it to look for a per-camera tuning file first.
++ */
++std::string tuningFileFor(const CameraSensor *sensor)
++{
++	const std::string model = sensor->model();
++	const std::string entity = sensor->entity()->name();
++	std::string suffix;
++
++	if (entity.compare(0, model.size(), model) != 0)
++		return model + ".yaml";
++
++	for (char c : entity.substr(model.size())) {
++		if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
++		    (c >= '0' && c <= '9') || c == '-')
++			suffix += c;
++		else if (!suffix.empty() && suffix.back() != '-')
++			suffix += '-';
++	}
++	while (!suffix.empty() && suffix.back() == '-')
++		suffix.pop_back();
++
++	return suffix.empty() ? model + ".yaml"
++			      : model + "-" + suffix + ".yaml";
++}
++
++} /* namespace */
++
+ /**
+  * \class SoftwareIsp
+  * \brief Class for the Software ISP
+@@ -79,7 +112,7 @@ LOG_DEFINE_CATEGORY(SoftwareIsp)
   * \param[out] ipaControls The IPA controls to update
   * handler
   */
@@ -670,7 +858,17 @@ index c73a16c..7ad099f 100644
  			 ControlInfoMap *ipaControls)
  	: ispWorkerThread_("SWIspWorker"),
  	  dmaHeap_(DmaBufAllocator::DmaBufAllocatorFlag::CmaHeap |
-@@ -162,6 +162,7 @@ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
+@@ -148,7 +181,8 @@ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
+ 	 * isn't found, fall back to the 'uncalibrated' file.
+ 	 */
+ 	std::string ipaTuningFile =
+-		ipa_->configurationFile(sensor->model() + ".yaml", "uncalibrated.yaml");
++		ipa_->configurationFile(tuningFileFor(sensor),
++					sensor->model() + ".yaml");
+ 
+ 	IPACameraSensorInfo sensorInfo{};
+ 	int ret = sensor->sensorInfo(&sensorInfo);
+@@ -162,6 +196,7 @@ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
  			 sharedParams_.fd(),
  			 sensorInfo,
  			 sensor->controls(),
@@ -678,7 +876,7 @@ index c73a16c..7ad099f 100644
  			 ipaControls,
  			 &ccmEnabled_);
  	if (ret) {
-@@ -176,6 +177,10 @@ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
+@@ -176,6 +211,10 @@ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
  					    metadataReady.emit(frame, metadata);
  				    });
  	ipa_->setSensorControls.connect(this, &SoftwareIsp::setSensorCtrls);
