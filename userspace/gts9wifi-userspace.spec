@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.48
+Version:        0.17.49
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -165,6 +165,7 @@ fi
 %{_datadir}/applications/gts9wifi-settings.desktop
 %{_datadir}/icons/hicolor/scalable/apps/gts9wifi-settings.svg
 %{_datadir}/libwacom/samsung-gts9wifi-spen.tablet
+%{_datadir}/libwacom/samsung-gts9wifi-spen.stylus
 %dir %{_datadir}/gnome-shell/extensions/gnome-gts9wifi@tabs9linux
 %{_datadir}/gnome-shell/extensions/gnome-gts9wifi@tabs9linux/*
 %{_datadir}/glib-2.0/schemas/org.gnome.shell.extensions.gts9wifi.gschema.xml
@@ -247,6 +248,16 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Sun Nov 15 2026 Lymeeee <mr_xunyu@163.com> - 0.17.49-1
+- Settings: add a Display page with switches for the automatic-brightness
+  floor and the low-brightness warning.  The floor raises gsd-power's
+  ambient target by the current manual offset, so the 36% floor holds at
+  any slider position; manual brightness changes can still go below it.
+  The warning's "set to 36%" action now also accounts for the auto target.
+- libwacom: name the tablet "Samsung Galaxy Tab S9" and ship a Samsung S Pen
+  stylus description with its single side button, replacing the generic
+  two-button entry shown by the Wacom settings page.
+
 * Sun Nov 15 2026 Lymeeee <mr_xunyu@163.com> - 0.17.48-1
 - Run the camera-stop half of the suspend safety net from a
   systemd-suspend.service ExecStartPre drop-in.  systemd-sleep freezes

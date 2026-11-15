@@ -26,7 +26,8 @@ function readFile(path) {
 }
 
 export class BrightnessWarning {
-    constructor() {
+    constructor(settings) {
+        this._settings = settings;
         this._dir = null;
         this._armed = true;
         this._lastNotify = -Infinity;
@@ -62,6 +63,8 @@ export class BrightnessWarning {
     }
 
     _poll() {
+        if (!this._settings.get_boolean('brightness-warning'))
+            return;
         // gsd-power calls SetDimming(true) on org.gnome.Shell.Brightness after
         // idle; that is not a user choice, so neither warn nor touch the
         // re-arm state while it is active.
@@ -116,8 +119,16 @@ export class BrightnessWarning {
         if (action !== 'default' || id !== this._notificationId)
             return;
         this._notificationId = 0;
-        for (const scale of Main.brightnessManager.scales)
-            scale.value = THRESHOLD / 100;
+
+        // With auto-brightness active the scale is a bias around the auto
+        // target, so solving target + value - 0.5 = 36% needs the target.
+        const manager = Main.brightnessManager;
+        const target = manager.autoBrightnessTarget;
+        for (const scale of manager.scales) {
+            scale.value = target >= 0
+                ? Math.min(1, Math.max(0, 0.86 - target))
+                : THRESHOLD / 100;
+        }
     }
 
     _findBacklight() {

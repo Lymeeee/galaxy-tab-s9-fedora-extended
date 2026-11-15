@@ -22,5 +22,15 @@
       <summary>Corner radius</summary>
       <description>Corner mask radius in physical pixels at the panel's 2560-pixel width.</description>
     </key>
+    <key name="auto-brightness-floor" type="b">
+      <default>false</default>
+      <summary>Minimum auto-brightness floor</summary>
+      <description>Keep automatic brightness from dimming the panel below 36%, where it leaves DC dimming. Manual brightness changes can still go lower.</description>
+    </key>
+    <key name="brightness-warning" type="b">
+      <default>true</default>
+      <summary>Low-brightness warning</summary>
+      <description>Show a notification when the panel is below 36%, where it leaves DC dimming. The automatic-brightness floor already keeps automatic changes above this point; manual changes still warn.</description>
+    </key>
   </schema>
 </schemalist>

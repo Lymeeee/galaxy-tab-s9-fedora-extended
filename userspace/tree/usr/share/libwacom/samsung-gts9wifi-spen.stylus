@@ -1,0 +1,14 @@
+# Samsung Galaxy Tab S9 S Pen (EJ-PX710), EMR stylus.
+#
+# It has one side button and no eraser.  The ID is a local placeholder: the
+# passive EMR pen reports no hardware ID, and the Wacom settings page takes
+# the first tablet Styli entry for such tools.  The vendor must be Wacom
+# (0x056a) because libwacom_stylus_get_for_id() rewrites non-generic tool
+# IDs to that vendor before looking them up.
+
+[0x56a:0xffe0]
+Name=Samsung S Pen
+Group=samsung-spen
+Buttons=1
+Axes=Pressure;
+Type=Mobile

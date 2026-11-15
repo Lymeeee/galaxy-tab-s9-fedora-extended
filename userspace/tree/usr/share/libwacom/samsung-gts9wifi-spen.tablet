@@ -13,16 +13,21 @@
 #
 # 0000:0000 covers kernels built before wacom-wez01.c reported the Wacom
 # vendor ID; 056a:0000 is the intended ID from that kernel onwards.
+#
+# The pen is an EMR stylus with no hardware ID, so libwacom falls back to the
+# first entry in Styli.  The shipped stylus description gives it the proper
+# name and the single side button it actually has; the generic fallback
+# advertises two buttons, which made GNOME offer a second, unusable mapping.
 
 [Device]
-Name=Samsung Galaxy Tab S9 S Pen
+Name=Samsung Galaxy Tab S9
 ModelName=EJ-PX710
 DeviceMatch=i2c|056a|0000;i2c|0000|0000
 Class=ISDV4
 Width=236
 Height=147
 IntegratedIn=Display;System
-Styli=@generic-no-eraser;
+Styli=@samsung-spen;
 
 [Features]
 Stylus=true

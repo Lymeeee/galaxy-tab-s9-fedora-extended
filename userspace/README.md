@@ -45,7 +45,15 @@ aarch64 RPM with the Phase 1 userspace pieces from the Ubuntu port:
   and opening it wakes the tablet
 - the low-brightness warning is a transient normal-priority notification that
   expires on its own and is suppressed while GNOME's idle dimming is active;
-  clicking it raises the brightness to 36%
+  clicking it raises the brightness to 36%; it can be switched off
+- the settings app's Display page has an optional auto-brightness floor: when
+  on, ambient-light dimming stops at 36% (the target is raised by the current
+  manual offset so the floor holds at any slider position); manual brightness
+  changes can still go below 36%, and the low-brightness warning still covers
+  them
+- the S Pen libwacom entry names the tablet "Samsung Galaxy Tab S9" and the
+  pen "Samsung S Pen" with its single side button (the generic fallback
+  advertised a second, unusable button)
 - the Shell brightness OSD is suppressed only while the Quick Settings
   brightness slider is being dragged; brightness keys and auto-brightness
   still show it

@@ -5,10 +5,9 @@ import configparser
 import pathlib
 import sys
 
-TABLET = (
-    pathlib.Path(__file__).resolve().parents[1]
-    / "tree/usr/share/libwacom/samsung-gts9wifi-spen.tablet"
-)
+ROOT = pathlib.Path(__file__).resolve().parents[1] / "tree/usr/share/libwacom"
+TABLET = ROOT / "samsung-gts9wifi-spen.tablet"
+STYLUS = ROOT / "samsung-gts9wifi-spen.stylus"
 
 
 def fail(message):
@@ -51,7 +50,22 @@ if features.get("Stylus") != "true":
 if features.get("Touch") != "false":
     fail("Features/Touch must be false")
 
-if not device.get("Styli", "").startswith("@generic-no-eraser"):
-    fail("the S Pen has no eraser; Styli must use @generic-no-eraser")
+if device.get("Name") != "Samsung Galaxy Tab S9":
+    fail("the tablet must be named Samsung Galaxy Tab S9")
+if "@samsung-spen" not in device.get("Styli", ""):
+    fail("Styli must use the shipped @samsung-spen description")
+
+stylus_config = configparser.ConfigParser()
+if not stylus_config.read(STYLUS):
+    fail(f"missing {STYLUS}")
+if not stylus_config.has_section("0x56a:0xffe0"):
+    fail("the stylus description must define 0x56a:0xffe0")
+stylus = stylus_config["0x56a:0xffe0"]
+if stylus.get("Name") != "Samsung S Pen":
+    fail("the stylus must be named Samsung S Pen")
+if stylus.get("Group") != "samsung-spen":
+    fail("the stylus group must be samsung-spen")
+if stylus.get("Buttons") != "1":
+    fail("the S Pen has one side button")
 
 print("libwacom S Pen definition OK")

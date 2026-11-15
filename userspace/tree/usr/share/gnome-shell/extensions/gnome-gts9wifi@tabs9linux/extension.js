@@ -14,6 +14,8 @@
 // lighting the dark screen (which kept the tablet from ever suspending).
 // topOsd.js backs the transient S Pen dock and Caps Lock notices.
 // brightnessWarning.js warns when the panel leaves its DC dimming range.
+// autoBrightnessFloor.js optionally keeps automatic brightness from taking
+// the panel below that range.
 // brightnessOsdGuard.js hides the Shell OSD while the brightness slider is
 // being dragged, without hiding it for the brightness keys.
 
@@ -27,6 +29,7 @@ import {TopOsd} from './topOsd.js';
 import {SpenOsd} from './spenOsd.js';
 import {CapsLockOsd} from './capsLockOsd.js';
 import {BrightnessWarning} from './brightnessWarning.js';
+import {AutoBrightnessFloor} from './autoBrightnessFloor.js';
 import {BrightnessOsdGuard} from './brightnessOsdGuard.js';
 
 export default class Gts9wifiExtension extends Extension {
@@ -45,8 +48,10 @@ export default class Gts9wifiExtension extends Extension {
         this._spenOsd.enable();
         this._capsLockOsd = new CapsLockOsd(this._topOsd);
         this._capsLockOsd.enable();
-        this._brightnessWarning = new BrightnessWarning();
+        this._brightnessWarning = new BrightnessWarning(this.getSettings());
         this._brightnessWarning.enable();
+        this._autoBrightnessFloor = new AutoBrightnessFloor(this.getSettings());
+        this._autoBrightnessFloor.enable();
         this._brightnessOsdGuard = new BrightnessOsdGuard();
         this._brightnessOsdGuard.enable();
     }
@@ -54,6 +59,8 @@ export default class Gts9wifiExtension extends Extension {
     disable() {
         this._brightnessOsdGuard?.disable();
         this._brightnessOsdGuard = null;
+        this._autoBrightnessFloor?.disable();
+        this._autoBrightnessFloor = null;
         this._brightnessWarning?.disable();
         this._brightnessWarning = null;
         this._capsLockOsd?.disable();
