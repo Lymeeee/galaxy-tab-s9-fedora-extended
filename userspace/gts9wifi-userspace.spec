@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.51
+Version:        0.17.52
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -249,6 +249,11 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Mon Nov 16 2026 Lymeeee <mr_xunyu@163.com> - 0.17.52-1
+- Camera calibration: target the kernel's per-variant sensor model names
+  (hi1337-gts9u-rear/front/front-uw) instead of the CCI instance names.
+  The kernel now reports a distinct model per module.
+
 * Sun Nov 15 2026 Lymeeee <mr_xunyu@163.com> - 0.17.51-1
 - Settings: add "导入相机校准" under 高级 -> 相机.  It decodes the OEM
   Samsung Chromatix colour matrices from this unit's vendor partition and

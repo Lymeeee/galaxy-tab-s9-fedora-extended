@@ -29,14 +29,16 @@ HEADER = b"QTI Chromatix Header"
 PARSER_VERSION = b"Parameter Parser V3.5.1"
 TARGETS = {
     "rear": (
-        "/usr/share/libcamera/ipa/simple/hi1337-gts9u-1-0021.yaml",
+        "/usr/share/libcamera/ipa/simple/hi1337-gts9u-rear.yaml",
         "/usr/share/libcamera/ipa/simple/hi1337-gts9u.yaml",
     ),
     "front": (
-        "/usr/share/libcamera/ipa/simple/hi1337-gts9u-3-0021.yaml",
+        "/usr/share/libcamera/ipa/simple/hi1337-gts9u-front.yaml",
+        "/usr/share/libcamera/ipa/simple/hi1337-gts9u-front-uw.yaml",
     ),
     "front-full": (
-        "/usr/share/libcamera/ipa/simple/hi1337-gts9u-3-0021.yaml",
+        "/usr/share/libcamera/ipa/simple/hi1337-gts9u-front.yaml",
+        "/usr/share/libcamera/ipa/simple/hi1337-gts9u-front-uw.yaml",
     ),
 }
 STATE_DIR = "/var/lib/gts9wifi/camera-calib"

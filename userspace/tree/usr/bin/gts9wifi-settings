@@ -741,8 +741,8 @@ class Settings(Adw.Application):
             '导入', lambda: self.confirm_simple(
                 '导入相机校准？',
                 '只读解析本机 vendor 分区的相机调校文件，并覆盖后摄'
-                '（hi1337-gts9u-1-0021.yaml）和前摄'
-                '（hi1337-gts9u-3-0021.yaml）的 tuning。'
+                '（hi1337-gts9u-rear.yaml）和前摄'
+                '（hi1337-gts9u-front.yaml）的 tuning。'
                 '会先备份现有文件；重新打开相机后生效。',
                 lambda: self.open_terminal(['pkexec', CAMERA_CALIB])))
         page.add(camera)
