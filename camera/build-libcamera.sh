@@ -4,8 +4,10 @@
 # Rebuild Fedora's libcamera 0.7.2 with the software-ISP fixes from the
 # Galaxy Tab S9 Ultra port (agcarbajo/ubuntu-galaxy-tab-s9-ultra):
 #   - HI1337 black-level and analogue-gain helpers (libipa camera sensor helper)
-#   - grey-world AWB + conservative CCM tuning file for "hi1337-gts9u"
+#   - grey-world AWB + neutral CCM tuning file for "hi1337-gts9u"
 #   - contrast-detect autofocus for the DW9808 VCM in the simple IPA
+#   - per-frame statistics (with a delay-aware AGC update interval) so
+#     brightness and autofocus converge at the full frame rate
 #   - CAMSS link reset before configuring a different camera
 # One combined, rebased patch is applied through the Fedora spec so the IPA
 # keeps being signed by the package build.
@@ -24,7 +26,7 @@ dnf -y builddep /root/rpmbuild/SPECS/libcamera.spec
 cp "$patch" /root/rpmbuild/SOURCES/
 spec=/root/rpmbuild/SPECS/libcamera.spec
 sed -i '/^Patch02:/a Patch03: gts9wifi-libcamera-0.7.2.patch' "$spec"
-sed -i 's/^Release:.*/Release: 3%{?dist}.gts9wifi1/' "$spec"
+sed -i 's/^Release:.*/Release: 3%{?dist}.gts9wifi2/' "$spec"
 
 rpmbuild -bb "$spec"
 

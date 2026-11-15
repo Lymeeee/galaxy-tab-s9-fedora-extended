@@ -45,6 +45,27 @@ index d9d0d9b..a7ddc6f 100644
  	/**
  	 * \brief Number of bins in the yHistogram
  	 */
+diff --git a/include/libcamera/internal/software_isp/swstats_cpu.h b/include/libcamera/internal/software_isp/swstats_cpu.h
+index 5518709..807bdf3 100644
+--- a/include/libcamera/internal/software_isp/swstats_cpu.h
++++ b/include/libcamera/internal/software_isp/swstats_cpu.h
+@@ -39,12 +39,11 @@ public:
+ 	~SwStatsCpu() = default;
+ 
+ 	/*
+-	 * The combination of pipeline + sensor delays means that
+-	 * exposure changes can take up to 3 frames to get applied,
+-	 * Run stats once every 4 frames to ensure any previous
+-	 * exposure changes have been applied.
++	 * Run statistics on every frame. The control loops that must respect
++	 * the pipeline + sensor delay (AGC) throttle their own updates; AWB
++	 * and the autofocus metric benefit from the full frame rate.
+ 	 */
+-	static constexpr uint32_t kStatPerNumFrames = 4;
++	static constexpr uint32_t kStatPerNumFrames = 1;
+ 
+ 	bool isValid() const { return sharedStats_.fd().isValid(); }
+ 
 diff --git a/include/libcamera/ipa/soft.mojom b/include/libcamera/ipa/soft.mojom
 index 77328c5..69c083b 100644
 --- a/include/libcamera/ipa/soft.mojom
@@ -102,12 +123,90 @@ index 9457d62..bca88c5 100644
  class CameraSensorHelperHm1246 : public CameraSensorHelper
  {
  public:
+diff --git a/src/ipa/simple/algorithms/agc.cpp b/src/ipa/simple/algorithms/agc.cpp
+index a13a755..ef6d8fb 100644
+--- a/src/ipa/simple/algorithms/agc.cpp
++++ b/src/ipa/simple/algorithms/agc.cpp
+@@ -61,10 +61,28 @@ static constexpr float kExpProportionalGain = 0.04;
+  */
+ static constexpr float kExpMaxStep = 0.15;
+ 
++/*
++ * The simple pipeline delays exposure and gain by up to two frames. Run
++ * statistics on every frame for the other algorithms, but only apply an AGC
++ * correction after the previous one has had time to reach the sensor.
++ * Reacting to every frame would amplify one error into a burst of stale
++ * corrections.
++ */
++static constexpr uint32_t kExposureUpdateInterval = 2;
++
+ Agc::Agc()
+ {
+ }
+ 
++int Agc::configure([[maybe_unused]] IPAContext &context,
++		   [[maybe_unused]] const IPAConfigInfo &configInfo)
++{
++	lastUpdateFrame_ = 0;
++	hasUpdated_ = false;
++
++	return 0;
++}
++
+ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext, double exposureMSV)
+ {
+ 	int32_t &exposure = frameContext.sensor.exposure;
+@@ -125,7 +143,7 @@ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext, dou
+ }
+ 
+ void Agc::process(IPAContext &context,
+-		  [[maybe_unused]] const uint32_t frame,
++		  const uint32_t frame,
+ 		  IPAFrameContext &frameContext,
+ 		  const SwIspStats *stats,
+ 		  ControlList &metadata)
+@@ -189,7 +207,13 @@ void Agc::process(IPAContext &context,
+ 	}
+ 
+ 	float exposureMSV = (denom == 0 ? 0 : static_cast<float>(num) / denom);
++
++	if (hasUpdated_ && frame - lastUpdateFrame_ < kExposureUpdateInterval)
++		return;
++
+ 	updateExposure(context, frameContext, exposureMSV);
++	lastUpdateFrame_ = frame;
++	hasUpdated_ = true;
+ }
+ 
+ REGISTER_IPA_ALGORITHM(Agc, "Agc")
+diff --git a/src/ipa/simple/algorithms/agc.h b/src/ipa/simple/algorithms/agc.h
+index 112d9f5..2e0bcd1 100644
+--- a/src/ipa/simple/algorithms/agc.h
++++ b/src/ipa/simple/algorithms/agc.h
+@@ -19,6 +19,7 @@ public:
+ 	Agc();
+ 	~Agc() = default;
+ 
++	int configure(IPAContext &context, const IPAConfigInfo &configInfo) override;
+ 	void process(IPAContext &context, const uint32_t frame,
+ 		     IPAFrameContext &frameContext,
+ 		     const SwIspStats *stats,
+@@ -26,6 +27,9 @@ public:
+ 
+ private:
+ 	void updateExposure(IPAContext &context, IPAFrameContext &frameContext, double exposureMSV);
++
++	uint32_t lastUpdateFrame_ = 0;
++	bool hasUpdated_ = false;
+ };
+ 
+ } /* namespace ipa::soft::algorithms */
 diff --git a/src/ipa/simple/data/hi1337-gts9u.yaml b/src/ipa/simple/data/hi1337-gts9u.yaml
 new file mode 100644
-index 0000000..7309363
+index 0000000..a5d53f2
 --- /dev/null
 +++ b/src/ipa/simple/data/hi1337-gts9u.yaml
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,21 @@
 +# SPDX-License-Identifier: CC0-1.0
 +%YAML 1.1
 +---
@@ -116,17 +215,15 @@ index 0000000..7309363
 +  - BlackLevel:
 +  - Awb:
 +      algorithm: grey
-+      colourGains:
-+        - ct: 2500
-+          gains: [ 1.0, 4.0 ]
-+        - ct: 10000
-+          gains: [ 1.0, 4.0 ]
 +  - Ccm:
++      # Uncalibrated: keep the matrix neutral until a colour-chart
++      # calibration exists. The previous 1.05 blue gain produced a
++      # visible cool cast.
 +      ccms:
 +        - ct: 6500
 +          ccm: [ 1.00,  0.00,  0.00,
 +                 0.00,  1.00,  0.00,
-+                 0.00,  0.00,  1.05 ]
++                 0.00,  0.00,  1.00 ]
 +          offsets: [ 0, 0, 0 ]
 +  - Adjust:
 +  - Agc:
@@ -144,7 +241,7 @@ index 92795ee..a72858b 100644
  
  # The install_dir must match the name from the IPAModuleInfo
 diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
-index 629e1a3..71c6167 100644
+index 95cc63a..a7e410a 100644
 --- a/src/ipa/simple/soft_simple.cpp
 +++ b/src/ipa/simple/soft_simple.cpp
 @@ -5,7 +5,11 @@
@@ -232,7 +329,7 @@ index 629e1a3..71c6167 100644
  	ControlInfoMap::Map ctrlMap = context_.ctrlMap;
  	*ipaControls = ControlInfoMap(std::move(ctrlMap), controls::controls);
  
-@@ -255,6 +298,9 @@ int IPASoftSimple::configure(const IPAConfigInfo &configInfo)
+@@ -254,6 +297,9 @@ int IPASoftSimple::configure(const IPAConfigInfo &configInfo)
  			return ret;
  	}
  
@@ -242,7 +339,7 @@ index 629e1a3..71c6167 100644
  	LOG(IPASoft, Info)
  		<< "Exposure " << context_.configuration.agc.exposureMin << "-"
  		<< context_.configuration.agc.exposureMax
-@@ -279,6 +325,31 @@ void IPASoftSimple::queueRequest(const uint32_t frame, const ControlList &contro
+@@ -278,6 +324,31 @@ void IPASoftSimple::queueRequest(const uint32_t frame, const ControlList &contro
  {
  	IPAFrameContext &frameContext = context_.frameContexts.alloc(frame);
  
@@ -274,7 +371,7 @@ index 629e1a3..71c6167 100644
  	for (const auto &algo : algorithms())
  		algo->queueRequest(context_, frame, frameContext, controls);
  }
-@@ -309,7 +380,24 @@ void IPASoftSimple::processStats(const uint32_t frame,
+@@ -308,7 +379,24 @@ void IPASoftSimple::processStats(const uint32_t frame,
  	ControlList metadata(controls::controls);
  	for (const auto &algo : algorithms())
  		algo->process(context_, frame, frameContext, stats_, metadata);
@@ -299,7 +396,7 @@ index 629e1a3..71c6167 100644
  
  	/* Sanity check */
  	if (!sensorControls.contains(V4L2_CID_EXPOSURE) ||
-@@ -324,10 +412,142 @@ void IPASoftSimple::processStats(const uint32_t frame,
+@@ -323,10 +411,147 @@ void IPASoftSimple::processStats(const uint32_t frame,
  	ctrls.set(V4L2_CID_EXPOSURE, frameContext.sensor.exposure);
  	ctrls.set(V4L2_CID_ANALOGUE_GAIN,
  		  static_cast<int32_t>(camHelper_ ? camHelper_->gainCode(againNew) : againNew));
@@ -346,15 +443,20 @@ index 629e1a3..71c6167 100644
 +		else
 +			afDropStats_ = 0;
 +
++		/* Thresholds are in 30 Hz statistics frames: retry a failed scan
++		 * after about two seconds, and require about 0.4 s of consistently
++		 * different contrast before declaring that focus was lost.
++		 */
 +		if (afState_ == controls::AfStateFailed &&
-+		    afLockedStats_ >= 15 && afFailedScans_ < 3)
++		    afLockedStats_ >= 60 && afFailedScans_ < 3)
 +			startFocusScan(true);
-+		else if (afDropStats_ >= 3)
++		else if (afDropStats_ >= 12)
 +			startFocusScan();
-+		else if (afLockedStats_ >= 45) {
++		else if (afLockedStats_ >= 180) {
 +			/* Periodically check nearby focus without a full-range hunt.
 +			 * This also detects depth changes with similar scene contrast.
-+			 * Statistics arrive only while capture is running.
++			 * Statistics arrive only while capture is running (30 Hz), so
++			 * this makes one probe every six seconds.
 +			 */
 +			afPhase_ = AfPhase::Probe;
 +			afProbePosition_ = afPosition_;
