@@ -1,5 +1,5 @@
 diff --git a/src/libcamera/pipeline/simple/simple.cpp b/src/libcamera/pipeline/simple/simple.cpp
-index e5fa007..5e3925b 100644
+index e5fa007..21d08df 100644
 --- a/src/libcamera/pipeline/simple/simple.cpp
 +++ b/src/libcamera/pipeline/simple/simple.cpp
 @@ -274,6 +274,34 @@ bool isRaw(const StreamConfiguration &cfg)
@@ -246,7 +246,7 @@ index e5fa007..5e3925b 100644
  {
  	unsigned int numStreams = 1;
  
-+	if (info.driver == "qcom-camss")
++	if (!strcmp(info.driver, "qcom-camss"))
 +		camssMedia_ = media;
 +
  	for (const auto &[name, streams] : info.converters) {
