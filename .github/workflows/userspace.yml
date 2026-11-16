@@ -51,7 +51,6 @@ jobs:
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-logging
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-mem-sleep
               sh -n /work/userspace/tree/usr/lib/systemd/system-sleep/gts9wifi-camera-suspend
-              sh -n /work/userspace/tree/usr/lib/systemd/system-sleep/gts9wifi-usbpd-sleep
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-camera-resume
               for helper in /work/userspace/tree/usr/bin/* /work/userspace/tree/usr/libexec/* /work/userspace/tree/usr/lib/systemd/system-sleep/*; do
                 [ -f "$helper" ] || continue

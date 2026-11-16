@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.55
+Version:        0.17.56
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -249,9 +249,13 @@ fi
 %dir %{_unitdir}/systemd-suspend.service.d
 %{_unitdir}/systemd-suspend.service.d/10-gts9wifi-camera-suspend.conf
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
-%{_prefix}/lib/systemd/system-sleep/gts9wifi-usbpd-sleep
 
 %changelog
+* Mon Nov 16 2026 Lymeeee <mr_xunyu@163.com> - 0.17.56-1
+- Drop the SM5714 USB-PD unbind sleep hook.  The kernel keeps the PD
+  stack alive across deep suspend and defers the charger-detach
+  interrupt after resume; the userspace workaround is no longer wanted.
+
 * Mon Nov 16 2026 Lymeeee <mr_xunyu@163.com> - 0.17.55-1
 - Unbind the SM5714 USB-PD controller for the deep-suspend window when a
   charger is attached, and bind it again after resume.  The TCPM stack
