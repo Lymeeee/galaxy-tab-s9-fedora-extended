@@ -1,0 +1,273 @@
+diff --git a/src/libcamera/pipeline/simple/simple.cpp b/src/libcamera/pipeline/simple/simple.cpp
+index e5fa007..5e3925b 100644
+--- a/src/libcamera/pipeline/simple/simple.cpp
++++ b/src/libcamera/pipeline/simple/simple.cpp
+@@ -274,6 +274,34 @@ bool isRaw(const StreamConfiguration &cfg)
+ 	       libcamera::PixelFormatInfo::ColourEncodingRAW;
+ }
+ 
++/*
++ * Return the VFE index encoded in a CAMSS RDI video entity name
++ * ("msm_vfe<index>_rdi<channel>").  Each VFE has a single CSID input, so two
++ * cameras must not share a VFE even when their RDI channels differ.
++ */
++bool camssVfeIndexOf(const std::string &name, unsigned int &vfe)
++{
++	static const std::string prefix = "msm_vfe";
++
++	if (name.compare(0, prefix.size(), prefix) != 0)
++		return false;
++
++	size_t pos = prefix.size();
++	size_t end = name.find('_', pos);
++	if (end == std::string::npos || end == pos)
++		return false;
++
++	unsigned int index = 0;
++	for (size_t i = pos; i < end; ++i) {
++		if (name[i] < '0' || name[i] > '9')
++			return false;
++		index = index * 10 + name[i] - '0';
++	}
++
++	vfe = index;
++	return true;
++}
++
+ } /* namespace */
+ 
+ class SimpleCameraData : public Camera::Private
+@@ -430,6 +458,39 @@ public:
+ 	std::shared_ptr<MediaDevice> converter() { return converter_; }
+ 	bool swIspEnabled() const { return swIspEnabled_; }
+ 
++	/*
++	 * CAMSS assigns one CSID and one VFE input per camera.  The pipeline
++	 * handler records the paths claimed by the cameras it created so that
++	 * each camera gets its own CSID/VFE pair, and remembers the links it
++	 * enabled so that a process exit does not leave stale links enabled.
++	 */
++	bool camssEntityClaimed(const MediaEntity *entity) const
++	{
++		return camssClaimedEntities_.count(entity);
++	}
++
++	bool camssVfeClaimed(unsigned int vfe) const
++	{
++		return camssClaimedVfes_.count(vfe);
++	}
++
++	void claimCamssEntity(MediaEntity *entity)
++	{
++		camssClaimedEntities_.insert(entity);
++	}
++
++	void claimCamssVfe(unsigned int vfe)
++	{
++		camssClaimedVfes_.insert(vfe);
++	}
++
++	void rememberCamssLink(MediaLink *link)
++	{
++		camssLinks_.insert(link);
++	}
++
++	~SimplePipelineHandler();
++
+ protected:
+ 	int queueRequestDevice(Camera *camera, Request *request) override;
+ 
+@@ -460,6 +521,11 @@ private:
+ 
+ 	std::map<const MediaEntity *, EntityData> entities_;
+ 
++	std::set<const MediaEntity *> camssClaimedEntities_;
++	std::set<unsigned int> camssClaimedVfes_;
++	std::set<MediaLink *> camssLinks_;
++	std::shared_ptr<MediaDevice> camssMedia_;
++
+ 	std::shared_ptr<MediaDevice> converter_;
+ 	bool swIspEnabled_;
+ };
+@@ -492,6 +558,43 @@ SimpleCameraData::SimpleCameraData(SimplePipelineHandler *pipe,
+ 	MediaEntity *video = nullptr;
+ 	MediaPad *sinkPad;
+ 
++	/*
++	 * CAMSS has several CSID inputs and VFE RDI outputs, but both sensors
++	 * would otherwise pick the first path and end up sharing CSID 0.  While
++	 * selecting a path, steer clear of entities already used by an enabled
++	 * path (another process, or a stale path) and of the paths claimed by
++	 * the cameras already created by this pipeline handler.
++	 */
++	const bool camss = sensor->device()->driver() == "qcom-camss";
++	std::set<MediaEntity *> busyEntities;
++	std::set<unsigned int> busyVfes;
++
++	if (camss) {
++		for (MediaEntity *e : sensor->device()->entities()) {
++			for (const MediaPad *pad : e->pads()) {
++				for (MediaLink *link : pad->links()) {
++					if (!(link->flags() & MEDIA_LNK_FL_ENABLED) ||
++					    (link->flags() & MEDIA_LNK_FL_IMMUTABLE))
++						continue;
++
++					const std::string &source =
++						link->source()->entity()->name();
++					MediaEntity *sink = link->sink()->entity();
++
++					if (source.rfind("msm_csiphy", 0) == 0) {
++						busyEntities.insert(sink);
++					} else if (source.rfind("msm_csid", 0) == 0) {
++						unsigned int vfe;
++
++						busyEntities.insert(sink);
++						if (camssVfeIndexOf(sink->name(), vfe))
++							busyVfes.insert(vfe);
++					}
++				}
++			}
++		}
++	}
++
+ 	queue.push({ sensor, nullptr });
+ 
+ 	while (!queue.empty()) {
+@@ -535,12 +638,26 @@ SimpleCameraData::SimpleCameraData(SimplePipelineHandler *pipe,
+ 		for (const MediaPad *pad : pads) {
+ 			for (MediaLink *link : pad->links()) {
+ 				MediaEntity *next = link->sink()->entity();
+-				if (visited.find(next) == visited.end()) {
+-					queue.push({ next, link->sink() });
++				if (visited.find(next) != visited.end())
++					continue;
+ 
+-					Entity e{ entity, supportsRouting, sinkPad, pad, link };
+-					parents.insert({ next, e });
++				if (camss) {
++					unsigned int vfe;
++					bool busyVfe =
++						camssVfeIndexOf(next->name(), vfe) &&
++						(busyVfes.count(vfe) ||
++						 pipe->camssVfeClaimed(vfe));
++
++					if (busyEntities.count(next) ||
++					    pipe->camssEntityClaimed(next) ||
++					    busyVfe)
++						continue;
+ 				}
++
++				queue.push({ next, link->sink() });
++
++				Entity e{ entity, supportsRouting, sinkPad, pad, link };
++				parents.insert({ next, e });
+ 			}
+ 		}
+ 	}
+@@ -587,6 +704,14 @@ SimpleCameraData::SimpleCameraData(SimplePipelineHandler *pipe,
+ 				       s += ']';
+ 				       return s;
+ 			       });
++	if (camss) {
++		for (const Entity &e : entities_)
++			pipe->claimCamssEntity(e.entity);
++
++		unsigned int vfe;
++		if (camssVfeIndexOf(entities_.back().entity->name(), vfe))
++			pipe->claimCamssVfe(vfe);
++	}
+ }
+ 
+ SimplePipelineHandler *SimpleCameraData::pipe()
+@@ -765,16 +890,6 @@ int SimpleCameraData::setupLinks()
+ {
+ 	int ret;
+ 
+-	/* Qualcomm CAMSS sensors share receiver sink pads. Camera enumeration
+-	 * leaves the final sensor path enabled, which can make the first real
+-	 * configure fail with EBUSY. Cameras sharing those pads are serialized
+-	 * by this pipeline handler, so clear the graph before selecting one. */
+-	if (sensor_->entity()->device()->driver() == "qcom-camss") {
+-		ret = const_cast<MediaDevice *>(sensor_->entity()->device())->disableLinks();
+-		if (ret < 0)
+-			return ret;
+-	}
+-
+ 	/*
+ 	 * Configure all links along the pipeline. Some entities may not allow
+ 	 * multiple sink links to be enabled together, even on different sink
+@@ -821,6 +936,8 @@ int SimpleCameraData::setupLinks()
+ 			ret = sinkLink->setEnabled(true);
+ 			if (ret < 0)
+ 				return ret;
++			if (sensor_->entity()->device()->driver() == "qcom-camss")
++				pipe()->rememberCamssLink(sinkLink);
+ 		}
+ 
+ 		sinkLink = e.sourceLink;
+@@ -1426,6 +1543,18 @@ SimplePipelineHandler::SimplePipelineHandler(CameraManager *manager)
+ {
+ }
+ 
++SimplePipelineHandler::~SimplePipelineHandler()
++{
++	/*
++	 * CAMSS leaves the media links enabled.  A process that only enumerated
++	 * the cameras would otherwise force the next process onto another
++	 * CSID/VFE path on every run.  Only links enabled by this handler are
++	 * tracked, so streams owned by other processes are left untouched.
++	 */
++	for (MediaLink *link : camssLinks_)
++		link->setEnabled(false);
++}
++
+ std::unique_ptr<CameraConfiguration>
+ SimplePipelineHandler::generateConfiguration(Camera *camera, Span<const StreamRole> roles)
+ {
+@@ -1654,6 +1783,17 @@ int SimplePipelineHandler::start(Camera *camera, [[maybe_unused]] const ControlL
+ 	V4L2Subdevice *frameStartEmitter = data->frameStartEmitter_;
+ 	int ret;
+ 
++	/*
++	 * setupLinks() is also called at configure time, but a camera can be
++	 * stopped and restarted without being configured again.  CAMSS links
++	 * are released on stop, so restore this camera's path before starting.
++	 */
++	if (data->sensor_->entity()->device()->driver() == "qcom-camss") {
++		ret = data->setupLinks();
++		if (ret < 0)
++			return ret;
++	}
++
+ 	const MediaPad *pad = acquirePipeline(data);
+ 	if (pad) {
+ 		LOG(SimplePipeline, Info)
+@@ -1891,6 +2031,9 @@ bool SimplePipelineHandler::matchDevice(std::shared_ptr<MediaDevice> media,
+ {
+ 	unsigned int numStreams = 1;
+ 
++	if (info.driver == "qcom-camss")
++		camssMedia_ = media;
++
+ 	for (const auto &[name, streams] : info.converters) {
+ 		DeviceMatch converterMatch(name);
+ 		converter_ = acquireMediaDevice(enumerator, converterMatch);
+@@ -2148,6 +2291,18 @@ void SimplePipelineHandler::releasePipeline(SimpleCameraData *data)
+ 			edata.owners.erase(iter);
+ 		}
+ 	}
++
++	if (data->sensor_ &&
++	    data->sensor_->entity()->device()->driver() == "qcom-camss") {
++		for (const SimpleCameraData::Entity &entity : data->entities_) {
++			MediaLink *link = entity.sourceLink;
++
++			if (!link || (link->flags() & MEDIA_LNK_FL_IMMUTABLE))
++				continue;
++
++			link->setEnabled(false);
++		}
++	}
+ }
+ 
+ REGISTER_PIPELINE_HANDLER(SimplePipelineHandler, "simple")

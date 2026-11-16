@@ -9,12 +9,15 @@
 #   - per-frame statistics (with a delay-aware AGC update interval) so
 #     brightness and autofocus converge at the full frame rate
 #   - CAMSS link reset before configuring a different camera
+#   - separate CSID/VFE paths per CAMSS camera so front and rear streams
+#     can run concurrently
 # One combined, rebased patch is applied through the Fedora spec so the IPA
 # keeps being signed by the package build.
 set -euxo pipefail
 
 srpm_url=https://kojipkgs.fedoraproject.org/packages/libcamera/0.7.2/2.fc44/src/libcamera-0.7.2-2.fc44.src.rpm
 patch=/work/camera/gts9wifi-libcamera-0.7.2.patch
+patch2=/work/camera/gts9wifi-libcamera-camss-concurrent.patch
 out=/work/out-camera
 
 dnf -y install rpm-build dnf5-plugins curl bzip2 tar findutils
@@ -23,10 +26,11 @@ curl -fsSL -o /tmp/libcamera.src.rpm "$srpm_url"
 rpm -i /tmp/libcamera.src.rpm
 dnf -y builddep /root/rpmbuild/SPECS/libcamera.spec
 
-cp "$patch" /root/rpmbuild/SOURCES/
+cp "$patch" "$patch2" /root/rpmbuild/SOURCES/
 spec=/root/rpmbuild/SPECS/libcamera.spec
 sed -i '/^Patch02:/a Patch03: gts9wifi-libcamera-0.7.2.patch' "$spec"
-sed -i 's/^Release:.*/Release: 3%{?dist}.gts9wifi5/' "$spec"
+sed -i '/^Patch03:/a Patch04: gts9wifi-libcamera-camss-concurrent.patch' "$spec"
+sed -i 's/^Release:.*/Release: 3%{?dist}.gts9wifi6/' "$spec"
 
 rpmbuild -bb "$spec"
 
