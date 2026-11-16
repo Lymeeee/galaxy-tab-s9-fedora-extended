@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.53
+Version:        0.17.54
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -24,6 +24,7 @@ Requires:       python3
 Requires:       python3-rpm
 Requires:       unzip
 Requires:       util-linux
+Requires:       dtc
 Requires:       libcap
 Requires:       iw
 Requires:       systemd
@@ -250,6 +251,12 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Mon Nov 16 2026 Lymeeee <mr_xunyu@163.com> - 0.17.54-1
+- Require dtc at runtime: gts9wifi-bt-provision needs fdtget/fdtput to
+  write local-bd-address into the boot DTBs.  Removing dtc during a
+  build-tool cleanup left hci0 unconfigured on every boot and made
+  Bluetooth unusable.
+
 * Mon Nov 16 2026 Lymeeee <mr_xunyu@163.com> - 0.17.53-1
 - Hide the internal CAMSS VFE video nodes from GStreamer's v4l2 device
   provider.  The camera app listed them as extra "rear" cameras next to
