@@ -25,10 +25,13 @@
 #include <linux/backlight.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
+#include <linux/input.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/regulator/consumer.h>
+#include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/workqueue.h>
 
 #include <drm/display/drm_dsc.h>
@@ -126,6 +129,8 @@ struct ana38407 {
 	bool enabled;
 	bool fod_mode;
 	bool fod_circle;
+	bool cover_closed;
+	struct work_struct cover_work;
 	u8 id[3];
 	char cell_id[23];
 };
@@ -212,8 +217,13 @@ static int ana38407_write_fod_locked(struct ana38407 *ctx, bool enable)
 {
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
 	unsigned long mode_flags = ctx->dsi->mode_flags;
-	u8 brightness_hi = ctx->user_brightness >> 8;
-	u8 brightness_lo = ctx->user_brightness & 0xff;
+	bool dark = READ_ONCE(ctx->cover_closed);
+	u8 brightness_hi = dark ? 0 : ctx->user_brightness >> 8;
+	u8 brightness_lo = dark ? 0 : ctx->user_brightness & 0xff;
+
+	/* The folio cover must stay dark even if AOD/FOD is requested. */
+	if (enable && dark)
+		return -EBUSY;
 
 	ctx->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf0, 0x5a, 0x5a);
@@ -257,6 +267,10 @@ static int ana38407_write_fod_circle_locked(struct ana38407 *ctx, bool enable)
 	u8 circle[] = { 0x7a, 0x05, 0x00, 0x00, enable ? 0x00 : 0x02 };
 	unsigned long mode_flags = ctx->dsi->mode_flags;
 	int ret, lock_ret;
+
+	/* The folio cover must stay dark even if AOD/FOD is requested. */
+	if (enable && READ_ONCE(ctx->cover_closed))
+		return -EBUSY;
 
 	ctx->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 	ret = ana38407_generic_write(ctx, level2_unlock,
@@ -329,7 +343,11 @@ static int ana38407_on(struct ana38407 *ctx)
 	struct drm_dsc_picture_parameter_set pps;
 	u8 module_info[11] = { };
 	u8 id[3] = {};
+	u16 brightness;
 	ssize_t module_info_len;
+
+	/* Resume with the cover closed must not light the panel even once. */
+	brightness = READ_ONCE(ctx->cover_closed) ? 0 : ctx->user_brightness;
 
 	ctx->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 
@@ -467,8 +485,8 @@ static int ana38407_on(struct ana38407 *ctx)
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf0, 0x5a, 0x5a);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x53, 0x28);
 	mipi_dsi_dcs_write_var_seq_multi(&dsi_ctx, 0x51,
-					 ctx->user_brightness >> 8,
-					 ctx->user_brightness & 0xff);
+					 brightness >> 8,
+					 brightness & 0xff);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf0, 0xa5, 0xa5);
 
 	/* SP_SETTING */
@@ -710,13 +728,17 @@ static int ana38407_bl_update(struct backlight_device *bl)
 	struct ana38407 *ctx = bl_get_data(bl);
 	unsigned int raw = min_t(unsigned int, backlight_get_brightness(bl),
 				 ANA38407_MAX_DBV);
+	bool cover_closed = READ_ONCE(ctx->cover_closed);
 	u16 dbv = ana38407_dbv_from_raw(raw);
 	int ret = 0;
 
 	mutex_lock(&ctx->lock);
-	ctx->user_brightness = dbv;
+	/* Keep the user's brightness for the next open, but emit black now. */
+	if (!cover_closed)
+		ctx->user_brightness = dbv;
 	if (ctx->prepared && !ctx->fod_mode)
-		ret = ana38407_write_brightness_locked(ctx, dbv);
+		ret = ana38407_write_brightness_locked(ctx,
+						       cover_closed ? 0 : dbv);
 	mutex_unlock(&ctx->lock);
 
 	return ret;
@@ -969,6 +991,99 @@ static void ana38407_dsc_config(struct ana38407 *ctx)
 	ctx->dsc = ana38407_dsc_template;
 }
 
+static struct ana38407 *ana38407_cover_ctx;
+
+static void ana38407_cover_work(struct work_struct *work)
+{
+	struct ana38407 *ctx = container_of(work, struct ana38407, cover_work);
+
+	mutex_lock(&ctx->lock);
+	if (READ_ONCE(ctx->cover_closed)) {
+		if (ctx->fod_circle || ctx->fod_mode)
+			ana38407_fod_cleanup_locked(ctx);
+		if (ctx->prepared)
+			ana38407_write_brightness_locked(ctx, 0);
+	}
+	mutex_unlock(&ctx->lock);
+
+	if (ctx->panel.backlight)
+		backlight_update_status(ctx->panel.backlight);
+}
+
+static void ana38407_cover_event(struct input_handle *handle,
+				 unsigned int type, unsigned int code, int value)
+{
+	struct ana38407 *ctx = READ_ONCE(ana38407_cover_ctx);
+
+	if (!ctx || type != EV_SW || code != SW_LID)
+		return;
+
+	WRITE_ONCE(ctx->cover_closed, value);
+	schedule_work(&ctx->cover_work);
+}
+
+static int ana38407_cover_connect(struct input_handler *handler,
+				  struct input_dev *dev,
+				  const struct input_device_id *id)
+{
+	struct input_handle *handle;
+	int ret;
+
+	/*
+	 * The gpio-keys hall also reports SW_LID, but the folio cover is only
+	 * reliable through the Wacom digitiser's 0x0d notification.
+	 */
+	if (strcmp(dev->name, "Wacom WEZ01 S Pen"))
+		return -ENODEV;
+
+	handle = kzalloc(sizeof(*handle), GFP_KERNEL);
+	if (!handle)
+		return -ENOMEM;
+
+	handle->dev = dev;
+	handle->handler = handler;
+	handle->name = "ana38407-cover";
+
+	ret = input_register_handle(handle);
+	if (ret) {
+		kfree(handle);
+		return ret;
+	}
+
+	return 0;
+}
+
+static void ana38407_cover_disconnect(struct input_handle *handle)
+{
+	input_unregister_handle(handle);
+	kfree(handle);
+}
+
+static const struct input_device_id ana38407_cover_ids[] = {
+	{
+		.flags = INPUT_DEVICE_ID_MATCH_EVBIT,
+		.evbit = { BIT_MASK(EV_SW) },
+	},
+	{ }
+};
+
+static struct input_handler ana38407_cover_handler = {
+	.event = ana38407_cover_event,
+	.connect = ana38407_cover_connect,
+	.disconnect = ana38407_cover_disconnect,
+	.name = "ana38407-cover",
+	.id_table = ana38407_cover_ids,
+};
+
+static void ana38407_cover_cleanup(void *data)
+{
+	struct ana38407 *ctx = data;
+
+	WRITE_ONCE(ana38407_cover_ctx, NULL);
+	input_unregister_handler(&ana38407_cover_handler);
+	cancel_work_sync(&ctx->cover_work);
+}
+
 static int ana38407_probe(struct mipi_dsi_device *dsi)
 {
 	struct device *dev = &dsi->dev;
@@ -1008,6 +1123,18 @@ static int ana38407_probe(struct mipi_dsi_device *dsi)
 		return dev_err_probe(dev, PTR_ERR(ctx->panel.backlight),
 				     "failed to create backlight\n");
 
+	INIT_WORK(&ctx->cover_work, ana38407_cover_work);
+	WRITE_ONCE(ana38407_cover_ctx, ctx);
+	ret = input_register_handler(&ana38407_cover_handler);
+	if (ret) {
+		WRITE_ONCE(ana38407_cover_ctx, NULL);
+		return dev_err_probe(dev, ret,
+				     "failed to register cover input handler\n");
+	}
+	ret = devm_add_action_or_reset(dev, ana38407_cover_cleanup, ctx);
+	if (ret)
+		return ret;
+
 	ret = sysfs_create_group(&ctx->panel.backlight->dev.kobj,
 				 &ana38407_bl_attr_group);
 	if (ret)
@@ -1034,6 +1161,9 @@ static void ana38407_remove(struct mipi_dsi_device *dsi)
 {
 	struct ana38407 *ctx = mipi_dsi_get_drvdata(dsi);
 	int ret;
+
+	WRITE_ONCE(ana38407_cover_ctx, NULL);
+	cancel_work_sync(&ctx->cover_work);
 
 	sysfs_remove_group(&ctx->panel.backlight->dev.kobj,
 			   &ana38407_bl_attr_group);
