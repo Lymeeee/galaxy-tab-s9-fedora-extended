@@ -1,0 +1,99 @@
+diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
+index 29b469d..fc24a64 100644
+--- a/src/ipa/simple/soft_simple.cpp
++++ b/src/ipa/simple/soft_simple.cpp
+@@ -112,6 +112,14 @@ private:
+ 	uint64_t afMinScore_ = 0;
+ 	unsigned int afFailedScans_ = 0;
+ 
++	/*
++	 * Gentle contrast AF: fewer steps, a settle window long enough for the
++	 * VCM to move without a rapid click train, and a rare, small probe so a
++	 * locked preview stays quiet.
++	 */
++	static constexpr unsigned int kAfSettleFrames = 4;
++	static constexpr unsigned int kAfProbeInterval = 1800;
++
+ 	/* Local parameter storage */
+ 	struct IPAContext context_;
+ };
+@@ -421,10 +429,10 @@ void IPASoftSimple::startFocusScan(bool retry)
+ 		afFailedScans_ = 0;
+ 	afPhase_ = AfPhase::Coarse;
+ 	afState_ = controls::AfStateScanning;
+-	afPositions_ = { 128, 256, 384, 512, 640, 768, 896 };
++	afPositions_ = { 128, 320, 512, 704, 896 };
+ 	afPositionCount_ = afPositions_.size();
+ 	afPositionIndex_ = 0;
+-	afSettleStats_ = 1;
++	afSettleStats_ = kAfSettleFrames;
+ 	afLockedStats_ = 0;
+ 	afDropStats_ = 0;
+ 	afBestPosition_ = 512;
+@@ -464,17 +472,17 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 			startFocusScan(true);
+ 		else if (afDropStats_ >= 12)
+ 			startFocusScan();
+-		else if (afLockedStats_ >= 180) {
++		else if (afLockedStats_ >= kAfProbeInterval) {
+ 			/* Periodically check nearby focus without a full-range hunt.
+ 			 * This also detects depth changes with similar scene contrast.
+ 			 * Statistics arrive only while capture is running (30 Hz), so
+-			 * this makes one probe every six seconds.
++			 * this makes one small probe every minute.
+ 			 */
+ 			afPhase_ = AfPhase::Probe;
+ 			afProbePosition_ = afPosition_;
+ 			afPositions_[0] = afPosition_;
+-			afPositions_[1] = std::max(afPosition_ - 48, 0);
+-			afPositions_[2] = std::min(afPosition_ + 48, 1023);
++			afPositions_[1] = std::max(afPosition_ - 24, 0);
++			afPositions_[2] = std::min(afPosition_ + 24, 1023);
+ 			afPositionCount_ = 3;
+ 			afPositionIndex_ = 0;
+ 			afBestScore_ = 0;
+@@ -488,7 +496,7 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 		afSettleStats_--;
+ 		if (afPosition_ != afPositions_[afPositionIndex_]) {
+ 			afPosition_ = afPositions_[afPositionIndex_];
+-			afSettleStats_ = 1;
++			afSettleStats_ = kAfSettleFrames;
+ 			return afPosition_;
+ 		}
+ 		return std::nullopt;
+@@ -506,7 +514,7 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 
+ 	afPositionIndex_++;
+ 	if (afPositionIndex_ < afPositionCount_) {
+-		afSettleStats_ = 1;
++		afSettleStats_ = kAfSettleFrames;
+ 		afPosition_ = afPositions_[afPositionIndex_];
+ 		return afPosition_;
+ 	}
+@@ -523,14 +531,14 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 
+ 	if (afPhase_ == AfPhase::Coarse) {
+ 		afPhase_ = AfPhase::Fine;
+-		afPositionCount_ = 5;
++		afPositionCount_ = 3;
+ 		afPositionIndex_ = 0;
+ 		afBestScore_ = 0;
+ 		for (unsigned int i = 0; i < afPositionCount_; ++i) {
+-			int32_t offset = (static_cast<int32_t>(i) - 2) * 48;
++			int32_t offset = (static_cast<int32_t>(i) - 1) * 48;
+ 			afPositions_[i] = std::clamp(afBestPosition_ + offset, 0, 1023);
+ 		}
+-		afSettleStats_ = 1;
++		afSettleStats_ = kAfSettleFrames;
+ 		afPosition_ = afPositions_[0];
+ 		return afPosition_;
+ 	}
+@@ -550,7 +558,7 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 	afLockedStats_ = 0;
+ 	afDropStats_ = 0;
+ 	afPosition_ = afBestPosition_;
+-	afSettleStats_ = 1;
++	afSettleStats_ = kAfSettleFrames;
+ 	return afPosition_;
+ }
+ 
