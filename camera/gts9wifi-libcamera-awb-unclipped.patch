@@ -1,0 +1,129 @@
+diff --git a/include/libcamera/internal/software_isp/swisp_stats.h b/include/libcamera/internal/software_isp/swisp_stats.h
+index a7ddc6f..de7f833 100644
+--- a/include/libcamera/internal/software_isp/swisp_stats.h
++++ b/include/libcamera/internal/software_isp/swisp_stats.h
+@@ -31,6 +31,15 @@ struct SwIspStats {
+ 	 * \brief Sums of colour channels of all the sampled pixels
+ 	 */
+ 	RGB<uint64_t> sum_;
++	/**
++	 * \brief Sums of colour channels of the samples below the clipping
++	 *        threshold
++	 */
++	RGB<uint64_t> sumUnclipped_;
++	/**
++	 * \brief Number of samples contributing to \a sumUnclipped_
++	 */
++	uint64_t unclippedSamples;
+ 	/**
+ 	 * \brief Sum of absolute horizontal luminance second derivatives
+ 	 *
+diff --git a/src/ipa/simple/algorithms/awb.cpp b/src/ipa/simple/algorithms/awb.cpp
+index 05155c8..3bdab6f 100644
+--- a/src/ipa/simple/algorithms/awb.cpp
++++ b/src/ipa/simple/algorithms/awb.cpp
+@@ -65,13 +65,27 @@ void Awb::process(IPAContext &context,
+ 	 */
+ 	const uint64_t nPixels = std::accumulate(
+ 		histogram.begin(), histogram.end(), uint64_t(0));
+-	const uint64_t offset = blackLevel * nPixels;
++	const uint64_t nUnclipped = stats->unclippedSamples;
+ 	const uint64_t minValid = 1;
++
++	/*
++	 * Clipped highlights (bright lamps, specular reflections) saturate the
++	 * channels at different levels and dominate a grey-world average,
++	 * tinting the whole scene.  Prefer the average of the samples below the
++	 * saturation threshold.  If too few samples qualify, the frame is
++	 * mostly clipped: keep the previous gains instead of following the
++	 * clipped light.
++	 */
++	if (nUnclipped * 8 < nPixels)
++		return;
++
++	const uint64_t offset = blackLevel * nUnclipped;
+ 	/*
+ 	 * Make sure the sums are at least minValid, while preventing unsigned
+ 	 * integer underflow.
+ 	 */
+-	const RGB<uint64_t> sum = stats->sum_.max(offset + minValid) - offset;
++	const RGB<uint64_t> sum =
++		stats->sumUnclipped_.max(offset + minValid) - offset;
+ 
+ 	/*
+ 	 * Calculate red and blue gains for AWB.
+diff --git a/src/libcamera/software_isp/swstats_cpu.cpp b/src/libcamera/software_isp/swstats_cpu.cpp
+index 3cc5e41..496a2a3 100644
+--- a/src/libcamera/software_isp/swstats_cpu.cpp
++++ b/src/libcamera/software_isp/swstats_cpu.cpp
+@@ -182,6 +182,10 @@ static constexpr unsigned int kBlueYMul = 29; /* 0.114 * 256 */
+ 	uint64_t sumR = 0;                \
+ 	uint64_t sumG = 0;                \
+ 	uint64_t sumB = 0;                \
++	uint64_t unclippedR = 0;          \
++	uint64_t unclippedG = 0;          \
++	uint64_t unclippedB = 0;          \
++	uint64_t unclippedSamples = 0;    \
+ 	uint64_t focus = 0;               \
+ 	uint64_t luminance = 0;
+ 
+@@ -190,6 +194,14 @@ static constexpr unsigned int kBlueYMul = 29; /* 0.114 * 256 */
+ 	sumG += g;                         \
+ 	sumB += b;                         \
+                                            \
++	/* Exclude near-saturated samples from the AWB sums. */ \
++	if (r < 250 * (div) && g < 250 * (div) && b < 250 * (div)) { \
++		unclippedR += r;           \
++		unclippedG += g;           \
++		unclippedB += b;           \
++		unclippedSamples++;        \
++	}                                  \
++                                           \
+ 	yVal = r * kRedYMul;               \
+ 	yVal += g * kGreenYMul;            \
+ 	yVal += b * kBlueYMul;             \
+@@ -216,6 +228,10 @@ static constexpr unsigned int kBlueYMul = 29; /* 0.114 * 256 */
+ 	stats.sum_.r() += sumR;     \
+ 	stats.sum_.g() += sumG;     \
+ 	stats.sum_.b() += sumB;     \
++	stats.sumUnclipped_.r() += unclippedR; \
++	stats.sumUnclipped_.g() += unclippedG; \
++	stats.sumUnclipped_.b() += unclippedB; \
++	stats.unclippedSamples += unclippedSamples; \
+ 	stats.focus += focus;       \
+ 	stats.luminance += luminance; \
+ 	stats.focusSamples += lineSamples;
+@@ -417,6 +433,8 @@ void SwStatsCpu::startFrame(uint32_t frame)
+ 
+ 	for (auto &s : stats_) {
+ 		s.sum_ = RGB<uint64_t>({ 0, 0, 0 });
++		s.sumUnclipped_ = RGB<uint64_t>({ 0, 0, 0 });
++		s.unclippedSamples = 0;
+ 		s.focus = 0;
+ 		s.luminance = 0;
+ 		s.focusSamples = 0;
+@@ -437,12 +455,16 @@ void SwStatsCpu::finishFrame(uint32_t frame, uint32_t bufferId)
+ 
+ 	if (valid) {
+ 		sharedStats_->sum_ = RGB<uint64_t>({ 0, 0, 0 });
++		sharedStats_->sumUnclipped_ = RGB<uint64_t>({ 0, 0, 0 });
++		sharedStats_->unclippedSamples = 0;
+ 		sharedStats_->focus = 0;
+ 		sharedStats_->luminance = 0;
+ 		sharedStats_->focusSamples = 0;
+ 		sharedStats_->yHistogram.fill(0);
+ 		for (const auto &s : stats_) {
+ 			sharedStats_->sum_ += s.sum_;
++			sharedStats_->sumUnclipped_ += s.sumUnclipped_;
++			sharedStats_->unclippedSamples += s.unclippedSamples;
+ 			sharedStats_->focus += s.focus;
+ 			sharedStats_->luminance += s.luminance;
+ 			sharedStats_->focusSamples += s.focusSamples;
+@@ -451,6 +473,7 @@ void SwStatsCpu::finishFrame(uint32_t frame, uint32_t bufferId)
+ 		}
+ 
+ 		sharedStats_->sum_ >>= sumShift_;
++		sharedStats_->sumUnclipped_ >>= sumShift_;
+ 	}
+ 
+ 	sharedStats_->valid = valid;
