@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.54
+Version:        0.17.55
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -249,8 +249,17 @@ fi
 %dir %{_unitdir}/systemd-suspend.service.d
 %{_unitdir}/systemd-suspend.service.d/10-gts9wifi-camera-suspend.conf
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
+%{_prefix}/lib/systemd/system-sleep/gts9wifi-usbpd-sleep
 
 %changelog
+* Mon Nov 16 2026 Lymeeee <mr_xunyu@163.com> - 0.17.55-1
+- Unbind the SM5714 USB-PD controller for the deep-suspend window when a
+  charger is attached, and bind it again after resume.  The TCPM stack
+  cannot handle a charger detach while suspended: the next resume (RTC or
+  power key) stalls in the detach path and the PMIC hard-resets the SoC.
+  The PD contract is renegotiated after resume; during sleep the source
+  falls back to its default contract and charging continues.
+
 * Mon Nov 16 2026 Lymeeee <mr_xunyu@163.com> - 0.17.54-1
 - Require dtc at runtime: gts9wifi-bt-provision needs fdtget/fdtput to
   write local-bd-address into the boot DTBs.  Removing dtc during a

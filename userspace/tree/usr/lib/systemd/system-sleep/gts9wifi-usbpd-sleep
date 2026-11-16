@@ -1,0 +1,44 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Unbind the SM5714 USB-PD/TCPM stack around deep suspend while a charger is
+# attached.  If the cable is pulled while the tablet is suspended, the next
+# resume stalls in the charger-detach path and the PMIC hard-resets the SoC;
+# with the driver unbound the same sequence resumes cleanly.  The PD contract
+# is torn down before sleep (the source falls back to its default 5 V
+# contract and charging continues) and renegotiated after resume.
+#
+# Only deep suspends with a charger attached are affected.  s2idle is fine,
+# and on battery the driver stays bound so plugging a charger can still wake
+# the tablet.
+
+set -u
+
+driver=/sys/bus/i2c/drivers/sm5714-usbpd
+dev=7-0033
+state=/run/gts9wifi-usbpd-sleep.unbound
+
+case "${1:-}:${2:-}" in
+pre:suspend)
+	grep -q '\[deep\]' /sys/power/mem_sleep 2>/dev/null || exit 0
+	[ "$(cat /sys/class/power_supply/sm5714-usb/online 2>/dev/null)" = "1" ] || exit 0
+	[ -L "$driver/$dev" ] || exit 0
+	if printf '%s' "$dev" > "$driver/unbind"; then
+		touch "$state"
+		logger -t gts9wifi-usbpd-sleep "unbound $dev before deep suspend (charger attached)"
+	else
+		logger -t gts9wifi-usbpd-sleep "failed to unbind $dev"
+	fi
+	;;
+post:suspend)
+	[ -f "$state" ] || exit 0
+	sleep 2
+	if printf '%s' "$dev" > "$driver/bind"; then
+		logger -t gts9wifi-usbpd-sleep "bound $dev after deep resume"
+	else
+		logger -t gts9wifi-usbpd-sleep "failed to bind $dev"
+	fi
+	rm -f "$state"
+	;;
+esac
+exit 0
