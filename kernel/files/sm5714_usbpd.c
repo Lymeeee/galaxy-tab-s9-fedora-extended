@@ -87,6 +87,7 @@ struct sm5714_usbpd {
 	bool wake_armed;
 	bool removing;
 	bool quiet;
+	bool suspended;
 	bool pending_init;
 	int cached_vbus;
 	int cached_current_limit;
@@ -803,9 +804,8 @@ static void sm5714_usbpd_irq_retry_work(struct work_struct *work)
 	struct sm5714_usbpd *sm =
 		container_of(to_delayed_work(work), struct sm5714_usbpd,
 			     irq_retry_work);
-	bool deferred = sm->quiet;
 
-	if (sm->removing)
+	if (sm->removing || sm->suspended)
 		return;
 
 	if (sm5714_usbpd_handle_interrupts(sm)) {
@@ -834,10 +834,8 @@ static void sm5714_usbpd_irq_retry_work(struct work_struct *work)
 	 * already cleared: the port state may have changed while the system
 	 * was suspended, and the resume path deliberately did not look at it.
 	 */
-	if (deferred) {
-		tcpm_cc_change(sm->port);
-		tcpm_vbus_change(sm->port);
-	}
+	tcpm_cc_change(sm->port);
+	tcpm_vbus_change(sm->port);
 }
 
 static irqreturn_t sm5714_usbpd_irq(int irq, void *data)
@@ -847,11 +845,12 @@ static irqreturn_t sm5714_usbpd_irq(int irq, void *data)
 	if (sm->removing)
 		return IRQ_HANDLED;
 
-	if (sm->quiet) {
+	if (sm->quiet || sm->suspended) {
 		/*
-		 * The tablet is suspended or resuming with a charger attached.
-		 * Do not touch the bus from the IRQ path: mask the level IRQ and
-		 * let the post-resume work acknowledge it once the bus is usable.
+		 * The tablet is suspended or resuming, with or without a
+		 * charger attached.  Do not touch the bus from the IRQ path:
+		 * mask the level IRQ and let the resume callback schedule the
+		 * work once the I2C parent is usable again.
 		 */
 		if (!sm->irq_masked) {
 			sm->irq_masked = true;
@@ -887,6 +886,13 @@ static int sm5714_usbpd_suspend(struct device *dev)
 	bool allow_wake;
 	int limit;
 	int ret;
+
+	/*
+	 * From here until the resume callback, the IRQ handler must not touch
+	 * the bus.  A GPIO/PMIC wake IRQ can fire before the I2C parent has
+	 * resumed, and that early transfer is what wedges the resume.
+	 */
+	sm->suspended = true;
 
 	/*
 	 * Do not let deferred bus work survive into the sleep window.  A
@@ -973,6 +979,13 @@ static int sm5714_usbpd_suspend(struct device *dev)
 static int sm5714_usbpd_resume(struct device *dev)
 {
 	struct sm5714_usbpd *sm = dev_get_drvdata(dev);
+
+	/*
+	 * The I2C parent has resumed before this callback, so the bus is
+	 * usable again.  Any IRQ that arrived before this point only masked
+	 * the line; schedule its latched event now.
+	 */
+	sm->suspended = false;
 
 	if (sm->wake_armed) {
 		sm->wake_armed = false;
