@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.56
+Version:        0.17.57
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -90,6 +90,7 @@ if [ -x %{_libexecdir}/gts9wifi-android-mounts ]; then
     %{_libexecdir}/gts9wifi-android-mounts >/dev/null 2>&1 || :
 fi
 systemctl enable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
+systemctl --global enable gts9wifi-charge-mode.service >/dev/null 2>&1 || :
 systemctl enable gts9wifi-speaker-protection.service >/dev/null 2>&1 || :
 systemctl enable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-spen-remote.service >/dev/null 2>&1 || :
@@ -146,6 +147,7 @@ fi
 systemctl daemon-reload >/dev/null 2>&1 || :
 if [ "$1" = 0 ]; then
     systemctl disable --now gts9wifi-charge-guard.timer >/dev/null 2>&1 || :
+    systemctl --global disable gts9wifi-charge-mode.service >/dev/null 2>&1 || :
     systemctl disable gts9wifi-keyboard-fw.service >/dev/null 2>&1 || :
     systemctl disable --now gts9wifi-spen-remote.service >/dev/null 2>&1 || :
     systemctl disable --now gts9wifi-nologs.service >/dev/null 2>&1 || :
@@ -189,6 +191,7 @@ fi
 %{_libexecdir}/gts9wifi-android-mounts
 %{_libexecdir}/gts9wifi-rtc-time
 %{_libexecdir}/gts9wifi-charge-guard
+%{_libexecdir}/gts9wifi-charge-mode
 %{_libexecdir}/gts9wifi-keyboard-fw
 %{_libexecdir}/gts9wifi-wifi-bdf
 %{_libexecdir}/gts9wifi-privileged
@@ -209,6 +212,7 @@ fi
 %dir %{_unitdir}/alsa-restore.service.d
 %{_unitdir}/alsa-restore.service.d/90-gts9wifi-speaker-routing.conf
 %{_userunitdir}/gts9wifi-power-key.service
+%{_userunitdir}/gts9wifi-charge-mode.service
 %{_udevrulesdir}/72-gts9wifi-power-key.rules
 %{_bindir}/gts9wifi-power
 %{_unitdir}/gts9wifi-fast-charge-default.service
@@ -251,6 +255,11 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Tue Nov 17 2026 Lymeeee <mr_xunyu@163.com> - 0.17.57-1
+- Add the 息屏直充 charge mode: keep PPS direct charging alive with the
+  panel off and enter deep sleep at 90%, backed by the new SM5440
+  charge_hold sysfs attribute.
+
 * Mon Nov 16 2026 Lymeeee <mr_xunyu@163.com> - 0.17.56-1
 - Drop the SM5714 USB-PD unbind sleep hook.  The kernel keeps the PD
   stack alive across deep suspend and defers the charger-detach

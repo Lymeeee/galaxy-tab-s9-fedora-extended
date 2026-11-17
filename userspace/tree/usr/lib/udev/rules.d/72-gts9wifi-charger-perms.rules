@@ -8,3 +8,11 @@
 # udev.)
 ACTION=="add|change", SUBSYSTEM=="i2c", KERNEL=="6-0049", \
 	RUN+="/bin/sh -c 'for a in fast_charge charge_limit charge_bypass; do f=%S%p/$$a; [ -e $$f ] && chgrp video $$f && chmod 0664 $$f; done; true'"
+
+# charge_hold belongs to the SM5440 direct-charge device (4-0063).
+ACTION=="add|change", SUBSYSTEM=="i2c", KERNEL=="4-0063", \
+	RUN+="/bin/sh -c 'for a in charge_hold charge_hold_status; do f=%S%p/$$a; [ -e $$f ] && chgrp video $$f && chmod 0664 $$f; done; true'"
+
+# The user-session charge mode blanks the panel through the DRM connector.
+ACTION=="add|change", SUBSYSTEM=="drm", KERNEL=="card0-DSI-1", \
+	RUN+="/bin/sh -c 'f=/sys/class/drm/card0-DSI-1/dpms; [ -e $$f ] && chgrp video $$f && chmod 0664 $$f; true'"

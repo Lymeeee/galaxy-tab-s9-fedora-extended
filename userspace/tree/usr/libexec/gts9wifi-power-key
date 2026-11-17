@@ -130,6 +130,7 @@ class PowerKey:
     def woke_by_this_key(self):
         now = time.monotonic()
         if self.sleeping or self.display_off or \
+                read('/sys/class/drm/card0-DSI-1/dpms') in ('Off', 'off') or \
                 now - self.resumed < WAKE_GRACE_MS / 1000 or \
                 now - self.display_on < WAKE_GRACE_MS / 1000:
             return True
@@ -164,6 +165,7 @@ class PowerKey:
             return
         if self.woke_by_this_key():
             print('wake press dropped', file=sys.stderr, flush=True)
+            self.mark_wake()
             self.ignore_release = True
             return
         self.cancel()
@@ -213,7 +215,24 @@ class PowerKey:
         self.suspend()
         return False
 
+    @staticmethod
+    def mark_wake():
+        try:
+            path = os.path.join(GLib.get_user_runtime_dir(),
+                                'gts9wifi-power-key-wake')
+            with open(path, 'w'):
+                pass
+        except (OSError, TypeError):
+            pass
+
     def suspend(self):
+        # The charge mode may have pinned the system awake for PPS charging;
+        # an explicit power-key suspend always wins.
+        try:
+            with open('/sys/bus/i2c/devices/4-0063/charge_hold', 'w') as f:
+                f.write('0\n')
+        except OSError:
+            pass
         self.call(self.system, 'org.freedesktop.login1',
                   '/org/freedesktop/login1',
                   'org.freedesktop.login1.Manager', 'Suspend',

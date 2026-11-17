@@ -1,0 +1,402 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+#
+# Keep PPS direct charging alive with the panel off.  While the 息屏直充 switch
+# is on, AC is connected, the battery is below 90% and the session is locked
+# and blank, hold the SM5440 driver's charge_hold so the kernel refuses system
+# suspend and the PPS contract keeps being refreshed.  At 90% release the hold
+# and drop into deep sleep.
+import os
+import signal
+import sys
+import time
+
+from gi.repository import Gio, GLib
+
+STATE_DIR = os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}'
+STATE_FILE = os.path.join(STATE_DIR, 'gts9wifi-charge-mode.state')
+POWER_KEY_MARK = os.path.join(STATE_DIR, 'gts9wifi-power-key-wake')
+GSD_RESTORE = '/var/lib/gts9wifi/charge-mode-gsd'
+SWITCH = '/var/lib/gts9wifi/charge-hold'
+HOLD = '/sys/bus/i2c/devices/4-0063/charge_hold'
+HOLD_STATUS = '/sys/bus/i2c/devices/4-0063/charge_hold_status'
+FAST = '/sys/bus/i2c/devices/6-0049/fast_charge'
+USB = '/sys/class/power_supply/sm5714-usb'
+BAT = '/sys/class/power_supply/sm5714-battery'
+DPMS = '/sys/class/drm/card0-DSI-1/dpms'
+POLL_MS = 2000
+THRESHOLD = 90
+IDLE_MS = 5000
+POWER_KEY_GRACE_S = 5
+GSD_SCHEMA = 'org.gnome.settings-daemon.plugins.power'
+GSD_KEY = 'sleep-inactive-ac-type'
+
+
+def log(msg):
+    print(f'gts9wifi-charge-mode: {msg}', file=sys.stderr, flush=True)
+
+
+def read_text(path, default=None):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def read_int(path):
+    try:
+        return int(read_text(path))
+    except (TypeError, ValueError):
+        return None
+
+
+def write_text(path, value):
+    try:
+        with open(path, 'w') as f:
+            f.write(value + '\n')
+        return True
+    except OSError as e:
+        log(f'write {path}: {e}')
+        return False
+
+
+def switch_on():
+    return read_text(SWITCH, '1') != '0'
+
+
+def irq_for(action):
+    try:
+        with open('/proc/interrupts') as f:
+            for line in f:
+                if line.rstrip().endswith(action):
+                    return int(line.split(':', 1)[0])
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def power_key_mark_fresh():
+    try:
+        return time.time() - os.stat(POWER_KEY_MARK).st_mtime < POWER_KEY_GRACE_S
+    except OSError:
+        return False
+
+
+class ChargeMode:
+    def __init__(self):
+        self.session = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        self.system = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+        self.gsd = Gio.Settings.new(GSD_SCHEMA)
+        self.engaged = False
+        self.saved_fast = None
+        self.saved_gsd = None
+        self.suspend_pending = 0
+        self.usbpd_irq = irq_for('7-0033')
+
+        if os.path.exists(STATE_FILE):
+            self.restore()
+        self.restore_stale_gsd()
+
+        self.system.signal_subscribe(
+            'org.freedesktop.login1', 'org.freedesktop.login1.Manager',
+            'PrepareForSleep', '/org/freedesktop/login1', None,
+            Gio.DBusSignalFlags.NONE, self.on_prepare_for_sleep)
+        self.session.signal_subscribe(
+            'org.gnome.Mutter.DisplayConfig', 'org.freedesktop.DBus.Properties',
+            'PropertiesChanged', '/org/gnome/Mutter/DisplayConfig', None,
+            Gio.DBusSignalFlags.NONE, self.on_display_changed)
+        self.timeout = GLib.timeout_add(POLL_MS, self.tick)
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, self.quit)
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
+
+    def call(self, bus, name, path, iface, method, args, timeout=1000):
+        try:
+            return bus.call_sync(name, path, iface, method, args, None,
+                                 Gio.DBusCallFlags.NONE, timeout, None)
+        except GLib.Error:
+            return None
+
+    def locked(self):
+        res = self.call(self.session, 'org.gnome.ScreenSaver',
+                        '/org/gnome/ScreenSaver', 'org.gnome.ScreenSaver',
+                        'GetActive', None)
+        if res is None:
+            return False
+        try:
+            return bool(res.unpack()[0])
+        except (TypeError, IndexError):
+            return False
+
+    def display_off(self):
+        res = self.call(
+            self.session, 'org.gnome.Mutter.DisplayConfig',
+            '/org/gnome/Mutter/DisplayConfig', 'org.freedesktop.DBus.Properties',
+            'Get',
+            GLib.Variant('(ss)', ('org.gnome.Mutter.DisplayConfig',
+                                  'PowerSaveMode')))
+        if res is not None:
+            try:
+                return res.unpack()[0] != 0
+            except (TypeError, IndexError):
+                pass
+        return read_text(DPMS) in ('Off', 'off')
+
+    def idle_ms(self):
+        res = self.call(self.session, 'org.gnome.Mutter.IdleMonitor',
+                        '/org/gnome/Mutter/IdleMonitor/Core',
+                        'org.gnome.Mutter.IdleMonitor', 'GetIdletime', None)
+        if res is None:
+            return None
+        try:
+            return int(res.unpack()[0])
+        except (TypeError, IndexError, ValueError):
+            return None
+
+    def wake_irq(self):
+        return read_int('/sys/power/pm_wakeup_irq')
+
+    def blank(self):
+        if read_text(DPMS) not in ('Off', 'off'):
+            write_text(DPMS, 'Off')
+
+    def save_state(self, fast, gsd):
+        fast = fast if fast in ('0', '1') else ''
+        try:
+            with open(STATE_FILE, 'w') as f:
+                f.write(f'fast_charge={fast}\ngsd_ac_type={gsd}\n')
+        except OSError as e:
+            log(f'cannot save state: {e}')
+
+    def restore_stale_gsd(self):
+        stale = read_text(GSD_RESTORE)
+        if not stale:
+            return
+        try:
+            self.gsd.set_string(GSD_KEY, stale)
+        except GLib.Error:
+            pass
+        try:
+            os.unlink(GSD_RESTORE)
+        except OSError:
+            pass
+        log(f'restored gsd AC idle policy after an unclean exit: {stale}')
+
+    def restore(self):
+        fast = self.saved_fast
+        gsd = self.saved_gsd
+        if fast is None or gsd is None:
+            try:
+                with open(STATE_FILE) as f:
+                    for line in f:
+                        key, _, value = line.strip().partition('=')
+                        if key == 'fast_charge' and value in ('0', '1'):
+                            fast = value
+                        elif key == 'gsd_ac_type' and value:
+                            gsd = value
+            except OSError:
+                pass
+        if gsd is None:
+            gsd = read_text(GSD_RESTORE)
+        write_text(HOLD, '0')
+        if fast in ('0', '1'):
+            write_text(FAST, fast)
+        if gsd is not None:
+            try:
+                self.gsd.set_string(GSD_KEY, gsd)
+            except GLib.Error:
+                pass
+        for path in (STATE_FILE, GSD_RESTORE):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        self.engaged = False
+        self.saved_fast = None
+        self.saved_gsd = None
+
+    def engage(self):
+        fast = read_text(FAST)
+        gsd = read_text(GSD_RESTORE) or self.gsd.get_string(GSD_KEY)
+        self.save_state(fast, gsd)
+        if fast != '1' and not write_text(FAST, '1'):
+            self.restore()
+            return
+        if not write_text(HOLD, '1'):
+            self.restore()
+            return
+        if write_text(GSD_RESTORE, gsd):
+            try:
+                self.gsd.set_string(GSD_KEY, 'nothing')
+            except GLib.Error as e:
+                log(f'cannot pin gsd AC idle policy: {e.message}')
+            self.saved_gsd = gsd
+        else:
+            log('cannot save the gsd policy; leaving it unchanged')
+            self.saved_gsd = None
+        self.saved_fast = fast if fast in ('0', '1') else None
+        self.engaged = True
+        self.blank_if_locked_blank_screen()
+        log(f'engaged: cap={read_int(BAT + "/capacity")} fast={fast} '
+            f'gsd={gsd}')
+
+    def blank_if_locked_blank_screen(self):
+        if self.locked():
+            self.blank()
+
+    def release(self, reason, suspend=False):
+        was_engaged = self.engaged or os.path.exists(STATE_FILE)
+        self.restore()
+        if was_engaged:
+            log(f'released: {reason}')
+        if suspend:
+            self.schedule_suspend()
+
+    def schedule_suspend(self):
+        if self.suspend_pending:
+            return
+        self.suspend_pending = GLib.timeout_add(500, self.do_suspend)
+
+    def do_suspend(self):
+        self.suspend_pending = 0
+        write_text(HOLD, '0')
+        capacity = read_int(BAT + '/capacity')
+        if not (switch_on() and read_int(USB + '/online') == 1 and
+                capacity is not None and capacity >= THRESHOLD and
+                self.locked()):
+            return False
+        res = self.call(self.system, 'org.freedesktop.login1',
+                        '/org/freedesktop/login1',
+                        'org.freedesktop.login1.Manager', 'Suspend',
+                        GLib.Variant('(b)', (False,)), 2000)
+        if res is None:
+            log('deep suspend request failed')
+        else:
+            log(f'deep suspend requested at {THRESHOLD}%')
+        return False
+
+    def tick(self):
+        if not os.path.exists(HOLD):
+            if self.engaged:
+                self.release('driver unavailable')
+            return True
+
+        if not switch_on():
+            if self.engaged:
+                self.release('switch off')
+            return True
+
+        online = read_int(USB + '/online')
+        capacity = read_int(BAT + '/capacity')
+        if online != 1 or capacity is None:
+            if self.engaged:
+                self.release('AC offline')
+            return True
+
+        locked = self.locked()
+        display_off = self.display_off()
+
+        if capacity >= THRESHOLD:
+            if self.engaged:
+                self.release('threshold', suspend=locked)
+            return True
+
+        idle = self.idle_ms()
+
+        if self.engaged:
+            if not locked:
+                self.release('user active')
+                return True
+            if not display_off:
+                if power_key_mark_fresh() or (idle is not None and
+                                              idle < IDLE_MS):
+                    self.release('user active')
+                    return True
+                self.blank()
+                return True
+            if read_text(HOLD) != '1':
+                log('kernel cleared the hold: ' +
+                    (read_text(HOLD_STATUS) or 'unknown'))
+                self.release('hold cleared')
+                return True
+            if read_text(FAST) != '1':
+                write_text(FAST, '1')
+            return True
+
+        if not locked:
+            return True
+        if display_off:
+            if idle is not None and idle < IDLE_MS:
+                return True
+            self.engage()
+            return True
+        if idle is None:
+            return True
+        if power_key_mark_fresh() or idle < IDLE_MS:
+            return True
+        # AC attach woke the tablet; blank it and keep fast charging.
+        self.blank()
+        self.engage()
+        return True
+
+    def tick_once(self):
+        self.tick()
+        return False
+
+    def on_prepare_for_sleep(self, bus, sender, path, iface, signal, args):
+        if args.unpack()[0]:
+            return
+        GLib.timeout_add(50, self.on_resume)
+
+    def on_resume(self):
+        if self.wake_irq() == self.usbpd_irq and switch_on() and \
+                not power_key_mark_fresh():
+            online = read_int(USB + '/online')
+            capacity = read_int(BAT + '/capacity')
+            if online == 1 and capacity is not None and capacity < THRESHOLD \
+                    and self.locked():
+                self.blank()
+        self.tick()
+        return False
+
+    def on_display_changed(self, bus, sender, path, iface, signal, args):
+        try:
+            changed = args.unpack()[1]
+        except (TypeError, IndexError):
+            return
+        if 'PowerSaveMode' not in changed:
+            return
+        GLib.timeout_add(100, self.tick_once)
+
+    def quit(self):
+        self.release('service stop')
+        if self.timeout:
+            GLib.source_remove(self.timeout)
+            self.timeout = 0
+        loop.quit()
+        return False
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == '--restore':
+        # Construct only what restore() needs, without subscribing to anything.
+        mode = ChargeMode.__new__(ChargeMode)
+        mode.saved_fast = None
+        mode.saved_gsd = None
+        mode.engaged = False
+        mode.gsd = Gio.Settings.new(GSD_SCHEMA)
+        mode.restore()
+        return 0
+
+    global loop
+    loop = GLib.MainLoop()
+    mode = ChargeMode()
+    try:
+        loop.run()
+    finally:
+        mode.release('exit')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -28,6 +28,7 @@ fast-charge|电源|快速充电|从充电器抽取更高功率以加快充电，
 charge-limit|电源|充电上限 80%|保护电池：充到 80% 停止，低于 75% 恢复充电。|0|/sys/bus/i2c/devices/6-0049/charge_limit
 charge-bypass|电源|充电旁路|接充电器时直接用数据线供电、不使用电池（适合长时间游戏或视频）。|0|/sys/bus/i2c/devices/6-0049/charge_bypass
 charge-full-bypass|电源|充满后旁路|电池达到 100% 后停止充电，改用充电器供电；低于 95% 恢复充电。|1|state:charge-full-bypass
+charge-hold|电源|息屏直充|充电时保持PPS直充并熄灭屏幕，达到90%后进入深度休眠。|1|state:charge-hold
 '
 
 usage() {

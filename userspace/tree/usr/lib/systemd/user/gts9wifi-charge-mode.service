@@ -1,0 +1,14 @@
+[Unit]
+Description=Tab S9 charge mode: keep PPS direct charging alive with the panel off
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/gts9wifi-charge-mode
+ExecStopPost=/usr/libexec/gts9wifi-charge-mode --restore
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
