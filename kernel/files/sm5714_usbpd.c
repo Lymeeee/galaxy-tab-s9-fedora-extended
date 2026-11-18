@@ -86,6 +86,13 @@ struct sm5714_usbpd {
 	bool irq_masked;
 	bool wake_armed;
 	bool removing;
+	bool quiet;
+	bool suspended;
+	bool pending_init;
+	int cached_vbus;
+	int cached_current_limit;
+	enum typec_cc_status cached_cc1;
+	enum typec_cc_status cached_cc2;
 	enum typec_cc_polarity polarity;
 	bool pr_swap_src_to_snk;
 	bool pr_swap_snk_to_src;
@@ -139,9 +146,8 @@ static void sm5714_usbpd_otg_det_work(struct work_struct *work)
 	gpiod_set_value_cansleep(sm->otg_det_gpio, 0);
 }
 
-static int sm5714_usbpd_init(struct tcpc_dev *tcpc)
+static int sm5714_usbpd_hw_init(struct sm5714_usbpd *sm)
 {
-	struct sm5714_usbpd *sm = tcpc_to_sm5714(tcpc);
 	unsigned int state3;
 	u8 pending[5];
 	static const u8 masks[5] = {
@@ -196,11 +202,26 @@ out:
 	return ret;
 }
 
+static int sm5714_usbpd_init(struct tcpc_dev *tcpc)
+{
+	struct sm5714_usbpd *sm = tcpc_to_sm5714(tcpc);
+
+	if (sm->quiet) {
+		sm->pending_init = true;
+		return 0;
+	}
+
+	return sm5714_usbpd_hw_init(sm);
+}
+
 static int sm5714_usbpd_get_vbus(struct tcpc_dev *tcpc)
 {
 	struct sm5714_usbpd *sm = tcpc_to_sm5714(tcpc);
 	unsigned int status;
 	int ret;
+
+	if (sm->quiet)
+		return sm->cached_vbus;
 
 	ret = regmap_read(sm->regmap, SM5714_REG_STATUS1, &status);
 	if (ret)
@@ -212,8 +233,9 @@ static int sm5714_usbpd_get_vbus(struct tcpc_dev *tcpc)
 	 * in that state makes TCPM tear a valid source attachment down after
 	 * tSrcTurnOn (480 ms), before a bus-powered hub can enumerate.
 	 */
-	return !!(status & SM5714_INT1_VBUS_POK) ||
-	       sm5714_battery_is_otg_active();
+	sm->cached_vbus = !!(status & SM5714_INT1_VBUS_POK) ||
+			  sm5714_battery_is_otg_active();
+	return sm->cached_vbus;
 }
 
 static enum typec_cc_status sm5714_usbpd_rp_status(unsigned int cc)
@@ -235,18 +257,25 @@ static int sm5714_usbpd_get_current_limit(struct tcpc_dev *tcpc)
 	unsigned int cc;
 	int ret;
 
+	if (sm->quiet)
+		return sm->cached_current_limit;
+
 	ret = regmap_read(sm->regmap, SM5714_REG_CC_STATUS, &cc);
 	if (ret)
 		return ret;
 
 	switch (sm5714_usbpd_rp_status(cc)) {
 	case TYPEC_CC_RP_3_0:
-		return 3000;
+		sm->cached_current_limit = 3000;
+		break;
 	case TYPEC_CC_RP_1_5:
-		return 1500;
+		sm->cached_current_limit = 1500;
+		break;
 	default:
-		return 500;
+		sm->cached_current_limit = 500;
+		break;
 	}
+	return sm->cached_current_limit;
 }
 
 static int sm5714_usbpd_get_cc(struct tcpc_dev *tcpc,
@@ -259,6 +288,12 @@ static int sm5714_usbpd_get_cc(struct tcpc_dev *tcpc,
 	unsigned int cc;
 	bool flipped;
 	int ret;
+
+	if (sm->quiet) {
+		*cc1 = sm->cached_cc1;
+		*cc2 = sm->cached_cc2;
+		return 0;
+	}
 
 	ret = regmap_read(sm->regmap, SM5714_REG_CC_STATUS, &cc);
 	if (ret)
@@ -282,6 +317,8 @@ static int sm5714_usbpd_get_cc(struct tcpc_dev *tcpc,
 	case SM5714_CC_ATTACH_AUDIO:
 		*cc1 = TYPEC_CC_RA;
 		*cc2 = TYPEC_CC_RA;
+		sm->cached_cc1 = *cc1;
+		sm->cached_cc2 = *cc2;
 		return 0;
 	default:
 		break;
@@ -290,6 +327,8 @@ static int sm5714_usbpd_get_cc(struct tcpc_dev *tcpc,
 	flipped = cc & SM5714_CC_FLIPPED;
 	*cc1 = flipped ? inactive : active;
 	*cc2 = flipped ? active : inactive;
+	sm->cached_cc1 = *cc1;
+	sm->cached_cc2 = *cc2;
 	return 0;
 }
 
@@ -300,6 +339,9 @@ static int sm5714_usbpd_set_cc(struct tcpc_dev *tcpc,
 	unsigned int role;
 	unsigned int status;
 	int ret;
+
+	if (sm->quiet)
+		return 0;
 
 	mutex_lock(&sm->lock);
 	switch (cc) {
@@ -415,6 +457,9 @@ static int sm5714_usbpd_start_toggling(struct tcpc_dev *tcpc,
 	unsigned int val = 0x40;
 	int ret;
 
+	if (sm->quiet)
+		return 0;
+
 	/*
 	 * The SM5714 has an autonomous DRP state machine.  Samsung's NORMAL_DRP
 	 * configuration selects it with CC_CNTL1=0x40; bits 5:4 retain the Rp
@@ -465,6 +510,9 @@ static int sm5714_usbpd_set_vconn(struct tcpc_dev *tcpc, bool on)
 	struct sm5714_usbpd *sm = tcpc_to_sm5714(tcpc);
 	u8 val;
 
+	if (sm->quiet)
+		return 0;
+
 	if (!on)
 		val = 0x18;
 	else
@@ -477,6 +525,9 @@ static int sm5714_usbpd_set_vbus(struct tcpc_dev *tcpc, bool on, bool charge)
 {
 	struct sm5714_usbpd *sm = tcpc_to_sm5714(tcpc);
 	int ret;
+
+	if (sm->quiet)
+		return 0;
 
 	/*
 	 * Samsung freezes the detected CC state before removing VBUS in a
@@ -527,6 +578,9 @@ static int sm5714_usbpd_set_current_limit(struct tcpc_dev *tcpc,
 	struct sm5714_usbpd *sm = tcpc_to_sm5714(tcpc);
 	int ret;
 
+	if (sm->quiet)
+		return 0;
+
 	ret = sm5714_battery_set_pd_contract(mv, max_ma);
 	if (ret)
 		return ret;
@@ -540,6 +594,9 @@ static int sm5714_usbpd_set_current_limit(struct tcpc_dev *tcpc,
 static int sm5714_usbpd_set_pd_rx(struct tcpc_dev *tcpc, bool on)
 {
 	struct sm5714_usbpd *sm = tcpc_to_sm5714(tcpc);
+
+	if (sm->quiet)
+		return 0;
 
 	return regmap_write(sm->regmap, SM5714_REG_PD_CNTL1,
 			    on ? 0x08 : 0x00);
@@ -561,6 +618,9 @@ static int sm5714_usbpd_set_roles(struct tcpc_dev *tcpc, bool attached,
 	struct sm5714_usbpd *sm = tcpc_to_sm5714(tcpc);
 	unsigned int val;
 	int ret;
+
+	if (sm->quiet)
+		return 0;
 
 	ret = regmap_read(sm->regmap, SM5714_REG_PD_CNTL2, &val);
 	if (ret)
@@ -587,6 +647,9 @@ static int sm5714_usbpd_transmit(struct tcpc_dev *tcpc,
 	unsigned int count;
 	u8 request;
 	int ret;
+
+	if (sm->quiet)
+		return -EAGAIN;
 
 	mutex_lock(&sm->lock);
 
@@ -742,7 +805,7 @@ static void sm5714_usbpd_irq_retry_work(struct work_struct *work)
 		container_of(to_delayed_work(work), struct sm5714_usbpd,
 			     irq_retry_work);
 
-	if (sm->removing)
+	if (sm->removing || sm->suspended)
 		return;
 
 	if (sm5714_usbpd_handle_interrupts(sm)) {
@@ -751,10 +814,28 @@ static void sm5714_usbpd_irq_retry_work(struct work_struct *work)
 		return;
 	}
 
+	if (sm->pending_init) {
+		if (sm5714_usbpd_hw_init(sm)) {
+			schedule_delayed_work(&sm->irq_retry_work,
+					      msecs_to_jiffies(100));
+			return;
+		}
+		sm->pending_init = false;
+	}
+
+	sm->quiet = false;
 	if (sm->irq_masked) {
 		sm->irq_masked = false;
 		enable_irq(sm->irq);
 	}
+
+	/*
+	 * Force one TCPM re-read even if the latched interrupt block was
+	 * already cleared: the port state may have changed while the system
+	 * was suspended, and the resume path deliberately did not look at it.
+	 */
+	tcpm_cc_change(sm->port);
+	tcpm_vbus_change(sm->port);
 }
 
 static irqreturn_t sm5714_usbpd_irq(int irq, void *data)
@@ -763,6 +844,20 @@ static irqreturn_t sm5714_usbpd_irq(int irq, void *data)
 
 	if (sm->removing)
 		return IRQ_HANDLED;
+
+	if (sm->quiet || sm->suspended) {
+		/*
+		 * The tablet is suspended or resuming, with or without a
+		 * charger attached.  Do not touch the bus from the IRQ path:
+		 * mask the level IRQ and let the resume callback schedule the
+		 * work once the I2C parent is usable again.
+		 */
+		if (!sm->irq_masked) {
+			sm->irq_masked = true;
+			disable_irq_nosync(sm->irq);
+		}
+		return IRQ_HANDLED;
+	}
 
 	if (sm5714_usbpd_handle_interrupts(sm)) {
 		/*
@@ -785,27 +880,99 @@ static irqreturn_t sm5714_usbpd_irq(int irq, void *data)
 static int sm5714_usbpd_suspend(struct device *dev)
 {
 	struct sm5714_usbpd *sm = dev_get_drvdata(dev);
-	int vbus = sm5714_usbpd_get_vbus(&sm->tcpc);
-	bool allow_wake = device_may_wakeup(dev) && vbus == 0 &&
-			  !sm5714_battery_is_otg_active();
+	enum typec_cc_status cc1 = TYPEC_CC_RD, cc2 = TYPEC_CC_RD;
+	unsigned int status;
+	bool attached;
+	bool allow_wake;
+	int limit;
+	int ret;
 
 	/*
-	 * A charger detach must not wake the system: the wake IRQ runs while
-	 * the I2C controller is still resuming, and an unacknowledged level
-	 * IRQ storms until the tablet resets.  Plugging a charger into a
-	 * battery-powered tablet may still wake it; if the charger state
-	 * cannot be read, stay conservative and do not arm the wakeup.
+	 * From here until the resume callback, the IRQ handler must not touch
+	 * the bus.  A GPIO/PMIC wake IRQ can fire before the I2C parent has
+	 * resumed, and that early transfer is what wedges the resume.
 	 */
+	sm->suspended = true;
+
+	/*
+	 * Do not let deferred bus work survive into the sleep window.  A
+	 * deferred resume can still be pending if the system is suspended
+	 * again straight after waking.
+	 */
+	cancel_delayed_work_sync(&sm->irq_retry_work);
+	cancel_delayed_work_sync(&sm->cc_resync_work);
+	if ((sm->quiet || sm->irq_masked) &&
+	    !sm5714_usbpd_handle_interrupts(sm)) {
+		sm->quiet = false;
+		if (sm->pending_init && !sm5714_usbpd_hw_init(sm))
+			sm->pending_init = false;
+		if (sm->irq_masked) {
+			sm->irq_masked = false;
+			enable_irq(sm->irq);
+		}
+	}
+
+	ret = regmap_read(sm->regmap, SM5714_REG_STATUS1, &status);
+	if (ret) {
+		/*
+		 * If the charger state cannot be read, stay conservative:
+		 * neither arm the detach wakeup nor let an unknown event hit
+		 * the bus during the resume window.
+		 */
+		attached = true;
+		sm->cached_vbus = 1;
+	} else {
+		/*
+		 * STATUS1.VBUS_POK stays low while a charger powers the board
+		 * through the companion charger, so it is not a usable "no
+		 * charger" indicator on its own.  ATTACH tells us whether a
+		 * Type-C partner is present.
+		 */
+		attached = !!(status & (SM5714_INT1_VBUS_POK |
+					SM5714_INT1_ATTACH)) ||
+			   sm5714_battery_is_otg_active();
+		sm->cached_vbus = !!(status & SM5714_INT1_VBUS_POK) ||
+				  sm5714_battery_is_otg_active();
+	}
+
+	allow_wake = device_may_wakeup(dev) && !attached &&
+		     !sm->quiet && !sm->irq_masked && !sm->pending_init;
+
 	if (allow_wake) {
 		if (!sm->wake_armed) {
 			sm->wake_armed = true;
 			enable_irq_wake(sm->irq);
 		}
-	} else if (sm->wake_armed) {
+		return 0;
+	}
+
+	if (sm->wake_armed) {
 		sm->wake_armed = false;
 		disable_irq_wake(sm->irq);
 	}
 
+	/*
+	 * A charger detach must not wake the system: the detach IRQ runs while
+	 * the I2C controller is still resuming, and that resume path can hang
+	 * until the PMIC hard-resets the SoC.  Keep the PD contract and the
+	 * TCPM port alive, but go quiet for the whole sleep: the IRQ handler
+	 * masks the line without touching the bus, all tcpc callbacks return
+	 * cached values, and a delayed work processes the latched event only
+	 * after the system has settled.
+	 */
+
+	/* Seed the values reported while the bus is off limits. */
+	limit = sm5714_usbpd_get_current_limit(&sm->tcpc);
+	sm->cached_current_limit = limit > 0 ? limit : 500;
+	if (sm5714_usbpd_get_cc(&sm->tcpc, &cc1, &cc2)) {
+		sm->cached_cc1 = TYPEC_CC_RD;
+		sm->cached_cc2 = TYPEC_CC_RD;
+	} else {
+		sm->cached_cc1 = cc1;
+		sm->cached_cc2 = cc2;
+	}
+
+	sm->quiet = true;
 	return 0;
 }
 
@@ -813,14 +980,31 @@ static int sm5714_usbpd_resume(struct device *dev)
 {
 	struct sm5714_usbpd *sm = dev_get_drvdata(dev);
 
+	/*
+	 * The I2C parent has resumed before this callback, so the bus is
+	 * usable again.  Any IRQ that arrived before this point only masked
+	 * the line; schedule its latched event now.
+	 */
+	sm->suspended = false;
+
 	if (sm->wake_armed) {
 		sm->wake_armed = false;
 		disable_irq_wake(sm->irq);
 	}
 
-	if (sm->irq_masked)
-		schedule_delayed_work(&sm->irq_retry_work,
-				      msecs_to_jiffies(100));
+	if (sm->quiet) {
+		/*
+		 * The controller was quiet for the sleep window.  Let the
+		 * system finish resuming before touching the bus; the retry
+		 * work clears the latched event, drops ->quiet and enables the
+		 * IRQ.
+		 */
+		mod_delayed_work(system_wq, &sm->irq_retry_work,
+				 msecs_to_jiffies(1500));
+	} else if (sm->irq_masked) {
+		mod_delayed_work(system_wq, &sm->irq_retry_work,
+				 msecs_to_jiffies(100));
+	}
 
 	return 0;
 }
@@ -842,6 +1026,9 @@ static int sm5714_usbpd_probe(struct i2c_client *client)
 
 	sm->dev = dev;
 	sm->irq = client->irq;
+	sm->cached_current_limit = 500;
+	sm->cached_cc1 = TYPEC_CC_OPEN;
+	sm->cached_cc2 = TYPEC_CC_OPEN;
 	sm->regmap = devm_regmap_init_i2c(client,
 					  &sm5714_usbpd_regmap_config);
 	if (IS_ERR(sm->regmap))

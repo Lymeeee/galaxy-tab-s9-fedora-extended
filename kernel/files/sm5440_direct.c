@@ -14,10 +14,12 @@
 #include <linux/bitops.h>
 #include <linux/delay.h>
 #include <linux/i2c.h>
+#include <linux/kstrtox.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/power_supply.h>
 #include <linux/suspend.h>
+#include <linux/sysfs.h>
 #include <linux/workqueue.h>
 
 /*
@@ -100,6 +102,14 @@
 #define SM5440_PPS_V_STEP_MV		20
 #define SM5440_REFRESH_TICKS		4
 
+/*
+ * A user-space charge mode can pin the system awake so the PPS contract keeps
+ * being refreshed with the panel off.  Cap that hold so a crashed helper can
+ * never block suspend indefinitely.
+ */
+#define SM5440_HOLD_MAX_MS		(4 * 60 * 60 * 1000)
+#define SM5440_HOLD_STALE_MS		5000
+
 static unsigned int max_pps_ma = SM5440_MAX_PPS_MA;
 module_param(max_pps_ma, uint, 0644);
 MODULE_PARM_DESC(max_pps_ma,
@@ -161,6 +171,15 @@ struct sm5440_direct {
 	unsigned int fails;
 	bool active;
 	bool suspending;
+	bool hold;
+	unsigned long hold_since;
+	unsigned long hold_deadline;
+	unsigned long last_poll;
+	int cached_online;
+	int cached_capacity;
+	bool cached_fast_charge;
+	unsigned int bad_polls;
+	const char *hold_clear;
 	struct notifier_block pm_nb;
 };
 
@@ -688,6 +707,73 @@ static unsigned long sm5440_backoff(struct sm5440_direct *sm)
 				    SM5440_MAX_RETRY_MS));
 }
 
+static void sm5440_hold_clear(struct sm5440_direct *sm, const char *reason)
+{
+	if (!sm->hold)
+		return;
+
+	sm->hold = false;
+	sm->hold_clear = reason;
+	dev_info(sm->dev, "charge hold cleared: %s\n", reason);
+}
+
+/*
+ * Cache the inputs the PM notifier needs and expire a hold whose conditions no
+ * longer apply.  The notifier itself must never touch i2c.
+ */
+static void sm5440_hold_update(struct sm5440_direct *sm)
+{
+	int capacity, online;
+
+	online = sm5440_psy_get(sm->tcpm, POWER_SUPPLY_PROP_ONLINE);
+	capacity = sm5440_psy_get(sm->battery, POWER_SUPPLY_PROP_CAPACITY);
+
+	sm->cached_online = online;
+	sm->cached_capacity = capacity;
+	sm->cached_fast_charge = sm5714_battery_fast_charge_enabled();
+	sm->last_poll = jiffies;
+
+	if (!sm->hold)
+		return;
+
+	if (online < 0 || capacity < 0) {
+		if (++sm->bad_polls >= SM5440_MAX_FAILS)
+			sm5440_hold_clear(sm, "error");
+		return;
+	}
+
+	sm->bad_polls = 0;
+
+	if (!online)
+		sm5440_hold_clear(sm, "ac");
+	else if (capacity >= 90)
+		sm5440_hold_clear(sm, "cap");
+	else if (!sm->cached_fast_charge)
+		sm5440_hold_clear(sm, "fast");
+	else if (time_after_eq(jiffies, sm->hold_deadline))
+		sm5440_hold_clear(sm, "timeout");
+}
+
+static bool sm5440_hold_blocks_suspend(struct sm5440_direct *sm)
+{
+	if (!sm->hold || sm->bad_polls >= SM5440_MAX_FAILS)
+		return false;
+	if (time_after(jiffies, sm->last_poll +
+		       msecs_to_jiffies(SM5440_HOLD_STALE_MS)))
+		return false;
+	if (time_after_eq(jiffies, sm->hold_deadline))
+		return false;
+	if (sm->cached_online <= 0 || sm->cached_capacity < 0 ||
+	    sm->cached_capacity >= 90 || !sm->cached_fast_charge)
+		return false;
+	/* Give the pump a moment to start before pinning the system. */
+	if (!sm->active &&
+	    time_after(jiffies, sm->hold_since + msecs_to_jiffies(5000)))
+		return false;
+
+	return true;
+}
+
 static void sm5440_work(struct work_struct *work)
 {
 	struct sm5440_direct *sm =
@@ -696,6 +782,8 @@ static void sm5440_work(struct work_struct *work)
 	int capacity, die_temp, ibus, op_mode, pack_temp, status3;
 	int vbat, vbus;
 	int ret;
+
+	sm5440_hold_update(sm);
 
 	if (!sm->active) {
 		/*
@@ -798,6 +886,16 @@ static void sm5440_work(struct work_struct *work)
 			     vbus, ibus, vbat,
 			     die_temp / 10, abs(die_temp % 10));
 out:
+	/*
+	 * A fresh hold should start the pump promptly, but a charger that keeps
+	 * failing must retain its normal backoff instead of polling every second
+	 * for the whole hold window.
+	 */
+	if (sm->hold && delay > msecs_to_jiffies(SM5440_POLL_MS) &&
+	    time_before(jiffies,
+			sm->hold_since + msecs_to_jiffies(10000)))
+		delay = msecs_to_jiffies(SM5440_POLL_MS);
+
 	/* The PM notifier owns rescheduling while the system is suspending. */
 	if (!sm->suspending)
 		schedule_delayed_work(&sm->work, delay);
@@ -834,6 +932,13 @@ static int sm5440_pm_notify(struct notifier_block *nb, unsigned long action,
 
 	switch (action) {
 	case PM_SUSPEND_PREPARE:
+		if (sm5440_hold_blocks_suspend(sm)) {
+			dev_info_ratelimited(sm->dev,
+					     "charge hold: blocking suspend (online=%d cap=%d)\n",
+					     sm->cached_online,
+					     sm->cached_capacity);
+			return NOTIFY_BAD;
+		}
 		sm->suspending = true;
 		cancel_delayed_work_sync(&sm->work);
 		if (sm->active) {
@@ -918,6 +1023,77 @@ static int sm5440_probe(struct i2c_client *client)
 	return 0;
 }
 
+static ssize_t charge_hold_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct sm5440_direct *sm = dev_get_drvdata(dev);
+
+	if (!sm)
+		return -ENODEV;
+
+	return sysfs_emit(buf, "%d\n", sm->hold ? 1 : 0);
+}
+
+static ssize_t charge_hold_store(struct device *dev,
+				 struct device_attribute *attr,
+				 const char *buf, size_t count)
+{
+	struct sm5440_direct *sm = dev_get_drvdata(dev);
+	bool enable;
+	int ret;
+
+	if (!sm)
+		return -ENODEV;
+
+	ret = kstrtobool(buf, &enable);
+	if (ret)
+		return ret;
+
+	if (!enable) {
+		sm5440_hold_clear(sm, "user");
+		return count;
+	}
+
+	sm->hold = true;
+	sm->hold_since = jiffies;
+	sm->hold_deadline = jiffies + msecs_to_jiffies(SM5440_HOLD_MAX_MS);
+	sm->bad_polls = 0;
+	sm->hold_clear = NULL;
+	sm5440_hold_update(sm);
+	if (sm->hold)
+		mod_delayed_work(system_wq, &sm->work, 0);
+
+	return count;
+}
+static DEVICE_ATTR_RW(charge_hold);
+
+static ssize_t charge_hold_status_show(struct device *dev,
+				       struct device_attribute *attr, char *buf)
+{
+	struct sm5440_direct *sm = dev_get_drvdata(dev);
+
+	if (!sm)
+		return -ENODEV;
+
+	if (sm->hold)
+		return sysfs_emit(buf, "engaged online=%d cap=%d fast=%d\n",
+				  sm->cached_online, sm->cached_capacity,
+				  sm->cached_fast_charge);
+
+	return sysfs_emit(buf, "idle cleared=%s online=%d cap=%d fast=%d\n",
+			  sm->hold_clear ? sm->hold_clear : "none",
+			  sm->cached_online, sm->cached_capacity,
+			  sm->cached_fast_charge);
+}
+static DEVICE_ATTR_RO(charge_hold_status);
+
+static struct attribute *sm5440_attrs[] = {
+	&dev_attr_charge_hold.attr,
+	&dev_attr_charge_hold_status.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(sm5440);
+
 static const struct of_device_id sm5440_of_match[] = {
 	{ .compatible = "siliconmitus,sm5440" },
 	{ }
@@ -928,6 +1104,7 @@ static struct i2c_driver sm5440_driver = {
 	.driver = {
 		.name = "sm5440-direct",
 		.of_match_table = sm5440_of_match,
+		.dev_groups = sm5440_groups,
 	},
 	.probe = sm5440_probe,
 };
