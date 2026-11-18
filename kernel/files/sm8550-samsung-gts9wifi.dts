@@ -1543,6 +1543,9 @@
 
 &usb_1 {
 	status = "okay";
+	/* 10G SuperSpeed+ is unstable with this board's redriver/RTL9210;
+	 * 5G is ample for the tablet and stable. */
+	maximum-speed = "super-speed";
 };
 
 &usb_1_dwc3_hs {
