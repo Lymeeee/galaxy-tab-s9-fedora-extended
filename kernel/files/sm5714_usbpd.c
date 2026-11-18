@@ -796,6 +796,20 @@ out:
 	    intr[1] & SM5714_INT2_VBUS_0V)
 		tcpm_vbus_change(sm->port);
 
+	/*
+	 * A VBUS transient while the OTG boost settles can make TCPM drop an
+	 * attached partner even though the CC comparator still reports the
+	 * partner.  TCPM then waits for a new CC edge that never comes, so
+	 * the port stays dead until something re-reads the comparator.  Let
+	 * the event settle, then resync once; if the partner really is gone,
+	 * the resync only re-reports the open CC state.
+	 */
+	if (!sm->quiet && !sm->suspended &&
+	    (intr[0] & SM5714_INT1_DETACH ||
+	     intr[1] & SM5714_INT2_VBUS_0V))
+		mod_delayed_work(system_dfl_wq, &sm->cc_resync_work,
+				 msecs_to_jiffies(1500));
+
 	return 0;
 }
 
