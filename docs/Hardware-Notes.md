@@ -488,14 +488,11 @@ Notes for working in the secure world:
 
 | Item | Value |
 |---|---|
-| Debug net | USB ECM gadget at `172.16.42.1` |
 | USB-PD | SM5714 USB-PD / TCPM (`sm5714_usbpd.c`) |
 | Redriver | `ps5169.c` |
 | DisplayPort | alt-mode, with a deferred-HPD workaround |
 
-The debug gadget was originally RNDIS and was flaky under sustained sessions
-and suspend cycles; converting it to ECM fixed the host binding. Host mode, PD
-and docks work.
+Host mode, PD and docks work.
 
 ---
 

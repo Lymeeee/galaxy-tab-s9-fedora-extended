@@ -3,7 +3,7 @@
 #
 # The SM8550 DWC3 host can report a Host System Error when the board returns
 # from the platform-level suspend cycle used to recover the display.  Recreate
-# xHCI only when this port was already the USB data host; device/RNDIS
+# xHCI only when this port was already the USB data host; device
 # connections are deliberately left untouched.
 set -eu
 

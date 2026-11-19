@@ -208,7 +208,7 @@ static int sm5714_set_float_voltage(struct sm5714_battery *sm)
  * selects the USB path when it reports ATTACHED_DEV_OTG_MUIC.
  *
  * Restore automatic switching when the tablet stops sourcing VBUS so ordinary
- * sink/device charging and RNDIS continue to use the hardware detector.
+ * sink/device charging continues to use the hardware detector.
  */
 static int sm5714_muic_set_otg_path(struct sm5714_battery *sm, bool active)
 {

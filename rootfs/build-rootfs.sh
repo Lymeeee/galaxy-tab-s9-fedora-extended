@@ -288,25 +288,6 @@ else
     echo "    WARN: /etc/selinux/config not found; SELinux left at default" >&2
 fi
 
-# USB gadget network comes up configured by the pmOS initramfs; keep the
-# address after switch_root so first-boot debugging works over SSH.
-mkdir -p "$rootfs/etc/NetworkManager/system-connections"
-cat > "$rootfs/etc/NetworkManager/system-connections/usb0.nmconnection" <<EOF
-[connection]
-id=usb0
-interface-name=usb0
-type=ethernet
-autoconnect=true
-
-[ipv4]
-address1=172.16.42.1/24
-method=manual
-
-[ipv6]
-method=disabled
-EOF
-chmod 600 "$rootfs/etc/NetworkManager/system-connections/usb0.nmconnection"
-
 echo ">>> Restoring root ownership"
 # Every copy above preserves the SOURCE owner, and cp -a applies it to the
 # destination directories themselves -- which is how a built image ends up
@@ -398,8 +379,8 @@ if [ "$desktop" = "gnome" ]; then
     systemctl --root="$rootfs" enable gdm >/dev/null 2>&1 \
         || echo "    WARN: gdm not found" >&2
     systemctl --root="$rootfs" set-default graphical.target >/dev/null 2>&1 || true
-    # The Workstation firewall zone blocks inbound ssh, which would defeat
-    # both the usb0 debug network and remote support; allow it permanently.
+    # The Workstation firewall zone blocks inbound ssh; allow it so remote
+    # support still works.
     chroot "$rootfs" firewall-offline-cmd --add-service=ssh >/dev/null 2>&1 \
         || echo "    WARN: could not allow ssh in the firewall" >&2
     # abrt only produces signature-error noise on an RTC-less tablet whose
@@ -418,7 +399,7 @@ for unit in \
     gts9wifi-adsp-boot \
     gts9wifi-panel-coldboot-recover \
     gts9wifi-grow-rootfs \
-    gts9wifi-usb-net gts9wifi-wifi-recover gts9wifi-sensor-registry-perms \
+    gts9wifi-wifi-recover gts9wifi-sensor-registry-perms \
     gts9wifi-x11-dir-fix.path gts9wifi-chronyd gts9wifi-filecaps \
     mnt-vendor-persist.mount vendor-dsp.mount vendor-firmware_mnt.mount
 do

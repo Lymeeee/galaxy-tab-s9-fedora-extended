@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.59
+Version:        0.17.60
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -198,7 +198,6 @@ fi
 %{_libexecdir}/gts9wifi-keyboard-fw
 %{_libexecdir}/gts9wifi-wifi-bdf
 %{_libexecdir}/gts9wifi-privileged
-%{_libexecdir}/gts9wifi-usb-net-off
 %{_libexecdir}/gts9wifi-mirrors
 %{_libexecdir}/gts9wifi-protect
 %{_libexecdir}/gts9wifi-zh-translations
@@ -219,9 +218,6 @@ fi
 %{_udevrulesdir}/72-gts9wifi-power-key.rules
 %{_bindir}/gts9wifi-power
 %{_unitdir}/gts9wifi-fast-charge-default.service
-%{_unitdir}/gts9wifi-usb-net-off.service
-%dir %{_unitdir}/gts9wifi-usb-net.service.d
-%{_unitdir}/gts9wifi-usb-net.service.d/10-gts9wifi-default-off.conf
 %{_unitdir}/gts9wifi-power.service
 %{_unitdir}/gts9wifi-speaker-protection.service
 %{_unitdir}/gts9wifi-sd-uuid-fix@.service
@@ -245,7 +241,6 @@ fi
 %{_udevrulesdir}/90-gts9wifi-hide-internal.rules
 %{_udevrulesdir}/90-gts9wifi-hide-camss-video.rules
 %config(noreplace) %{_sysconfdir}/NetworkManager/dispatcher.d/90-gts9wifi-no-bgscan
-%config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-usb0-unmanaged.conf
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 %config(noreplace) %{_sysconfdir}/systemd/zram-generator.conf.d/10-gts9wifi-zstd.conf
 %config(noreplace) %{_sysconfdir}/sysctl.d/99-gts9wifi-zram.conf
@@ -259,6 +254,12 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.60-1
+- Remove the USB ECM/RNDIS debug network: the initramfs RNDIS hook, the
+  ECM gadget service, the usb0 NetworkManager profile, the enable/disable
+  switches in the settings app and the GNOME extension, and the gadget
+  function/configfs options in the kernel config.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.59-1
 - Keep the panel dark when a charger-triggered cold boot (lpcharge=1)
   starts with the folio cover already shut.  The firmware does not report

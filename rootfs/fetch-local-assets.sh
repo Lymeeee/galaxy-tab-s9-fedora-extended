@@ -3,7 +3,7 @@
 # payload, kernel modules matching the flashed eMMC kernel, the known-good SD
 # boot files, and your SSH public key.
 #
-# Requires: the tablet running pmOS attached via USB (172.16.42.1) and the
+# Requires: the tablet reachable over SSH (set GTS9_DEVICE=user@host) and the
 # port kit extracted at ../port-kit (see docs/PORT-KIT.md).
 #
 # Note: the device-independent overrides staged below (Cirrus CS35L45, the VPU
@@ -18,7 +18,7 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_dir="$(dirname "$script_dir")"
 assets="$repo_dir/local-assets"
 port_kit="${PORT_KIT:-$(dirname "$repo_dir")/port-kit}"
-device="${GTS9_DEVICE:-phablet@172.16.42.1}"
+device="${GTS9_DEVICE:?set GTS9_DEVICE to user@host}"
 kver="${GTS9_KERNEL_VERSION:-7.2}"
 
 mkdir -p "$assets/modules" "$assets/boot-files"

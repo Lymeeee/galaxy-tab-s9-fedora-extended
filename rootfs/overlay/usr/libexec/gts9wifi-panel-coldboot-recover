@@ -38,7 +38,7 @@ log "platform cycle returned"
 
 # The DWC3 host does not survive this board-specific platform test reliably.
 # Recreate it only when the tablet was already the USB data host.  A normal
-# PC/RNDIS connection remains in device mode and is not disturbed.
+# PC/USB connection remains in device mode and is not disturbed.
 if [ -x /usr/libexec/gts9wifi-usb-host-resume ]; then
 	/usr/libexec/gts9wifi-usb-host-resume || true
 fi

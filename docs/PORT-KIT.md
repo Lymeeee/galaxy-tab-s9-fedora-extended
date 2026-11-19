@@ -5,8 +5,8 @@
 > documentation. For installing, see [INSTALL.md](../INSTALL.md); for the
 > overview and hardware status, the [README](../README.md).
 
-Everything extracted from the working device port and the live device
-(`phablet@172.16.42.1` over USB network), assembled for a Fedora-style port. Captured 2026-08-29, device running
+Everything extracted from the working device port and the live device,
+assembled for a Fedora-style port. Captured 2026-08-29, device running
 `7.2.0-rc3 #121-samsung-gts9wifi-mainline`.
 
 ## Kit layout

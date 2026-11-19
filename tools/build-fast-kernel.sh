@@ -64,7 +64,7 @@ export ARCH=arm64
 make -j$(nproc) ARCH=arm64 LLVM=1 vmlinuz.efi dtbs modules
 
 # 5. 生成 initramfs
-echo "--> 5. 构建 initramfs (集成 GPU 固件与 USB-Net)..."
+echo "--> 5. 构建 initramfs (集成 GPU 固件)..."
 STAGE_DIR="/home/neon/stage"
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR/boot" "$STAGE_DIR/usr/lib/modules" "$STAGE_DIR/out-bundle" "$STAGE_DIR/out-twrp"
@@ -82,11 +82,7 @@ if [ ! -f /usr/lib/firmware/qcom/a740_sqe.fw ]; then
     sudo tar xzf "$CACHE_DIR/fw.tar.gz" -C /
 fi
 
-mkdir -p /home/neon/.local/share/dracut/modules.d
-cp -a "$REPO_DIR/boot/dracut/90gts9wifi-usbnet" /home/neon/.local/share/dracut/modules.d/ 2>/dev/null || true
-
 dracut --kver "$KVER" --kmoddir "$STAGE_DIR/usr/lib/modules/$KVER" \
-    --include "$REPO_DIR/boot/dracut/90gts9wifi-usbnet" /usr/lib/dracut/modules.d/90gts9wifi-usbnet \
     --conf "$REPO_DIR/boot/dracut/dracut.conf.d/gts9wifi.conf" \
     --force "$STAGE_DIR/boot/initramfs.img"
 

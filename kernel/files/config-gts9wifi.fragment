@@ -51,13 +51,18 @@ CONFIG_USB_NET_CDCETHER=y
 CONFIG_USB_NET_CDC_NCM=y
 CONFIG_SND_USB_AUDIO=y
 CONFIG_USB_GADGET=y
-CONFIG_USB_LIBCOMPOSITE=y
-CONFIG_USB_U_ETHER=y
-CONFIG_USB_F_NCM=y
-CONFIG_USB_CONFIGFS=y
-CONFIG_USB_CONFIGFS_NCM=y
-CONFIG_USB_F_RNDIS=y
-CONFIG_USB_CONFIGFS_RNDIS=y
+# The USB debug network is gone; keep only the gadget core so dwc3 can still
+# advertise the device role to TCPM.
+# CONFIG_USB_LIBCOMPOSITE is not set
+# CONFIG_USB_U_ETHER is not set
+# CONFIG_USB_F_NCM is not set
+# CONFIG_USB_F_ECM is not set
+# CONFIG_USB_F_ECM_SUBSET is not set
+# CONFIG_USB_F_RNDIS is not set
+# CONFIG_USB_CONFIGFS is not set
+# CONFIG_USB_CONFIGFS_NCM is not set
+# CONFIG_USB_CONFIGFS_ECM is not set
+# CONFIG_USB_CONFIGFS_RNDIS is not set
 
 # Qualcomm QCA6490 (WCN6855 class) on the board's PCIe0 link.
 CONFIG_PCI=y

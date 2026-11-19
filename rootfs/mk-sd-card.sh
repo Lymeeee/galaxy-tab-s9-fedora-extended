@@ -130,4 +130,4 @@ else
     echo "    image ready: $target"
     echo "    write it with: sudo dd if=$target of=/dev/sdX bs=4M conv=fsync status=progress"
 fi
-echo "    first boot: tablet off, swap cards, power on.  SSH: ${GTS9_USER:-fedora}@172.16.42.1 (usb0)"
+echo "    first boot: tablet off, swap cards, power on."

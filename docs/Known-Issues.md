@@ -13,7 +13,6 @@ reused, and a retired number is simply absent rather than reassigned
 | 4 | Rear camera (13 MP HI1337 + DW9808 lens) | works — manual focus only; a fixed focus of 384 ships |
 | 4b | Front camera (12 MP HI1337) | works |
 | 5 | No rotation sensor | works — needed a patched `iio-sensor-proxy` |
-| 6 | USB debug link flaky | fixed — RNDIS gadget converted to ECM |
 | 7 | Weak 5 GHz Wi-Fi RX | fixed — board-data (BDF) substitution, ~47 dB improvement |
 | 9 | Discord/Roblox unreachable (DPI) | fixed — kernel rebuilt with `nfqueue` |
 | 10 | Front camera did not probe | fixed — wrong I2C address in the DTS |
@@ -176,10 +175,6 @@ patched `iio-sensor-proxy` built with libssc.
 
 Note that **sensor rotation is invisible metadata** — a rotation matrix is not
 observable from the sensor values, so it has to be verified by eye.
-
-### 6 — USB debug link flaky
-
-The RNDIS gadget was converted to ECM.
 
 ### 7 — Weak 5 GHz Wi-Fi RX
 

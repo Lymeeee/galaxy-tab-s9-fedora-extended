@@ -87,9 +87,6 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
         const power = this._powerGroup();
         if (power)
             page.add(power);
-        const usbNet = this._usbNetGroup();
-        if (usbNet)
-            page.add(usbNet);
 
         const boot = this._bootGroup();
         if (boot)
@@ -127,34 +124,6 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
             if (!runPrivileged(['power', ids[row.selected]]))
                 logError(new Error('cannot apply the power profile'),
                     'gnome-gts9wifi');
-        });
-        group.add(row);
-        return group;
-    }
-
-    _usbNetGroup() {
-        if (!privilegedAvailable())
-            return null;
-
-        const enabled = GLib.file_test('/etc/gts9wifi/usb-net-enabled',
-            GLib.FileTest.EXISTS);
-        const group = new Adw.PreferencesGroup({title: _('调试')});
-        const row = new Adw.SwitchRow({
-            title: _('USB 调试网络'),
-            subtitle: _('系统无法启动时，通过 172.16.42.1 的 USB 网卡提供 SSH。它会持续给 USB 设备控制器供电，日常使用建议关闭。'),
-            active: enabled,
-        });
-
-        let reverting = false;
-        row.connect('notify::active', () => {
-            if (reverting)
-                return;
-            if (runPrivileged(['usbnet', row.active ? 'on' : 'off']))
-                return;
-
-            reverting = true;
-            row.active = !row.active;
-            reverting = false;
         });
         group.add(row);
         return group;

@@ -21,7 +21,6 @@ APP_ID = 'io.github.lymeeee.Gts9wifiSettings'
 DEVICE_CONTROL = '/usr/libexec/gts9wifi-device-control'
 PRIVILEGED = '/usr/libexec/gts9wifi-privileged'
 POWER_PROFILE = '/var/lib/gts9wifi/power-profile'
-USB_NET_FLAG = '/etc/gts9wifi/usb-net-enabled'
 KEYBOARD_FW = '/lib/firmware/keyboard_stm/stm32_gts9family.bin'
 KEYBOARD_FW_SIZE = 52132
 KEYBOARD_FW_SHA256 = '1b48d88c23523ae205cd960e6d42725268638a15a47d8a5e52854eb01108caa3'
@@ -390,28 +389,6 @@ class Settings(Adw.Application):
 
     def debug_page(self):
         page = Adw.PreferencesPage(title='调试', icon_name='utilities-terminal-symbolic')
-        group = Adw.PreferencesGroup(
-            title='USB调试网络',
-            description='USB与电脑连接后，可使用SSH连接172.16.42.1'
-                        '日常使用建议关闭')
-        row = Adw.SwitchRow(
-            title='启用USB调试网络',
-            active=os.path.exists(USB_NET_FLAG))
-        guard = {'busy': False}
-
-        def changed(row, _pspec, guard=guard):
-            if guard['busy']:
-                return
-            value = 'on' if row.get_active() else 'off'
-            result = run(['pkexec', PRIVILEGED, 'usbnet', value], timeout=60)
-            if result is None or result.returncode != 0:
-                guard['busy'] = True
-                row.set_active(os.path.exists(USB_NET_FLAG))
-                guard['busy'] = False
-
-        row.connect('notify::active', changed)
-        group.add(row)
-        page.add(group)
 
         logs = Adw.PreferencesGroup(
             title='日志',
@@ -937,7 +914,6 @@ class Settings(Adw.Application):
             ('keyboard_fw', '键盘固件'),
             ('ffmpeg', 'FFmpeg编解码器'),
             ('vendor', '/vendor分区'),
-            ('usbnet', 'USB 调试网络'),
         ]:
             row = Adw.ActionRow(title=title, subtitle='…')
             group.add(row)
@@ -966,8 +942,6 @@ class Settings(Adw.Application):
         rows['ffmpeg'].set_subtitle(rpm('libavcodec-free'))
         rows['vendor'].set_subtitle(
             '已只读挂载' if os.path.ismount('/vendor') else '未挂载')
-        rows['usbnet'].set_subtitle(
-            '已启用（标志文件存在）' if os.path.exists(USB_NET_FLAG) else '已禁用（默认）')
 
 
 def main():

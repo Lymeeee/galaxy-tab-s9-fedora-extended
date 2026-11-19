@@ -22,12 +22,11 @@ aarch64 RPM with the Phase 1 userspace pieces from the Ubuntu port:
 - `gts9wifi-power` with powersave/balanced/sticky/performance profiles (CPU
   governor/EPP and boost OPPs, GPU devfreq, Wi-Fi powersave), applied at boot;
   balanced, sticky and performance expose CPU7's 3.36 GHz boost OPP
-- fast charging enabled once by default; USB debug network disabled by
-  default (create `/etc/gts9wifi/usb-net-enabled` to restore it)
+- fast charging enabled once by default
 - all of the above in the extension's settings page (Extensions app ->
   gnome-gts9wifi -> Preferences, or
-  `gnome-extensions prefs gnome-gts9wifi@tabs9linux`); power and USB debug
-  changes authenticate through pkexec
+  `gnome-extensions prefs gnome-gts9wifi@tabs9linux`); power changes
+  authenticate through pkexec
 - the GTS9 Plymouth splash theme for the rootfs (selected on install; the
   boot bundle carries the same theme for the initramfs)
 - `平板杂项设置` (Tab9 Settings), a GTK4/libadwaita application in the app grid that
@@ -102,10 +101,8 @@ gts9wifi-power status
 sudo gts9wifi-power powersave|balanced|performance
 ```
 
-`userspace` install enables the fast-charge default, the USB debug-net
-off switch, and applies the saved power profile.  The debug link stays
-off across boots; create `/etc/gts9wifi/usb-net-enabled` and reboot to
-get it back.  The old initramfs gadget is unbound at boot either way.
+`userspace` install enables the fast-charge default and applies the saved
+power profile.
 
 `ffmpeg` defaults to the `ffmpeg-8.1.3-gts9wifi-1` release; override with
 `--tag` if the rebuilt codecs are published elsewhere. It installs only

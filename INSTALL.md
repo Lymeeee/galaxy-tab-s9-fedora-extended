@@ -93,13 +93,7 @@ exactly one of the two must be present). The first boot takes a couple of
 minutes: the panel cold-boot recovery runs a platform PM cycle, and Wi-Fi and
 Bluetooth power up through the WCN sequencer.
 
-The root filesystem is created at full partition size — nothing to grow. A USB
-debug network appears as `usb0`:
-
-```sh
-read -s -p "tablet password: " PW; echo
-ssh -o "StrictHostKeyChecking=accept-new" fedora@172.16.42.1
-```
+The root filesystem is created at full partition size — nothing to grow.
 
 Configure Wi-Fi from GNOME Settings (or
 `nmcli device wifi connect "<SSID>" password "<pw>"`). You are in a full Fedora
