@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.58
+Version:        0.17.59
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -100,6 +100,7 @@ systemctl enable --now gts9wifi-mem-sleep-deep.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-device-name.service >/dev/null 2>&1 || :
 systemctl enable gts9wifi-rtc-time.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-rtc-anchor.timer >/dev/null 2>&1 || :
+systemctl enable gts9wifi-cover-boot-guard.service >/dev/null 2>&1 || :
 # Keep the PMIC counter continuous; the anchor stores its own UTC relation.
 if [ -f /etc/chrony.conf ] && \
    grep -qE '^[[:space:]]*rtcsync[[:space:]]*$' /etc/chrony.conf; then
@@ -155,6 +156,7 @@ if [ "$1" = 0 ]; then
     systemctl disable --now gts9wifi-device-name.service >/dev/null 2>&1 || :
     systemctl disable --now gts9wifi-rtc-time.service >/dev/null 2>&1 || :
     systemctl disable --now gts9wifi-rtc-anchor.timer >/dev/null 2>&1 || :
+    systemctl disable gts9wifi-cover-boot-guard.service >/dev/null 2>&1 || :
 fi
 if [ "$1" = 0 ] && command -v plymouth-set-default-theme >/dev/null 2>&1; then
     plymouth-set-default-theme spinner >/dev/null 2>&1 || :
@@ -192,6 +194,7 @@ fi
 %{_libexecdir}/gts9wifi-rtc-time
 %{_libexecdir}/gts9wifi-charge-guard
 %{_libexecdir}/gts9wifi-charge-mode
+%{_libexecdir}/gts9wifi-cover-boot-guard
 %{_libexecdir}/gts9wifi-keyboard-fw
 %{_libexecdir}/gts9wifi-wifi-bdf
 %{_libexecdir}/gts9wifi-privileged
@@ -224,6 +227,7 @@ fi
 %{_unitdir}/gts9wifi-sd-uuid-fix@.service
 %{_unitdir}/gts9wifi-charge-guard.service
 %{_unitdir}/gts9wifi-charge-guard.timer
+%{_unitdir}/gts9wifi-cover-boot-guard.service
 %{_unitdir}/gts9wifi-keyboard-fw.service
 %{_unitdir}/gts9wifi-spen-remote.service
 %{_unitdir}/gts9wifi-nologs.service
@@ -255,6 +259,13 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.59-1
+- Keep the panel dark when a charger-triggered cold boot (lpcharge=1)
+  starts with the folio cover already shut.  The firmware does not report
+  SW_LID at boot, but the pogo controller's connected GPIO is 0 while the
+  cover is closed; hold DPMS off until the cover connects or the user
+  touches the tablet.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.58-1
 - Apply the charger sysfs permissions on driver bind as well: the i2c
   device exists before the driver probes, so the add event ran before

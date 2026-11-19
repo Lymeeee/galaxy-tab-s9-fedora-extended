@@ -1,0 +1,13 @@
+[Unit]
+Description=Keep the panel dark when a charger-triggered boot starts with the cover shut
+After=systemd-udevd.service local-fs.target
+Before=display-manager.service
+ConditionPathExists=/proc/cmdline
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/gts9wifi-cover-boot-guard
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

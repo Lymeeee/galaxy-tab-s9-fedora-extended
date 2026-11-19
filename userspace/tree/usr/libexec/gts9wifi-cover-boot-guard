@@ -1,0 +1,138 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+#
+# A charger-triggered power-on (cmdline lpcharge=1) boots with the folio
+# cover already shut.  The Wacom controller and the pogo keyboard only report
+# a lid *change*, so nothing tells logind or GDM that the cover was closed
+# before the boot; the greeter lights the panel anyway.
+#
+# The pogo controller's connected GPIO survives that case: it is 0 exactly
+# while the keyboard cover is folded shut and 1 once it opens.  Keep the
+# panel off until the cover connects or the user touches the tablet.
+import os
+import select
+import struct
+import sys
+import time
+
+CMDLINE = '/proc/cmdline'
+POGO_DIAG = '/sys/bus/i2c/devices/9-002a/diagnostics'
+DPMS = '/sys/class/drm/card0-DSI-1/dpms'
+EVENT = struct.Struct('llHHi')
+WAKE_TYPES = (1, 3)  # EV_KEY, EV_ABS
+SETTLE_S = 3
+POLL_S = 0.1
+
+
+def log(msg):
+    print(f'gts9wifi-cover-boot-guard: {msg}', file=sys.stderr, flush=True)
+
+
+def read_text(path):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def pogo_connected():
+    diag = read_text(POGO_DIAG)
+    if not diag:
+        return None
+    for field in diag.split():
+        if field.startswith('connected='):
+            try:
+                return int(field.split('=', 1)[1])
+            except ValueError:
+                return None
+    return None
+
+
+def write_dpms(value):
+    try:
+        with open(DPMS, 'w') as f:
+            f.write(value)
+        return True
+    except OSError:
+        return False
+
+
+def open_inputs():
+    fds = []
+    try:
+        names = os.listdir('/dev/input')
+    except OSError:
+        return fds
+    for name in sorted(names):
+        if not name.startswith('event'):
+            continue
+        try:
+            fds.append(os.open('/dev/input/' + name,
+                               os.O_RDONLY | os.O_NONBLOCK))
+        except OSError:
+            pass
+    return fds
+
+
+def user_activity(fds, timeout):
+    if not fds:
+        time.sleep(timeout)
+        return False
+    readable, _, _ = select.select(fds, [], [], timeout)
+    active = False
+    for fd in readable:
+        try:
+            data = os.read(fd, EVENT.size * 16)
+        except OSError:
+            continue
+        for offset in range(0, len(data) - EVENT.size + 1, EVENT.size):
+            _, _, ev_type, _, ev_value = EVENT.unpack_from(data, offset)
+            if ev_type in WAKE_TYPES and ev_value != 0:
+                active = True
+    return active
+
+
+def wait_for(read, deadline_s):
+    deadline = time.monotonic() + deadline_s
+    while time.monotonic() < deadline:
+        value = read()
+        if value is not None:
+            return value
+        time.sleep(0.2)
+    return None
+
+
+def main():
+    if 'lpcharge=1' not in (read_text(CMDLINE) or ''):
+        return
+
+    connected = wait_for(pogo_connected, 30)
+    if connected is None:
+        log('pogo diagnostics unavailable, leaving the panel alone')
+        return
+    if connected:
+        log('cover open at boot, not blanking')
+        return
+
+    if wait_for(lambda: True if os.path.exists(DPMS) else None, 30) is None:
+        log('no DRM connector, leaving the panel alone')
+        return
+
+    log('charger boot with the cover shut: holding the panel dark')
+    fds = open_inputs()
+    start = time.monotonic()
+    while True:
+        write_dpms('Off')
+        if pogo_connected():
+            log('cover opened, restoring the panel')
+            write_dpms('On')
+            return
+        if time.monotonic() - start > SETTLE_S and user_activity(fds, POLL_S):
+            log('user input, restoring the panel')
+            write_dpms('On')
+            return
+
+
+if __name__ == '__main__':
+    main()
