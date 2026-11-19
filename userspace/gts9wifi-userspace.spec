@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.57
+Version:        0.17.58
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -255,6 +255,12 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.58-1
+- Apply the charger sysfs permissions on driver bind as well: the i2c
+  device exists before the driver probes, so the add event ran before
+  charge_hold/fast_charge existed and the session could not engage the
+  off-screen charge hold.
+
 * Tue Nov 17 2026 Lymeeee <mr_xunyu@163.com> - 0.17.57-1
 - Add the 息屏直充 charge mode: keep PPS direct charging alive with the
   panel off and enter deep sleep at 90%, backed by the new SM5440
