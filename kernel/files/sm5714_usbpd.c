@@ -1080,17 +1080,23 @@ static int sm5714_usbpd_probe(struct i2c_client *client)
 	sm->retained_sink_dfp =
 		(retained_roles & BIT(0)) &&
 		((cc & SM5714_CC_ATTACH_MASK) == SM5714_CC_ATTACH_SOURCE);
-	if (sm->retained_sink_dfp) {
-		dev_info(dev, "retained Sink/DFP role detected\n");
-		/*
-		 * Keeping the data role is sufficient for USB host, but some
-		 * powered docks retain their old PD/DisplayPort state and never
-		 * send Source_Capabilities after the tablet reboots.  Present Rp
-		 * briefly to create a real CC detach at the still-powered Source,
-		 * then leave both pins open.  TCPM subsequently starts normal DRP
-		 * toggling and the dock negotiates power, USB and altmodes from
-		 * scratch exactly as it does after a physical reconnect.
-		 */
+	/*
+	 * Any powered source keeps its old PD state across a warm tablet
+	 * reboot and will not send Source_Capabilities again until it sees a
+	 * real CC detach.  That applies to a plain charger just as much as to
+	 * a dock: the charger saw Rd long before Linux probes, so without this
+	 * reset the port stays at Type-C 5 V/3 A (DCP) until the cable is
+	 * physically re-plugged.  Present Rp briefly to create the detach,
+	 * then leave both pins open; TCPM starts normal DRP toggling and the
+	 * source negotiates power, USB and altmodes from scratch exactly as
+	 * it does after a physical reconnect.
+	 */
+	if ((cc & SM5714_CC_ATTACH_MASK) == SM5714_CC_ATTACH_SOURCE) {
+		if (sm->retained_sink_dfp)
+			dev_info(dev, "retained Sink/DFP role detected\n");
+		else
+			dev_info(dev,
+				 "powered source retained across reboot, resetting CC\n");
 		ret = regmap_write(sm->regmap, SM5714_REG_CC_CNTL1, 0x49);
 		if (ret)
 			goto put_fwnode;
@@ -1104,8 +1110,7 @@ static int sm5714_usbpd_probe(struct i2c_client *client)
 		msleep(50);
 		sm->retained_sink_dfp = false;
 		sm->retained_dock_reset = true;
-		dev_info(dev,
-			 "reset retained dock with a CC detach before TCPM\n");
+		dev_info(dev, "reset retained source with a CC detach before TCPM\n");
 	}
 
 	sm->tcpc.fwnode = sm->connector;
