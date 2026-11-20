@@ -589,6 +589,7 @@ cmd_fingerprint() {
     if [ "$dry" -eq 1 ]; then
         echo "would install libfprint from $libfprint_tag"
         echo "would install the runtime from $fingerprint_tag"
+        echo "would enable authselect with-fingerprint"
         if [ "$calib_from_device" -eq 1 ]; then
             echo "would import this unit's calibration from sec_efs"
         elif [ -n "$calib_dir" ]; then
@@ -638,6 +639,11 @@ EOF
     fi
     update_end
 
+    if command -v authselect >/dev/null 2>&1; then
+        authselect enable-feature with-fingerprint >/dev/null 2>&1 ||
+            echo "warning: could not enable authselect with-fingerprint; GNOME will not offer fingerprint login" >&2
+    fi
+
     systemctl daemon-reload >/dev/null 2>&1 || true
     for unit in gts9wifi-android-parts.service vendor.mount \
                 vendor-firmware_mnt.mount \
@@ -663,9 +669,8 @@ EOF
     echo "fingerprint stack installed and locked"
     echo "  runtime assets: /var/lib/gts9wifi/fingerprint"
     echo "  calibration: calib.dat and egoptbds.dat in .../firmware (0600)"
+    echo "  GNOME fingerprint login enabled (authselect with-fingerprint)"
     echo "  reboot, then enroll with GNOME Settings or: fprintd-enroll"
-    echo "  GDM uses its own gdm-fingerprint PAM service;"
-    echo "  do not enable authselect with-fingerprint (it adds a second prompt)"
 }
 
 cmd_kernel() {

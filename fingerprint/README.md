@@ -66,11 +66,15 @@ sudo /usr/libexec/gts9wifi-fingerprint-runtime import-calibration
 sudo /usr/libexec/gts9wifi-fingerprint-runtime import-calibration DIR
 ```
 
-`fprintd-pam` is required. Fedora's GDM uses the dedicated
-`gdm-fingerprint` PAM service, so do **not** run
-`authselect enable-feature with-fingerprint`: that adds a second fingerprint
-prompt to the password stack. Reboot after importing calibration, then enroll
-with GNOME Settings or `fprintd-enroll`.
+`fprintd-pam` is required. GNOME Settings, the lock screen and GDM also need
+authselect's `with-fingerprint` feature; the updater enables it. Without the
+feature authselect pins
+`org.gnome.login-screen enable-fingerprint-authentication` to false, so GNOME
+hides the Settings row and never probes the reader, and `gdm-fingerprint`
+has no `pam_fprintd`. Fedora only adds it to `fingerprint-auth` and
+`system-auth`, not `password-auth`, so GDM's password prompt is not
+duplicated. Reboot after importing calibration, then enroll with GNOME
+Settings or `fprintd-enroll`.
 
 The Galaxy Tab Extension provides the visible target and the light/presented
 handshake in the user session, on the lock screen and in the GDM greeter, so

@@ -118,9 +118,13 @@ units, and assembles the TA/firmware from the tablet's own partitions.
 `biometrics/meta/egis_calibration_data.bin` as `calib.dat` plus
 `egoptbds.dat` when present; `--calib DIR` imports both from a directory
 instead. Reboot, then enroll with GNOME Settings or `fprintd-enroll`.
-Do **not** enable authselect's `with-fingerprint` feature: Fedora's GDM
-already uses the dedicated `gdm-fingerprint` PAM service, and adding the
-module to the password stack causes a second fingerprint prompt.
+Fingerprint login in GNOME Settings, the lock screen and GDM requires
+authselect's `with-fingerprint` feature, which the updater enables. Without
+it authselect pins `org.gnome.login-screen enable-fingerprint-authentication`
+to false, so GNOME 50 hides the Settings row and never probes the reader, and
+`gdm-fingerprint` has no `pam_fprintd`. Fedora only adds it to
+`fingerprint-auth` and `system-auth`, not `password-auth`, so GDM's password
+prompt is not duplicated.
 
 `kernel` without `--flash` only downloads and verifies the pair. With
 `--flash` it backs up the four boot partitions and the running modules,

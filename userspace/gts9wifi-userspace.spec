@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.64
+Version:        0.17.65
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -262,6 +262,16 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.65-1
+- Enable authselect's with-fingerprint feature when installing the
+  fingerprint stack.  GNOME 50 hides the Settings fingerprint row and never
+  probes the lock-screen reader while authselect pins
+  org.gnome.login-screen enable-fingerprint-authentication to false, and
+  gdm-fingerprint needs pam_fprintd in fingerprint-auth.
+- Correct the previous guidance: Fedora touches fingerprint-auth and
+  system-auth only, so GDM's password prompt (password-auth) is not
+  duplicated.  Sudo and console logins now try the fingerprint first.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.64-1
 - Rename the shell extension to Galaxy Tab Extension (uuid
   galaxy-tab-extension@tabs9linux).  Device controls and the performance
