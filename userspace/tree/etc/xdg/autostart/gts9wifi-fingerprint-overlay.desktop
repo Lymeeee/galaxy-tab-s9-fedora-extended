@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GTS9 Wi-Fi Fingerprint Overlay
+Comment=Full-screen target for the EL721 under-display fingerprint reader
+Exec=/usr/bin/gts9wifi-fingerprint-overlay
+Terminal=false
+NoDisplay=true
+OnlyShowIn=GNOME;
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Phase=Applications

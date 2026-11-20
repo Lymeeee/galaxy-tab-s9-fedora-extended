@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.61
+Version:        0.17.62
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -165,6 +165,8 @@ fi
 %files
 %{_bindir}/gts9wifi-update
 %{_bindir}/gts9wifi-settings
+%{_bindir}/gts9wifi-fingerprint-overlay
+%config(noreplace) %{_sysconfdir}/xdg/autostart/gts9wifi-fingerprint-overlay.desktop
 %{_prefix}/local/bin/gnome-control-center
 %{_libdir}/gts9wifi/libgts9-cpuinfo.so
 %{_datadir}/applications/gts9wifi-settings.desktop
@@ -254,6 +256,14 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.62-1
+- Add the EL721 full-screen fingerprint target overlay: a black
+  compensation frame with a thin sensor ring, solid white feedback while
+  the driver waits for a presented frame, the enrollment/verification
+  prompt, and a GTK4 close button.  The close button asks the root broker
+  to cancel the current fprintd operation.  Autostart in the GNOME user
+  session; the GDM greeter is explicitly excluded.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.61-1
 - Provision the native Bluetooth address into freshly flashed boot images:
   gts9wifi-update kernel --flash now patches the new boot/vendor_boot DTBs

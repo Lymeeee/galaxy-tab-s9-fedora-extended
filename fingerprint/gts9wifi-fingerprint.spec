@@ -6,7 +6,7 @@
 %global __requires_exclude ^libc[.]so[(]
 
 Name:           gts9wifi-fingerprint
-Version:        0.1.5
+Version:        0.1.6
 Release:        1%{?dist}
 Summary:        EL721 secure-start runtime for the Galaxy Tab S9 Wi-Fi
 License:        MIT AND LGPL-2.1-or-later AND BSD-3-Clause
@@ -17,13 +17,15 @@ BuildRequires:  glib2-devel
 BuildRequires:  systemd-rpm-macros
 Requires:       bash
 Requires:       python3
+Requires:       python3-dbus
+Requires:       python3-gobject-base
 Requires:       systemd
 Requires:       util-linux
 Requires:       device-mapper
 Requires:       kmod
 Requires:       fprintd
 Requires:       fprintd-pam
-Requires:       libfprint >= 1.94.100-100.gts9wifi1
+Requires:       libfprint >= 1.94.100-100.gts9wifi3
 Requires:       gts9wifi-dynpart >= 0.1.3
 
 %description
@@ -47,16 +49,25 @@ cp -a . %{buildroot}/
 
 %post
 systemctl daemon-reload >/dev/null 2>&1 || :
+dbus-send --system --type=method_call --dest=org.freedesktop.DBus \
+    / org.freedesktop.DBus.ReloadConfig >/dev/null 2>&1 || :
+systemctl enable --now gts9wifi-fingerprint-ui.service >/dev/null 2>&1 || :
 
 %postun
 systemctl daemon-reload >/dev/null 2>&1 || :
+if [ "$1" = 0 ]; then
+    systemctl disable --now gts9wifi-fingerprint-ui.service >/dev/null 2>&1 || :
+fi
 
 %files
 %{_libexecdir}/gts9wifi-android-parts
 %{_libexecdir}/gts9wifi-fingerprint-runtime
 %{_libexecdir}/gts9wifi-fingerprint-secure
 %{_libexecdir}/gts9wifi-fingerprint-secure-owner
+%{_libexecdir}/gts9wifi-fingerprint-ui-broker
 %{_libexecdir}/gts9wifi-binder-ctxmgr
+%{_datadir}/dbus-1/system-services/io.github.lymeeee.Gts9wifiFingerprintUI.service
+%{_datadir}/dbus-1/system.d/io.github.lymeeee.Gts9wifiFingerprintUI.conf
 %dir %{_prefix}/lib/gts9wifi
 %dir %{_prefix}/lib/gts9wifi/fingerprint
 %{_prefix}/lib/gts9wifi/fingerprint/liblog_capture.so
@@ -65,10 +76,18 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %{_prefix}/lib/modules-load.d/gts9wifi-fingerprint.conf
 %{_unitdir}/gts9wifi-fingerprint-runtime.service
 %{_unitdir}/gts9wifi-fingerprint-secure.service
+%{_unitdir}/gts9wifi-fingerprint-ui.service
 %dir %{_unitdir}/fprintd.service.d
 %{_unitdir}/fprintd.service.d/10-gts9wifi-el721.conf
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.1.6-1
+- Add the EL721 target availability broker.  It validates the active local
+  logind session, publishes the two-second ready lease and the presented
+  frame token for the GTK4 overlay, and can write a driver cancel request
+  when the user closes the overlay.  Enable its systemd/D-Bus activation
+  service on installation.
+
 * Wed Nov 11 2026 Lymeeee <mr_xunyu@163.com> - 0.1.5-1
 - Align the secure owner and libfprint with this port's runtime paths:
   use /run/gts9wifi-fingerprint-secure/attempt, the gts9wifi firmware

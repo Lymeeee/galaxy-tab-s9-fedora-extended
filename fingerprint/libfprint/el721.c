@@ -18,13 +18,15 @@
 #include <glib/gstdio.h>
 
 #define EL721_FIRMWARE "/var/lib/gts9wifi/fingerprint/firmware"
-#define EL721_TOUCH "/sys/bus/i2c/devices/13-005d"
+#define EL721_TOUCH_ROOT "/sys/bus/i2c/devices"
+#define EL721_TOUCH_NAME "fts1ba90a"
 #define EL721_PANEL "/sys/class/backlight/ae94000.dsi.0"
-#define EL721_VISUAL_STATE "/run/gts9u-fingerprint/active"
-#define EL721_UI_LEASE "/run/gts9u-fingerprint-ui/ready"
-#define EL721_LIGHT_REQUEST "/run/gts9u-fingerprint/light"
-#define EL721_LIGHT_RELEASE "/run/gts9u-fingerprint/last-release"
-#define EL721_LIGHT_PRESENTED "/run/gts9u-fingerprint-ui/presented"
+#define EL721_VISUAL_STATE "/run/gts9wifi-fingerprint/active"
+#define EL721_UI_LEASE "/run/gts9wifi-fingerprint-ui/ready"
+#define EL721_LIGHT_REQUEST "/run/gts9wifi-fingerprint/light"
+#define EL721_LIGHT_RELEASE "/run/gts9wifi-fingerprint/last-release"
+#define EL721_LIGHT_PRESENTED "/run/gts9wifi-fingerprint-ui/presented"
+#define EL721_CANCEL_REQUEST "/run/gts9wifi-fingerprint-ui/cancel"
 #define EL721_BATTERY_TEMP "/sys/class/power_supply/battery/temp"
 #define EL721_BATTERY_TEMP_FALLBACK "/sys/class/power_supply/sm5714-battery/temp"
 #define EL721_ACTION_TIMEOUT_US (90 * G_USEC_PER_SEC)
@@ -74,17 +76,74 @@ write_child (const gchar *directory, const gchar *name, const gchar *value,
   return write_sysfs (path, value, error);
 }
 
+static const gchar *
+el721_touch_dir (GError **error)
+{
+  static gchar *cached = NULL;
+  GDir *devices;
+  const gchar *entry;
+
+  if (cached)
+    return cached;
+
+  devices = g_dir_open (EL721_TOUCH_ROOT, 0, error);
+  if (!devices)
+    return NULL;
+
+  while ((entry = g_dir_read_name (devices)) != NULL)
+    {
+      g_autofree gchar *path = g_build_filename (EL721_TOUCH_ROOT, entry, NULL);
+      g_autofree gchar *name_path = g_build_filename (path, "name", NULL);
+      g_autofree gchar *state_path = g_build_filename (path, "fod_state", NULL);
+      g_autofree gchar *name = NULL;
+
+      if (!g_file_get_contents (name_path, &name, NULL, NULL))
+        continue;
+      g_strstrip (name);
+      if (g_ascii_strcasecmp (name, EL721_TOUCH_NAME) != 0 ||
+          !g_file_test (state_path, G_FILE_TEST_EXISTS))
+        continue;
+      cached = g_steal_pointer (&path);
+      break;
+    }
+  g_dir_close (devices);
+
+  if (!cached)
+    g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_NOENT,
+                 "cannot find %s FOD touch controller under " EL721_TOUCH_ROOT,
+                 EL721_TOUCH_NAME);
+  return cached;
+}
+
+static gboolean
+write_touch (const gchar *name, const gchar *value, GError **error)
+{
+  const gchar *touch = el721_touch_dir (error);
+  return touch && write_child (touch, name, value, error);
+}
+
+static gboolean
+read_touch (const gchar *name, gchar **contents, GError **error)
+{
+  const gchar *touch = el721_touch_dir (error);
+  g_autofree gchar *path = NULL;
+
+  if (!touch)
+    return FALSE;
+  path = g_build_filename (touch, name, NULL);
+  return g_file_get_contents (path, contents, NULL, error);
+}
+
 static gboolean
 read_fod_state (gboolean *pressed, gboolean *released, guint *x_out,
                 guint *y_out, guint64 *sequence, GError **error)
 {
-  g_autofree gchar *path = g_build_filename (EL721_TOUCH, "fod_state", NULL);
   g_autofree gchar *state = NULL;
   gchar name[16] = { 0 };
   guint x;
   guint y;
 
-  if (!g_file_get_contents (path, &state, NULL, error))
+  if (!read_touch ("fod_state", &state, error))
     return FALSE;
   if (sscanf (state, "%15s %u %u %" G_GUINT64_FORMAT,
               name, &x, &y, sequence) != 4)
@@ -132,6 +191,23 @@ set_sensor_power (FpiDeviceEl721 *self, gboolean enabled, GError **error)
                       error);
 }
 
+static const gchar *
+el721_action_name (El721Action action)
+{
+  switch (action)
+    {
+    case EL721_ACTION_ENROLL:
+      return "enroll";
+    case EL721_ACTION_VERIFY:
+      return "verify";
+    case EL721_ACTION_IDENTIFY:
+      return "identify";
+    case EL721_ACTION_NONE:
+    default:
+      return "none";
+    }
+}
+
 static gboolean
 udfps_publish (FpiDeviceEl721 *self, GError **error)
 {
@@ -140,10 +216,12 @@ udfps_publish (FpiDeviceEl721 *self, GError **error)
 
   if (self->visual_refreshed && now - self->visual_refreshed < G_USEC_PER_SEC)
     return TRUE;
-  /* Root-owned RuntimeDirectory; Shell can only read this short lease. No
-   * identity, template or authentication result crosses this boundary. */
-  state = g_strdup_printf ("active %" G_GINT64_FORMAT "\n",
-                           now + 3 * G_USEC_PER_SEC);
+  /* Root-owned RuntimeDirectory; the session overlay can only read this
+   * short lease. No identity, template or authentication result crosses
+   * this boundary. */
+  state = g_strdup_printf ("active %" G_GINT64_FORMAT " %s\n",
+                           now + 3 * G_USEC_PER_SEC,
+                           el721_action_name (self->action));
   if (!g_file_set_contents_full (EL721_VISUAL_STATE, state, -1,
                                  G_FILE_SET_CONTENTS_CONSISTENT, 0644, error))
     return FALSE;
@@ -207,13 +285,14 @@ udfps_begin (FpiDeviceEl721 *self, GError **error)
   if (self->udfps_active)
     return TRUE;
 
-  if (!write_child (EL721_TOUCH, "fod_rect", "854 2732 994 2872\n", error) ||
-      !write_child (EL721_TOUCH, "fod_enable", "0\n", error))
+  g_unlink (EL721_CANCEL_REQUEST);
+  if (!write_touch ("fod_rect", "700 2250 960 2480\n", error) ||
+      !write_touch ("fod_enable", "0\n", error))
     return FALSE;
   if (!read_fod_state (&pressed, &released, &x, &y, &self->fod_sequence,
                        error))
     {
-      write_child (EL721_TOUCH, "fod_enable", "0\n", NULL);
+      write_touch ("fod_enable", "0\n", NULL);
       return FALSE;
     }
   self->enroll_armed = FALSE;
@@ -223,7 +302,7 @@ udfps_begin (FpiDeviceEl721 *self, GError **error)
   g_unlink (EL721_LIGHT_RELEASE);
   if (!udfps_light (self, FALSE, error) || !udfps_publish (self, error))
     {
-      write_child (EL721_TOUCH, "fod_enable", "0\n", NULL);
+      write_touch ("fod_enable", "0\n", NULL);
       g_unlink (EL721_VISUAL_STATE);
       return FALSE;
     }
@@ -261,7 +340,7 @@ udfps_end (FpiDeviceEl721 *self)
   udfps_light (self, FALSE, NULL);
   self->light_requested = 0;
   g_unlink (EL721_LIGHT_REQUEST);
-  write_child (EL721_TOUCH, "fod_enable", "0\n", NULL);
+  write_touch ("fod_enable", "0\n", NULL);
   self->udfps_active = FALSE;
   self->udfps_lit = FALSE;
   self->touch_inhibited = TRUE;
@@ -367,6 +446,7 @@ build_gallery (FpiDeviceEl721 *self, GError **error)
 }
 
 static void poll_action (FpDevice *device, gpointer user_data);
+static void el721_cancel (FpDevice *device);
 static gboolean initialize_identify (FpiDeviceEl721 *self, GError **error);
 
 static void
@@ -789,6 +869,13 @@ poll_action (FpDevice *device, gpointer user_data)
   g_clear_pointer (&self->poll_source, g_source_unref);
   if (self->action == EL721_ACTION_NONE)
     return;
+  if (g_file_test (EL721_CANCEL_REQUEST, G_FILE_TEST_EXISTS))
+    {
+      g_unlink (EL721_CANCEL_REQUEST);
+      g_message ("EL721 cancel requested by the fingerprint overlay");
+      el721_cancel (device);
+      return;
+    }
   if (g_cancellable_is_cancelled (fpi_device_get_cancellable (device)))
     {
       action_fail (self, g_error_new_literal (G_IO_ERROR, G_IO_ERROR_CANCELLED,
@@ -812,7 +899,7 @@ poll_action (FpDevice *device, gpointer user_data)
       if (!self->touch_inhibited)
         {
           if (!udfps_light (self, FALSE, &error) ||
-              !write_child (EL721_TOUCH, "fod_enable", "0\n", &error))
+              !write_touch ("fod_enable", "0\n", &error))
             {
               action_fail (self, g_steal_pointer (&error));
               return;
@@ -828,7 +915,7 @@ poll_action (FpDevice *device, gpointer user_data)
     }
   if (self->touch_inhibited)
     {
-      if (!write_child (EL721_TOUCH, "fod_enable", "1\n", &error) ||
+      if (!write_touch ("fod_enable", "1\n", &error) ||
           !read_fod_state (&pressed, &released, &x, &y, &self->fod_sequence, &error))
         {
           action_fail (self, g_steal_pointer (&error));
@@ -842,7 +929,7 @@ poll_action (FpDevice *device, gpointer user_data)
     }
   /* Suspend disables the touch controller's FOD mode. Do not leave a stale
    * prompt armed after resume or silently re-enable it behind the lock UI. */
-  if (!g_file_get_contents (EL721_TOUCH "/fod_enable", &touch_enabled, NULL, &error) ||
+  if (!read_touch ("fod_enable", &touch_enabled, &error) ||
       !g_str_has_prefix (touch_enabled, "1"))
     {
       if (!error)
@@ -1009,8 +1096,10 @@ el721_enroll (FpDevice *device)
   if (reply.result)
     g_set_error (&error, FP_DEVICE_ERROR, FP_DEVICE_ERROR_GENERAL,
                  "EL721 EnrollInit returned %u", reply.result);
+  self->action = EL721_ACTION_ENROLL;
   if (error || !udfps_begin (self, &error))
     {
+      self->action = EL721_ACTION_NONE;
       el721_reply_clear (&reply);
       set_sensor_power (self, FALSE, NULL);
       fpi_device_enroll_complete (device, NULL, g_steal_pointer (&error));
@@ -1020,12 +1109,12 @@ el721_enroll (FpDevice *device)
   el721_reply_clear (&reply);
   if (!arm_enroll_capture (self, &error))
     {
+      self->action = EL721_ACTION_NONE;
       udfps_end (self);
       set_sensor_power (self, FALSE, NULL);
       fpi_device_enroll_complete (device, NULL, g_steal_pointer (&error));
       return;
     }
-  self->action = EL721_ACTION_ENROLL;
   self->enroll_stage = 0;
   self->action_started = g_get_monotonic_time ();
   fpi_device_report_finger_status (device, FP_FINGER_STATUS_NEEDED);
@@ -1087,6 +1176,8 @@ start_identify (FpDevice *device)
   FpiDeviceEl721 *self = FPI_DEVICE_EL721 (device);
   g_autoptr(GError) error = NULL;
   FpiDeviceAction current = fpi_device_get_current_action (device);
+  self->action = current == FPI_DEVICE_ACTION_VERIFY ?
+                 EL721_ACTION_VERIFY : EL721_ACTION_IDENTIFY;
   if (!build_gallery (self, &error) || !operation_prepare (self, &error) ||
       !initialize_identify (self, &error) || !udfps_begin (self, &error))
     {
@@ -1100,8 +1191,6 @@ start_identify (FpDevice *device)
         fpi_device_identify_complete (device, g_steal_pointer (&error));
       return;
     }
-  self->action = current == FPI_DEVICE_ACTION_VERIFY ?
-                 EL721_ACTION_VERIFY : EL721_ACTION_IDENTIFY;
   self->action_started = g_get_monotonic_time ();
   fpi_device_report_finger_status (device, FP_FINGER_STATUS_NEEDED);
   schedule_poll (self);

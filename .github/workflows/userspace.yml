@@ -33,13 +33,14 @@ jobs:
             bash -lc '
               set -euxo pipefail
               dnf -y install rpm-build systemd-rpm-macros glib2 glib2-devel libgtop2-devel gcc findutils tar gzip sed python3 desktop-file-utils python3-gobject gtk4 libadwaita nodejs dtc >/dev/null
-              python3 -m py_compile /work/userspace/tree/usr/bin/gts9wifi-settings /work/userspace/tree/usr/libexec/gts9wifi-power-key /work/userspace/tree/usr/libexec/gts9wifi-charge-mode /work/userspace/tree/usr/libexec/gts9wifi-wifi-bdf /work/userspace/tree/usr/libexec/gts9wifi-spen-remote /work/userspace/tree/usr/libexec/gts9wifi-rtc-time /work/userspace/tree/usr/libexec/gts9wifi-zh-translations /work/userspace/tree/usr/libexec/gts9wifi-camera-calib /work/userspace/tree/usr/libexec/gts9wifi-cover-boot-guard
+              python3 -m py_compile /work/userspace/tree/usr/bin/gts9wifi-settings /work/userspace/tree/usr/bin/gts9wifi-fingerprint-overlay /work/userspace/tree/usr/libexec/gts9wifi-power-key /work/userspace/tree/usr/libexec/gts9wifi-charge-mode /work/userspace/tree/usr/libexec/gts9wifi-wifi-bdf /work/userspace/tree/usr/libexec/gts9wifi-spen-remote /work/userspace/tree/usr/libexec/gts9wifi-rtc-time /work/userspace/tree/usr/libexec/gts9wifi-zh-translations /work/userspace/tree/usr/libexec/gts9wifi-camera-calib /work/userspace/tree/usr/libexec/gts9wifi-cover-boot-guard
               rm -rf /work/userspace/tree/usr/bin/__pycache__ /work/userspace/tree/usr/libexec/__pycache__
               python3 /work/userspace/tests/settings-smoke.py
               python3 /work/userspace/tests/libwacom-tablet.py
               python3 /work/userspace/tests/bt-provision-dtb.py
               python3 /work/userspace/tests/rtc-anchor.py
               python3 /work/userspace/tests/camera-calib.py
+              python3 /work/userspace/tests/fingerprint-overlay.py
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-mirrors
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-protect
               sh -n /work/userspace/tree/usr/libexec/gts9wifi-ime
@@ -62,6 +63,7 @@ jobs:
                 node --check /tmp/extension-check.mjs
               done
               desktop-file-validate /work/userspace/tree/usr/share/applications/gts9wifi-settings.desktop
+              desktop-file-validate /work/userspace/tree/etc/xdg/autostart/gts9wifi-fingerprint-overlay.desktop
               find /work/userspace/tree -type d -name __pycache__ -prune -exec rm -rf {} +
               mkdir -p ~/rpmbuild/SOURCES ~/rpmbuild/RPMS /work/out-userspace
               rm -rf /tmp/src

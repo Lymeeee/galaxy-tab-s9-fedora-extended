@@ -1,0 +1,735 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+"""Full-screen fingerprint target for the EL721 under-display reader.
+
+The overlay owns no authentication state.  It shows a dark compensation
+frame, acknowledges the driver's light request after the frame reaches the
+compositor, and can ask the root broker to cancel the current operation.
+"""
+
+import math
+import os
+import re
+import sys
+import time
+from pathlib import Path
+
+APP_ID = "io.github.lymeeee.Gts9wifiFingerprintOverlay"
+BUS_NAME = "io.github.lymeeee.Gts9wifiFingerprintUI"
+OBJECT_PATH = "/io/github/lymeeee/Gts9wifiFingerprintUI"
+INTERFACE = BUS_NAME
+
+DEBUG = bool(os.environ.get("GTS9WIFI_FP_UI_DEBUG_DIR"))
+DEBUG_DIR = Path(os.environ.get("GTS9WIFI_FP_UI_DEBUG_DIR", "/nonexistent"))
+RUN_DIR = DEBUG_DIR if DEBUG else Path("/run/gts9wifi-fingerprint")
+UI_DIR = DEBUG_DIR if DEBUG else Path("/run/gts9wifi-fingerprint-ui")
+ACTIVE_LEASE = RUN_DIR / "active"
+LIGHT_REQUEST = RUN_DIR / "light"
+CANCEL_REQUEST = UI_DIR / "cancel"
+READY_LEASE = UI_DIR / "ready"
+PRESENTED = UI_DIR / "presented"
+
+RAW_WIDTH = 1600
+RAW_HEIGHT = 2560
+# FOD rect is reported in the portrait touch coordinate space.  This is
+# the X710 centre the kernel accepts; the driver writes the same rect.
+DEFAULT_FOD_RECT = (700, 2250, 960, 2480)
+# 14.8 mm optical target on the 147.7 mm short side of the X710 panel.
+SENSOR_DIAMETER_RATIO = 14.8 / 147.7
+PROMPTS = {
+    "enroll": "请求指纹录入",
+    "verify": "请求指纹验证",
+    "identify": "请求指纹验证",
+    "none": "请求指纹验证",
+}
+TRANSFORM_POINTS = (
+    lambda u, v: (u, v),
+    lambda u, v: (1 - v, u),
+    lambda u, v: (1 - u, 1 - v),
+    lambda u, v: (v, 1 - u),
+    lambda u, v: (1 - u, v),
+    lambda u, v: (v, u),
+    lambda u, v: (u, 1 - v),
+    lambda u, v: (1 - v, 1 - u),
+)
+
+
+def monotonic_us():
+    return time.monotonic_ns() // 1000
+
+
+def read_text(path):
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return ""
+
+
+def parse_active_lease(contents, now):
+    """Return the action for a fresh driver lease, or None."""
+    match = re.fullmatch(r"active ([0-9]+)(?: ([a-z]+))?\n?", contents or "")
+    if not match:
+        return None
+    expires = int(match.group(1))
+    if not (expires > now and expires - now <= 3_100_000):
+        return None
+    action = match.group(2) or "verify"
+    return action if action in PROMPTS else "verify"
+
+
+def parse_light_request(contents):
+    """Return the prepare token, or 0 when no request is present."""
+    match = re.fullmatch(r"prepare ([0-9]+)\n?", contents or "")
+    if not match:
+        return 0
+    token = int(match.group(1))
+    return token if token > 0 else 0
+
+
+def light_token_fresh(token, now):
+    return 0 < token <= now and now - token < 1_000_000
+
+
+def prompt_for_action(action):
+    return PROMPTS.get(action, PROMPTS["verify"])
+
+
+def parse_fod_rect(contents):
+    values = (contents or "").split()
+    if len(values) != 4:
+        return None
+    try:
+        left, top, right, bottom = (int(value) for value in values)
+    except ValueError:
+        return None
+    if right <= left or bottom <= top:
+        return None
+    return left, top, right, bottom
+
+
+def find_fod_rect():
+    override = os.environ.get("GTS9WIFI_FP_UI_FOD_RECT")
+    if override:
+        rect = parse_fod_rect(override)
+        if rect:
+            return rect
+    devices = Path("/sys/bus/i2c/devices")
+    try:
+        entries = sorted(devices.iterdir())
+    except OSError:
+        entries = []
+    for entry in entries:
+        try:
+            name = (entry / "name").read_text(encoding="ascii").strip()
+        except (OSError, UnicodeError):
+            continue
+        if name.lower() != "fts1ba90a":
+            continue
+        try:
+            rect = parse_fod_rect((entry / "fod_rect").read_text(encoding="ascii"))
+        except (OSError, UnicodeError):
+            continue
+        if rect:
+            return rect
+    return DEFAULT_FOD_RECT
+
+
+def sensor_fractions(rect, transform):
+    """Map the portrait FOD rect through the touchscreen axis transform."""
+    left, top, right, bottom = rect
+    # The DTS applies touchscreen-swapped-x-y and touchscreen-inverted-x:
+    # landscape x = raw y, landscape y = RAW_WIDTH - 1 - raw x.  Transform 0
+    # is that native landscape panel; Mutter's rotation is applied after it.
+    u = ((top + bottom) / 2) / RAW_HEIGHT
+    v = 1 - ((left + right) / 2) / RAW_WIDTH
+    return TRANSFORM_POINTS[int(transform) & 7](u, v)
+
+
+def sensor_geometry(rect, transform, width, height):
+    u, v = sensor_fractions(rect, transform)
+    diameter = round(min(width, height) * SENSOR_DIAMETER_RATIO)
+    return u * width, v * height, diameter / 2
+
+
+def layout_text(width, height, cx, cy, radius, text_width, text_height):
+    """Place the prompt on the screen-centre side of the ring.
+
+    The prompt's horizontal centreline runs through the ring centre.  The
+    text-to-ring gap equals the ring-to-near-screen-edge gap.  On the
+    current landscape panel that puts the prompt to the left of the ring;
+    rotated layouts mirror the same rule.
+    """
+    ring_left = cx - radius
+    ring_right = cx + radius
+    ring_top = cy - radius
+    ring_bottom = cy + radius
+    if abs(cx - width / 2) >= abs(cy - height / 2):
+        if cx >= width / 2:
+            gap = max(0.0, width - ring_right)
+            x = ring_left - gap - text_width
+        else:
+            gap = max(0.0, ring_left)
+            x = ring_right + gap
+        y = cy - text_height / 2
+    else:
+        if cy >= height / 2:
+            gap = max(0.0, height - ring_bottom)
+            y = ring_top - gap - text_height
+        else:
+            gap = max(0.0, ring_top)
+            y = ring_bottom + gap
+        x = cx - text_width / 2
+    return x, y
+
+
+def query_panel_transform():
+    import gi
+
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio
+
+    proxy = Gio.DBusProxy.new_for_bus_sync(
+        Gio.BusType.SESSION,
+        Gio.DBusProxyFlags.NONE,
+        None,
+        "org.gnome.Mutter.DisplayConfig",
+        "/org/gnome/Mutter/DisplayConfig",
+        "org.gnome.Mutter.DisplayConfig",
+        None,
+    )
+    reply = proxy.call_sync(
+        "GetCurrentState", None, Gio.DBusCallFlags.NONE, 1000, None
+    )
+    _serial, _monitors, logical_monitors, _properties = reply.unpack()
+    for monitor in logical_monitors:
+        specs = monitor[5]
+        if any(spec[0] == "DSI-1" for spec in specs):
+            return int(monitor[3])
+    return 0
+
+
+def active_session_id():
+    session = os.environ.get("XDG_SESSION_ID")
+    if session:
+        return session
+
+    import gi
+
+    gi.require_version("Gio", "2.0")
+    gi.require_version("GLib", "2.0")
+    from gi.repository import Gio, GLib
+
+    properties = Gio.DBusProxy.new_for_bus_sync(
+        Gio.BusType.SYSTEM,
+        Gio.DBusProxyFlags.NONE,
+        None,
+        "org.freedesktop.login1",
+        "/org/freedesktop/login1/seat/seat0",
+        "org.freedesktop.DBus.Properties",
+        None,
+    )
+    reply = properties.call_sync(
+        "Get",
+        GLib.Variant(
+            "(ss)", ("org.freedesktop.login1.Seat", "ActiveSession")
+        ),
+        Gio.DBusCallFlags.NONE,
+        1000,
+        None,
+    )
+    session_path = reply.unpack()[0]
+    if not session_path or session_path == "/":
+        return ""
+    session_properties = Gio.DBusProxy.new_for_bus_sync(
+        Gio.BusType.SYSTEM,
+        Gio.DBusProxyFlags.NONE,
+        None,
+        "org.freedesktop.login1",
+        session_path,
+        "org.freedesktop.DBus.Properties",
+        None,
+    )
+    reply = session_properties.call_sync(
+        "Get",
+        GLib.Variant("(ss)", ("org.freedesktop.login1.Session", "Id")),
+        Gio.DBusCallFlags.NONE,
+        1000,
+        None,
+    )
+    return reply.unpack()[0]
+
+
+def run():
+    import gi
+
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Gdk", "4.0")
+    gi.require_version("Gio", "2.0")
+    gi.require_version("Pango", "1.0")
+    gi.require_version("PangoCairo", "1.0")
+    from gi.repository import Gdk, Gio, GLib, Gtk, Pango, PangoCairo
+
+    if not DEBUG:
+        try:
+            import pwd
+
+            if pwd.getpwuid(os.getuid()).pw_name == "gdm":
+                return 0
+        except (KeyError, ImportError):
+            pass
+        if os.environ.get("XDG_SESSION_CLASS") == "greeter":
+            return 0
+
+    Gtk.init()
+    display = Gdk.Display.get_default()
+    if display is None:
+        return 0
+
+    css = Gtk.CssProvider()
+    css_text = """
+    window.fingerprint-overlay { background-color: #000000; }
+    button.fingerprint-close {
+        color: #ffffff;
+        background: transparent;
+        border: none;
+        border-radius: 9999px;
+        min-width: 32px;
+        min-height: 32px;
+        padding: 0;
+    }
+    button.fingerprint-close:hover { background-color: rgba(255,255,255,0.16); }
+    button.fingerprint-close:active { background-color: rgba(255,255,255,0.28); }
+    button.fingerprint-close:focus-visible { outline: none; }
+    """
+    try:
+        css.load_from_string(css_text)
+    except AttributeError:
+        css.load_from_data(css_text.encode(), -1)
+    Gtk.StyleContext.add_provider_for_display(
+        display, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
+
+    class OverlayWindow(Gtk.ApplicationWindow):
+        def __init__(self, application):
+            super().__init__(application=application)
+            self.add_css_class("fingerprint-overlay")
+            self.set_decorated(False)
+            self.set_title("指纹")
+
+            self._area = Gtk.DrawingArea()
+            self._area.set_hexpand(True)
+            self._area.set_vexpand(True)
+            self._area.set_focusable(True)
+            self._area.set_draw_func(self._draw)
+
+            content = Gtk.Overlay()
+            content.set_child(self._area)
+            close = Gtk.Button()
+            close.add_css_class("fingerprint-close")
+            close.set_icon_name("window-close-symbolic")
+            close.set_tooltip_text("关闭指纹遮罩")
+            close.set_halign(Gtk.Align.END)
+            close.set_valign(Gtk.Align.START)
+            close.set_margin_top(12)
+            close.set_margin_end(12)
+            close.connect("clicked", self._dismiss)
+            content.add_overlay(close)
+            self.set_child(content)
+
+            key = Gtk.EventControllerKey()
+            key.connect("key-pressed", self._key_pressed)
+            self.add_controller(key)
+            self.connect("close-request", self._close_request)
+
+            self._active = False
+            self._dismissed = False
+            self._action = "verify"
+            self._pressed = False
+            self._light_token = 0
+            self._presenting_token = 0
+            self._presented_token = 0
+            self._present_paints = 0
+            self._present_handler = 0
+            self._present_clock = None
+            self._rect = DEFAULT_FOD_RECT
+            self._transform = 0
+            self._proxy = None
+            self._session = None
+            self._pulse_due = 0
+            self._broker_error_once = False
+            self._last_action = None
+            self._drawn_geometry = None
+            self._drawn_layout = None
+
+            debug_transform = os.environ.get("GTS9WIFI_FP_UI_DEBUG_TRANSFORM")
+            if debug_transform is not None:
+                self._transform = int(debug_transform) & 7
+            else:
+                self._refresh_transform()
+
+            self._session_bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            self._monitor_subscription = self._session_bus.signal_subscribe(
+                "org.gnome.Mutter.DisplayConfig",
+                "org.gnome.Mutter.DisplayConfig",
+                "MonitorsChanged",
+                "/org/gnome/Mutter/DisplayConfig",
+                None,
+                Gio.DBusSignalFlags.NONE,
+                self._monitors_changed,
+            )
+
+            GLib.timeout_add(100, self._lease_tick)
+            GLib.timeout_add(250, self._pulse_tick)
+            GLib.timeout_add(25, self._light_tick)
+
+        def _now(self):
+            return monotonic_us()
+
+        def _refresh_transform(self):
+            debug_transform = os.environ.get("GTS9WIFI_FP_UI_DEBUG_TRANSFORM")
+            if debug_transform is not None:
+                self._transform = int(debug_transform) & 7
+                return
+            try:
+                self._transform = query_panel_transform()
+            except Exception:
+                self._transform = 0
+
+        def _monitors_changed(self, *_args):
+            self._refresh_transform()
+            self._area.queue_draw()
+
+        def _lease_tick(self):
+            action = parse_active_lease(read_text(ACTIVE_LEASE), self._now())
+            if DEBUG and action != self._last_action:
+                print(
+                    f"gts9wifi-fingerprint-overlay: lease={action}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                self._last_action = action
+            if action is None:
+                self._dismissed = False
+                if self._active:
+                    self._active = False
+                    self._hide()
+                return True
+            self._active = True
+            self._action = action
+            if self._dismissed:
+                return True
+            if not self.get_visible():
+                self._show()
+            else:
+                self._area.queue_draw()
+            return True
+
+        def _show(self):
+            if DEBUG:
+                print(
+                    "gts9wifi-fingerprint-overlay: show",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            self._rect = find_fod_rect()
+            self._refresh_transform()
+            self._pressed = False
+            self._light_token = 0
+            self._presenting_token = 0
+            self._presented_token = 0
+            self._pulse_due = 0
+            self.present()
+            GLib.timeout_add(50, self._enter_fullscreen)
+            self._area.grab_focus()
+            self._pulse(True)
+            self._pulse_due = self._now() + 250_000
+
+        def _enter_fullscreen(self):
+            self.fullscreen()
+            if DEBUG:
+                GLib.timeout_add(500, self._log_state)
+                print(
+                    f"gts9wifi-fingerprint-overlay: fullscreen request "
+                    f"mapped={self.get_mapped()} size="
+                    f"{self.get_width()}x{self.get_height()}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            self._area.queue_draw()
+            return False
+
+        def _log_state(self):
+            print(
+                f"gts9wifi-fingerprint-overlay: state fullscreen="
+                f"{self.is_fullscreen()} mapped={self.get_mapped()} "
+                f"window={self.get_width()}x{self.get_height()} "
+                f"area={self._area.get_width()}x{self._area.get_height()}",
+                file=sys.stderr,
+                flush=True,
+            )
+            self._area.queue_draw()
+            return False
+
+        def _hide(self):
+            self._cancel_presentation()
+            self._pressed = False
+            self._light_token = 0
+            self.set_visible(False)
+            self._pulse(False)
+
+        def _pulse_tick(self):
+            if not self._active or self._dismissed or not self.get_visible():
+                return True
+            now = self._now()
+            if now >= self._pulse_due:
+                self._pulse(True)
+                self._pulse_due = now + 250_000
+            return True
+
+        def _broker(self):
+            if self._proxy is None:
+                self._proxy = Gio.DBusProxy.new_for_bus_sync(
+                    Gio.BusType.SYSTEM,
+                    Gio.DBusProxyFlags.NONE,
+                    None,
+                    BUS_NAME,
+                    OBJECT_PATH,
+                    INTERFACE,
+                    None,
+                )
+            return self._proxy
+
+        def _call_broker(self, method, parameters):
+            if DEBUG:
+                return True
+            try:
+                self._broker().call_sync(
+                    method,
+                    parameters,
+                    Gio.DBusCallFlags.NONE,
+                    2000,
+                    None,
+                )
+                self._broker_error_once = False
+                return True
+            except Exception as error:
+                if not self._broker_error_once:
+                    print(
+                        f"gts9wifi-fingerprint-overlay: {method}: {error}",
+                        file=sys.stderr,
+                    )
+                    self._broker_error_once = True
+                return False
+
+        def _session_id(self):
+            if self._session is None:
+                try:
+                    self._session = active_session_id()
+                except Exception:
+                    self._session = ""
+            return self._session
+
+        def _pulse(self, available):
+            if DEBUG:
+                if available:
+                    READY_LEASE.write_text(
+                        f"ready {self._now() + 1_500_000}\n", encoding="ascii"
+                    )
+                else:
+                    READY_LEASE.unlink(missing_ok=True)
+                    PRESENTED.unlink(missing_ok=True)
+                return True
+            if available:
+                session = self._session_id()
+                if not session:
+                    return False
+                return self._call_broker(
+                    "Pulse", GLib.Variant("(sb)", (session, True))
+                )
+            session = self._session_id()
+            if not session:
+                return False
+            return self._call_broker(
+                "Pulse", GLib.Variant("(sb)", (session, False))
+            )
+
+        def _present(self, token):
+            if (
+                token != self._light_token
+                or not self._active
+                or self._dismissed
+                or not self.get_visible()
+                or token == self._presented_token
+            ):
+                self._presenting_token = 0
+                return False
+            if DEBUG:
+                PRESENTED.write_text(f"ready {token + 1_000_000}\n", encoding="ascii")
+            else:
+                session = self._session_id()
+                if session:
+                    self._call_broker(
+                        "Presented", GLib.Variant("(st)", (session, token))
+                    )
+            self._presented_token = token
+            self._presenting_token = 0
+            return True
+
+        def _schedule_presentation(self, token):
+            if self._presenting_token:
+                return
+            self._presenting_token = token
+            self._present_paints = 0
+            clock = self._area.get_frame_clock()
+            if clock is None:
+                GLib.timeout_add(100, lambda: self._present(token))
+                return
+            self._present_clock = clock
+            self._present_handler = clock.connect("after-paint", self._after_paint)
+
+        def _after_paint(self, clock):
+            if self._presenting_token == 0:
+                if self._present_handler:
+                    clock.disconnect(self._present_handler)
+                    self._present_handler = 0
+                return
+            self._present_paints += 1
+            if self._present_paints < 2:
+                return
+            if self._present_handler:
+                clock.disconnect(self._present_handler)
+                self._present_handler = 0
+            token = self._presenting_token
+            GLib.timeout_add(35, lambda: self._present(token))
+
+        def _cancel_presentation(self):
+            if self._present_handler and self._present_clock:
+                self._present_clock.disconnect(self._present_handler)
+            self._present_handler = 0
+            self._present_clock = None
+            self._presenting_token = 0
+
+        def _light_tick(self):
+            if (
+                not self._active
+                or self._dismissed
+                or not self.get_visible()
+            ):
+                return True
+            token = parse_light_request(read_text(LIGHT_REQUEST))
+            now = self._now()
+            if token != self._light_token:
+                self._light_token = token
+                self._pressed = token > 0
+                self._presented_token = 0
+                self._area.queue_draw()
+                if token and light_token_fresh(token, now):
+                    self._schedule_presentation(token)
+            return True
+
+        def _dismiss(self, *_args):
+            if DEBUG and os.environ.get("GTS9WIFI_FP_UI_DEBUG_KEEP"):
+                return
+            if not self._active:
+                self.set_visible(False)
+                return
+            self._pulse(True)
+            if DEBUG:
+                CANCEL_REQUEST.write_text("cancel\n", encoding="ascii")
+            else:
+                session = self._session_id()
+                if session:
+                    self._call_broker("Cancel", GLib.Variant("(s)", (session,)))
+            self._dismissed = True
+            self._hide()
+
+        def _key_pressed(self, _controller, keyval, _keycode, _state):
+            if keyval == Gdk.KEY_Escape:
+                self._dismiss()
+                return True
+            return False
+
+        def _close_request(self, _window):
+            self._dismiss()
+            return True
+
+        def _draw(self, _area, cr, width, height):
+            cr.set_source_rgb(0, 0, 0)
+            cr.paint()
+            if not self._active:
+                return
+            cx, cy, radius = sensor_geometry(
+                self._rect, self._transform, width, height
+            )
+            geometry = (width, height, round(cx), round(cy), round(radius))
+            if DEBUG and geometry != self._drawn_geometry:
+                print(
+                    f"gts9wifi-fingerprint-overlay: draw {geometry}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                self._drawn_geometry = geometry
+            cr.set_source_rgb(1, 1, 1)
+            cr.set_line_width(2.0)
+            cr.arc(cx, cy, radius, 0, 2 * math.pi)
+            if self._pressed:
+                cr.fill()
+            else:
+                cr.stroke()
+
+            layout = PangoCairo.create_layout(cr)
+            layout.set_text(prompt_for_action(self._action), -1)
+            font = Pango.FontDescription()
+            font.set_family("Sans")
+            font.set_weight(Pango.Weight.BOLD)
+            font.set_absolute_size(22 * Pango.SCALE)
+            layout.set_font_description(font)
+            text_width, text_height = layout.get_pixel_size()
+            x, y = layout_text(
+                width,
+                height,
+                cx,
+                cy,
+                radius,
+                text_width,
+                text_height,
+            )
+            text_box = (
+                round(x),
+                round(y),
+                text_width,
+                text_height,
+                self._pressed,
+            )
+            if DEBUG and text_box != self._drawn_layout:
+                print(
+                    f"gts9wifi-fingerprint-overlay: text={text_box} "
+                    f"ring=({round(cx)},{round(cy)},{round(radius)})",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                self._drawn_layout = text_box
+            cr.move_to(x, y)
+            cr.set_source_rgba(1, 1, 1, 0.92)
+            PangoCairo.show_layout(cr, layout)
+
+    app = Gtk.Application(
+        application_id=APP_ID + (".Debug" if DEBUG else ""),
+        flags=Gio.ApplicationFlags.NON_UNIQUE
+        if DEBUG
+        else Gio.ApplicationFlags.DEFAULT_FLAGS,
+    )
+    app.hold()
+
+    def activate(application):
+        if application.get_windows():
+            return
+        window = OverlayWindow(application)
+        application.add_window(window)
+
+    app.connect("activate", activate)
+    return app.run(sys.argv)
+
+
+if __name__ == "__main__":
+    raise SystemExit(run())
