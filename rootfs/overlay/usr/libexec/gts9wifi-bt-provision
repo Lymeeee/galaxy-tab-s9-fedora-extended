@@ -8,7 +8,10 @@
 # property into both DTB copies on disk: the vendor_boot dtb field (the copy
 # ABL currently loads) and the DTB appended to the kernel in boot. Idempotent;
 # runs every boot so a reflashed boot image gets re-provisioned on its first
-# boot.
+# boot. The EFS address is cached in /var/lib/gts9wifi/bt-address for the
+# updater and for boots where EFS cannot be mounted. Partition I/O uses
+# pread/pwrite and is read back: buffered writes to the boot partition were
+# silently lost.
 
 import os
 import re
@@ -21,35 +24,88 @@ import time
 EFS = '/dev/disk/by-partlabel/efs'
 BOOT = '/dev/disk/by-partlabel/boot'
 VENDOR_BOOT = '/dev/disk/by-partlabel/vendor_boot'
+CACHE = '/var/lib/gts9wifi/bt-address'
 NODE = '/soc@0/geniqup@8c0000/serial@898000/bluetooth'
 PROP = 'local-bd-address'
 FDT_MAGIC = b'\xd0\x0d\xfe\xed'
 PAGE = 4096
+ADDR_RE = re.compile('([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')
 
 
 def page_align(n):
     return (n + PAGE - 1) // PAGE * PAGE
 
 
-def read_efs_address():
-    with tempfile.TemporaryDirectory(dir='/run') as mnt:
-        subprocess.run(['mount', '-o', 'ro,noload', EFS, mnt], check=True)
-        try:
-            with open(os.path.join(mnt, 'bluetooth/bt_addr')) as f:
-                addr = f.read().strip()
-        finally:
-            subprocess.run(['umount', mnt], check=True)
-    if not re.fullmatch('([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}', addr):
-        sys.exit('invalid address in EFS: %r' % addr)
+def parse_address(text):
+    addr = text.strip()
+    if not ADDR_RE.fullmatch(addr):
+        return None
     # the DT property is little-endian per the binding
     return bytes.fromhex(addr.replace(':', ''))[::-1]
+
+
+def cache_address(addr):
+    try:
+        with open(CACHE) as f:
+            if f.read().strip() == addr:
+                return
+    except OSError:
+        pass
+    try:
+        os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix='.bt-address.',
+                                   dir=os.path.dirname(CACHE))
+        try:
+            with os.fdopen(fd, 'w') as f:
+                f.write(addr + '\n')
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp, 0o644)
+            os.replace(tmp, CACHE)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+    except OSError as error:
+        print('bt-provision: cannot cache address: %s' % error,
+              file=sys.stderr)
+
+
+def read_efs_address():
+    addr = None
+    try:
+        with tempfile.TemporaryDirectory(dir='/run') as mnt:
+            subprocess.run(['mount', '-o', 'ro,noload', EFS, mnt], check=True)
+            try:
+                with open(os.path.join(mnt, 'bluetooth/bt_addr')) as f:
+                    addr = f.read().strip()
+            finally:
+                subprocess.run(['umount', mnt], check=True)
+    except (OSError, subprocess.CalledProcessError) as error:
+        print('bt-provision: reading EFS failed (%s); trying %s' %
+              (error, CACHE), file=sys.stderr)
+    bdaddr = parse_address(addr) if addr else None
+    if bdaddr is not None:
+        cache_address(addr)
+        return bdaddr
+    try:
+        with open(CACHE) as f:
+            addr = f.read()
+    except OSError as error:
+        sys.exit('no usable EFS address and no cache: %s' % error)
+    bdaddr = parse_address(addr)
+    if bdaddr is None:
+        sys.exit('invalid cached address in %s: %r' % (CACHE, addr.strip()))
+    return bdaddr
 
 
 def patch_dtb(dtb, bdaddr):
     fd, path = tempfile.mkstemp(dir='/run')
     try:
-        os.write(fd, dtb)
-        os.close(fd)
+        with os.fdopen(fd, 'wb') as f:
+            f.write(dtb)
         got = subprocess.run(['fdtget', '-t', 'bx', path, NODE, PROP],
                              capture_output=True, text=True)
         if got.returncode == 0 and \
@@ -77,14 +133,27 @@ def find_appended_dtb(kernel, ksize):
                 return off
 
 
+def pread_exact(fd, size, offset, label):
+    data = os.pread(fd, size, offset)
+    if len(data) != size:
+        sys.exit('%s: short read at %d' % (label, offset))
+    return data
+
+
+def pwrite_all(fd, data, offset, label):
+    written = os.pwrite(fd, data, offset)
+    if written != len(data):
+        sys.exit('%s: short write at %d' % (label, offset))
+
+
 def provision_boot(bdaddr):
-    with open(BOOT, 'r+b') as part:
-        head = bytearray(part.read(PAGE))
+    fd = os.open(BOOT, os.O_RDWR)
+    try:
+        head = pread_exact(fd, PAGE, 0, 'boot')
         if head[:8] != b'ANDROID!':
             sys.exit('boot: bad magic')
         ksize = struct.unpack_from('<I', head, 8)[0]
-        part.seek(PAGE)
-        kernel = part.read(ksize)
+        kernel = pread_exact(fd, ksize, PAGE, 'boot')
         off = find_appended_dtb(kernel, ksize)
         if off is None:
             sys.exit('boot: no appended dtb')
@@ -94,25 +163,30 @@ def provision_boot(bdaddr):
         new_end = off + len(dtb)
         if new_end > ksize and page_align(new_end) != page_align(ksize):
             sys.exit('boot: patched dtb would move the ramdisk')
-        size = os.lseek(part.fileno(), 0, os.SEEK_END)
+        size = os.lseek(fd, 0, os.SEEK_END)
         if PAGE + new_end > size - PAGE:
             sys.exit('boot: patched dtb does not fit the partition')
-        part.seek(PAGE + off)
-        part.write(dtb)
+        pwrite_all(fd, dtb, PAGE + off, 'boot')
         if new_end <= ksize:
-            part.write(b'\x00' * (ksize - new_end))
+            pad = ksize - new_end
+            if pad:
+                pwrite_all(fd, b'\x00' * pad, PAGE + new_end, 'boot')
         else:
-            struct.pack_into('<I', head, 8, new_end)
-            part.seek(0)
-            part.write(head)
-        part.flush()
-        os.fsync(part.fileno())
+            pwrite_all(fd, struct.pack('<I', new_end), 8, 'boot')
+            if struct.unpack('<I', pread_exact(fd, 4, 8, 'boot'))[0] != new_end:
+                sys.exit('boot: kernel size write did not stick')
+        if pread_exact(fd, len(dtb), PAGE + off, 'boot') != dtb:
+            sys.exit('boot: dtb write did not stick')
+        os.fsync(fd)
+    finally:
+        os.close(fd)
     return True
 
 
 def provision_vendor_boot(bdaddr):
-    with open(VENDOR_BOOT, 'r+b') as part:
-        head = bytearray(part.read(PAGE))
+    fd = os.open(VENDOR_BOOT, os.O_RDWR)
+    try:
+        head = pread_exact(fd, PAGE, 0, 'vendor_boot')
         if head[:8] != b'VNDRBOOT':
             sys.exit('vendor_boot: bad magic')
         vrsize = struct.unpack_from('<I', head, 24)[0]
@@ -121,8 +195,7 @@ def provision_vendor_boot(bdaddr):
         # the ramdisk table and bootconfig sit right after the dtb pages;
         # the patched dtb must stay inside the same page envelope
         envelope = page_align(dtb_size)
-        part.seek(dtb_off)
-        old = part.read(dtb_size)
+        old = pread_exact(fd, dtb_size, dtb_off, 'vendor_boot')
         if old[:4] != FDT_MAGIC:
             sys.exit('vendor_boot: no dtb at %d' % dtb_off)
         dtb = patch_dtb(old, bdaddr)
@@ -130,13 +203,17 @@ def provision_vendor_boot(bdaddr):
             return False
         if len(dtb) > envelope:
             sys.exit('vendor_boot: patched dtb does not fit its envelope')
-        part.seek(dtb_off)
-        part.write(dtb + b'\x00' * (envelope - len(dtb)))
-        struct.pack_into('<I', head, 2100, len(dtb))
-        part.seek(0)
-        part.write(head)
-        part.flush()
-        os.fsync(part.fileno())
+        pwrite_all(fd, dtb + b'\x00' * (envelope - len(dtb)), dtb_off,
+                   'vendor_boot')
+        pwrite_all(fd, struct.pack('<I', len(dtb)), 2100, 'vendor_boot')
+        if pread_exact(fd, len(dtb), dtb_off, 'vendor_boot') != dtb:
+            sys.exit('vendor_boot: dtb write did not stick')
+        if struct.unpack('<I',
+                         pread_exact(fd, 4, 2100, 'vendor_boot'))[0] != len(dtb):
+            sys.exit('vendor_boot: dtb size write did not stick')
+        os.fsync(fd)
+    finally:
+        os.close(fd)
     return True
 
 

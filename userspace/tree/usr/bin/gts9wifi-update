@@ -735,6 +735,11 @@ cmd_kernel() {
             cmp -s "$imgdir/$p.img" "$imgdir/read-$p.img" ||
                 { restore_boot "$backup" || true; die "readback mismatch for $p"; }
         done
+        echo "provisioning the native Bluetooth address into the new boot images"
+        if ! /usr/libexec/gts9wifi-bt-provision; then
+            echo "warning: Bluetooth address provisioning failed;" \
+                 "the first boot may need another reboot" >&2
+        fi
     else
         echo "boot bundle verified; not writing (pass --flash)"
     fi

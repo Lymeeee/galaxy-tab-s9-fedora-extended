@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.60
+Version:        0.17.61
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -254,6 +254,17 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.61-1
+- Provision the native Bluetooth address into freshly flashed boot images:
+  gts9wifi-update kernel --flash now patches the new boot/vendor_boot DTBs
+  after writing and verifying them, before the reboot, so the first boot
+  after a kernel update has a usable controller.
+- bt-provision: write partitions through unbuffered pread/pwrite and verify
+  the readback.  Buffered writes mixed with a raw SEEK_END lseek reported
+  success but never reached the boot partition, so every boot rewrote it.
+- Cache the Samsung EFS address in /var/lib/gts9wifi/bt-address and fall
+  back to it when the EFS mount fails.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.60-1
 - Remove the USB ECM/RNDIS debug network: the initramfs RNDIS hook, the
   ECM gadget service, the usb0 NetworkManager profile, the enable/disable
