@@ -12,6 +12,7 @@ import St from 'gi://St';
 import cairo from 'cairo';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 
 const ACTIVE_LEASE = '/run/gts9wifi-fingerprint/active';
 const LIGHT_REQUEST = '/run/gts9wifi-fingerprint/light';
@@ -32,6 +33,15 @@ const PROMPTS = {
     identify: '请求指纹验证',
     none: '请求指纹验证',
 };
+// GNOME 50 removed the X11-only input-region chrome option; non-reactive
+// actors stay input-transparent without it.
+function topChromeOptions(trackFullscreen) {
+    const options = {trackFullscreen};
+    if (Number.parseInt(Config.PACKAGE_VERSION, 10) < 50)
+        options.affectsInputRegion = false;
+    return options;
+}
+
 const TRANSFORM_POINTS = [
     (u, v) => [u, v],
     (u, v) => [1 - v, u],
@@ -207,8 +217,7 @@ export class FingerprintOverlay {
 
         // The target and label never take input; the close button is a
         // separate small chrome actor so it can.
-        Main.layoutManager.addTopChrome(this._container,
-            {affectsInputRegion: false, trackFullscreen: false});
+        Main.layoutManager.addTopChrome(this._container, topChromeOptions(false));
         Main.layoutManager.addTopChrome(this._close, {trackFullscreen: false});
 
         this._monitorsId = Main.layoutManager.connect('monitors-changed', () => {

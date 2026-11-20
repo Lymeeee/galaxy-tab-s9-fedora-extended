@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.65
+Version:        0.17.66
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -262,6 +262,12 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.66-1
+- Stop passing the removed affectsInputRegion chrome option to
+  addTopChrome() on GNOME 50, which rejected it and aborted the whole
+  Galaxy Tab Extension enable() (corner mask, keyboard helpers and OSDs
+  included).  Non-reactive actors stay input-transparent there.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.65-1
 - Enable authselect's with-fingerprint feature when installing the
   fingerprint stack.  GNOME 50 hides the Settings fingerprint row and never
