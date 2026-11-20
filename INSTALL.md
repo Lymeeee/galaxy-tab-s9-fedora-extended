@@ -59,10 +59,14 @@ the PC:
 The script verifies the device is in recovery, checks the codename
 (`gts9`/`gts9wifi`) and model (`SM-X710`), resolves `userdata` by partition
 label, checks its size, prints a prominent warning about the data loss, and
-requires typing `DESTROY` before it formats. It also applies the local-assets
-extras when present (firmware payload, kernel modules, SSH key — the same
-injections `mk-sd-card.sh` does; the release tarball already carries all
-three). It never touches any other partition and never reboots the tablet.
+requires typing `DESTROY` before it formats. Before formatting it also copies
+the fingerprint sensor's per-unit calibration (`egoptbds.dat`, under Android's
+`/data/vendor/biometrics/meta`) into the new rootfs; without it the EgisTec
+EL721 will refuse to enroll. That copy is best effort — if userdata is locked
+or already wiped the install continues with a warning. It also applies the
+local-assets extras when present (firmware payload, kernel modules, SSH key —
+the same injections `mk-sd-card.sh` does; the release tarball already carries
+all three). It never touches any other partition and never reboots the tablet.
 
 ## 3. Get the boot bundle
 
