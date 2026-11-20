@@ -202,6 +202,9 @@ if [ -f /tmp/gts9-modules.tar.gz ]; then
     mkdir -p /rmnt/usr/lib/modules
     extract_tar /tmp/gts9-modules.tar.gz /rmnt/usr/lib/modules
 fi
+# The rootfs was built without SELinux labels; the first boot relabels the
+# whole tree and then reboots once.  (The release tarball marks it too.)
+: > /rmnt/.autorelabel
 if [ -f /tmp/gts9-egoptbds.dat ]; then
     bds_dir=/rmnt/var/lib/gts9wifi/fingerprint/firmware
     mkdir -p "$bds_dir"

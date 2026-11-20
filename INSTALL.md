@@ -68,6 +68,10 @@ local-assets extras when present (firmware payload, kernel modules, SSH key —
 the same injections `mk-sd-card.sh` does; the release tarball already carries
 all three). It never touches any other partition and never reboots the tablet.
 
+The rootfs is assembled in a container without SELinux, so the first boot
+relabels the whole filesystem (a few minutes) and reboots itself once. Boot
+the installed system again afterwards; subsequent boots skip the relabel.
+
 ## 3. Get the boot bundle
 
 Download the **TWRP flash zip** from

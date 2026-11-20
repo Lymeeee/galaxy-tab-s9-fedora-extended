@@ -435,6 +435,10 @@ rm -rf "$rootfs/var/cache/dnf" "$rootfs/var/cache/rpm" "$rootfs/var/log/dnf*"
 rm -f "$rootfs/etc/machine-id" "$rootfs/var/lib/systemd/random-seed"
 
 echo ">>> Packing"
+# The image is assembled in a container without SELinux, so no file carries
+# a label.  Mark the tree for the standard first-boot autorelabel; it runs
+# in permissive mode and reboots once when done.
+: > "$rootfs/.autorelabel"
 rpm -qa --root "$rootfs" --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort \
     > "$outdir/rootfs-manifest.txt"
 archive="$outdir/gts9wifi-fedora-$fedora_release-rootfs.tar.gz"
