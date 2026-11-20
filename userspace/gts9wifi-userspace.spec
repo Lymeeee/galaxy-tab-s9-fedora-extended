@@ -264,7 +264,7 @@ fi
 %changelog
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.68-1
 - Fingerprint target: drop the prompt text and let the card wrap the ring
-  only, with a faint outline so it stays visible on dark lock-screen
+  only, with a white outline so it stays visible on dark lock-screen
   wallpapers.  Raise the target above the screen-shield lightbox and the GDM
   dialog, which otherwise dim it into the shade, and observe presses with a
   stage capture handler so a tap outside the card cancels verification even

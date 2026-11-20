@@ -32,8 +32,8 @@ const DEFAULT_FOD_RECT = [700, 2250, 960, 2480];
 const SENSOR_DIAMETER_RATIO = 14.8 / 147.7;
 const CARD_PADDING = 24;
 const CARD_RADIUS = 28;
-const CARD_BORDER_WIDTH = 1;
-const CARD_BORDER_RGBA = [1, 1, 1, 0.22];
+const CARD_BORDER_WIDTH = 2;
+const CARD_BORDER_RGBA = [1, 1, 1, 1];
 const RING_WIDTH = 3.5;
 // GNOME 50 removed the X11-only input-region chrome option; non-reactive
 // actors stay input-transparent without it.
