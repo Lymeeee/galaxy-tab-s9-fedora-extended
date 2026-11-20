@@ -22,14 +22,19 @@
 #
 # What it does on the device (all via adb, nothing manual in TWRP's UI):
 #   0. verifies recovery mode, the device codename and the model
-#   1. unmounts TWRP's automatic /data + /sdcard mounts of userdata
-#   2. checks the partition size before doing anything destructive
-#   3. mke2fs the full partition (~105 GB) as ext4 with the cmdline UUID
-#   4. pushes + extracts the rootfs tarball, then the optional
+#   1. copies Android's per-unit fingerprint calibration (egoptbds.dat,
+#      under /data/vendor/biometrics/meta) into TWRP's tmpfs while the
+#      original userdata is still readable - the EL721 sensor needs this
+#      file, and Android restores regenerate nothing equivalent
+#   2. unmounts TWRP's automatic /data + /sdcard mounts of userdata
+#   3. checks the partition size before doing anything destructive
+#   4. mke2fs the full partition (~105 GB) as ext4 with the cmdline UUID
+#   5. pushes + extracts the rootfs tarball, then the optional
 #      local-assets extras mk-sd-card.sh also injects (firmware payload,
 #      kernel modules, ssh key - the release tarball already carries all
-#      three)
-#   5. rewrites the fstab root-only (see below), creates the mountpoint
+#      three), and drops the saved calibration into the fingerprint
+#      firmware store
+#   6. rewrites the fstab root-only (see below), creates the mountpoint
 #      dirs, e2fsck, done - reboot to system WITHOUT the microSD inserted
 #
 # The fstab rewrite is the Fedora-specific step: the tarball's fstab
@@ -104,6 +109,45 @@ fi
 read -r -p "Type DESTROY to format userdata and install Fedora: " answer
 [ "$answer" = "DESTROY" ] || { echo "aborted - nothing was modified" >&2; exit 1; }
 
+# Read-only rescue of the fingerprint BDS before userdata is reformatted.
+# The EL721 trusted app loads egoptbds.dat from the firmware store, and the
+# only per-unit copy ships in Android's data/vendor.  Best effort: a locked
+# or already-wiped userdata just gets a warning, the install still goes on.
+echo ">>> saving Android's fingerprint calibration (egoptbds.dat)"
+adb shell '
+DEV=/dev/block/by-name/userdata
+OUT=/tmp/gts9-egoptbds.dat
+rm -f "$OUT"
+mnt=""
+if [ -f /data/vendor/biometrics/meta/egoptbds.dat ]; then
+    mnt=/data
+else
+    mkdir -p /bdsro
+    if mount -t f2fs -o ro "$DEV" /bdsro 2>/dev/null; then
+        mnt=/bdsro
+    fi
+fi
+src=""
+if [ -n "$mnt" ]; then
+    for name in egoptbds.dat egobtpds.dat; do
+        [ -f "$mnt/vendor/biometrics/meta/$name" ] &&
+            src="$mnt/vendor/biometrics/meta/$name" && break
+    done
+    [ -n "$src" ] || src=$(find "$mnt/vendor" -maxdepth 5 \
+        \( -name egoptbds.dat -o -name egobtpds.dat \) 2>/dev/null | head -n 1)
+    if [ -n "$src" ]; then
+        cp "$src" "$OUT" && chmod 600 "$OUT" && echo "found $src"
+    fi
+    [ "$mnt" = /bdsro ] && umount /bdsro
+fi
+if [ ! -f "$OUT" ]; then
+    echo "WARN: egoptbds.dat not found in Android userdata" >&2
+    echo "      fingerprint enrollment will need it later:" >&2
+    echo "      sudo gts9wifi-fingerprint-runtime import-calibration DIR" >&2
+fi
+exit 0
+' || true
+
 echo ">>> pushing the rootfs tarball (this takes a few minutes)"
 adb push "$rootfs_tar" /tmp/gts9-rootfs.tar.gz
 
@@ -162,6 +206,14 @@ if [ -f /tmp/gts9-modules.tar.gz ]; then
     mkdir -p /rmnt/usr/lib/modules
     extract_tar /tmp/gts9-modules.tar.gz /rmnt/usr/lib/modules
 fi
+if [ -f /tmp/gts9-egoptbds.dat ]; then
+    bds_dir=/rmnt/var/lib/gts9wifi/fingerprint/firmware
+    mkdir -p "$bds_dir"
+    chmod 700 /rmnt/var/lib/gts9wifi /rmnt/var/lib/gts9wifi/fingerprint "$bds_dir"
+    cp /tmp/gts9-egoptbds.dat "$bds_dir/egoptbds.dat"
+    chmod 600 "$bds_dir/egoptbds.dat"
+    echo ">>> fingerprint calibration installed into the rootfs"
+fi
 # Root-only fstab: the tarball one mounts /boot by the SD ext2 UUID, and
 # no such partition exists here (90 s device timeout, then emergency mode).
 printf "UUID='"$root_uuid"' /     ext4 defaults 0 0\n" > /rmnt/etc/fstab
@@ -180,7 +232,7 @@ mkdir -p /rmnt/proc /rmnt/sys /rmnt/dev /rmnt/run /rmnt/tmp /rmnt/boot \
          /rmnt/mnt/vendor/persist /rmnt/vendor/dsp /rmnt/vendor/firmware_mnt
 chmod 1777 /rmnt/tmp
 rm -f /tmp/gts9-rootfs.tar.gz /tmp/gts9-firmware.tar.gz \
-      /tmp/gts9-modules.tar.gz /tmp/gts9-ssh-key.pub
+      /tmp/gts9-modules.tar.gz /tmp/gts9-ssh-key.pub /tmp/gts9-egoptbds.dat
 sync
 umount /rmnt
 e2fsck -fy "$DEV"
