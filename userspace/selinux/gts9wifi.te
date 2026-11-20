@@ -8,10 +8,14 @@ require {
     type unconfined_t;
     type unconfined_service_t;
     type init_t;
-    class dir { add_name create getattr mounton open read remove_name search setattr write };
+    type udev_t;
+    type device_t;
+    type tmpfs_t;
+    class dir { add_name create getattr mounton open read remove_name rmdir search setattr write };
     class file { create execute execute_no_trans getattr map open read rename setattr unlink write };
-    class chr_file { getattr ioctl lock map open read write };
+    class chr_file { getattr ioctl lock map open read relabelto write };
     class filesystem { associate };
+    class binder { set_context_mgr };
 }
 
 type gts9wifi_fingerprint_run_t;
@@ -29,18 +33,36 @@ allow fprintd_t gts9wifi_fingerprint_run_t:file {
 # and clear state; both are already unconfined domains.  systemd creates and
 # removes the RuntimeDirectory itself.
 allow { unconfined_t unconfined_service_t init_t } gts9wifi_fingerprint_run_t:dir {
-    add_name create getattr mounton open read remove_name search setattr write
+    add_name create getattr mounton open read remove_name rmdir search setattr write
 };
 allow { unconfined_t unconfined_service_t init_t } gts9wifi_fingerprint_run_t:file {
     create getattr open read rename setattr unlink write
 };
-allow init_t gts9wifi_fingerprint_run_t:filesystem associate;
+# /run is tmpfs; the RuntimeDirectory files get labeled inside it.
+allow gts9wifi_fingerprint_run_t tmpfs_t:filesystem associate;
 
 # /dev/esfp0 is the EL721 sensor; /dev/tee0 is the qcom TEE the trusted app
 # talks through.
 allow fprintd_t gts9wifi_fingerprint_device_t:chr_file {
     getattr ioctl lock map open read write
 };
+# The secure-start owner process (secure-owner --boot) is the TEE client.
+allow unconfined_service_t gts9wifi_fingerprint_device_t:chr_file {
+    getattr ioctl lock map open read write
+};
+# udevadm/systemd/user tools stat the nodes; the custom type is not part of
+# the unconfined blanket.
+allow { unconfined_t init_t } gts9wifi_fingerprint_device_t:chr_file {
+    getattr ioctl lock map open read write
+};
+
+# systemd-udevd labels new device nodes from file_contexts itself; the fs
+# association is devtmpfs (device_t).
+allow udev_t gts9wifi_fingerprint_device_t:chr_file { getattr relabelto write };
+allow gts9wifi_fingerprint_device_t device_t:filesystem associate;
+
+# spdaemon waits for a binder context manager on /dev/vndbinder.
+allow unconfined_service_t self:binder set_context_mgr;
 
 # The EL721 driver exposes sensor_power as a sysfs attribute.  sysfs cannot
 # be relabeled, so scope those writes to the fprintd daemon.

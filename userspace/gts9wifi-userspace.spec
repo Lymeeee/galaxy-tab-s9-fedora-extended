@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.71
+Version:        0.17.72
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -293,6 +293,13 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.72-1
+- SELinux policy: close the remaining permissive-only holes found by an
+  enforcing soak: udev labeling of /dev/esfp0 and /dev/tee0, tmpfs
+  association for /run, fprintd RuntimeDirectory removal, TEE access for
+  the secure-start owner, the vndbinder context manager, and stat access
+  for user tools.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.71-1
 - SELinux policy follow-up: let the GNOME session, the UI broker and
   systemd manage the fingerprint runtime directory, so the lease handshake
