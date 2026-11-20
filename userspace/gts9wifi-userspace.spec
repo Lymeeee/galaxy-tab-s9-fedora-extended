@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.62
+Version:        0.17.63
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -256,6 +256,13 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.63-1
+- fingerprint-overlay: parse logind's ActiveSession (session-id,
+  object-path) instead of treating the struct as a path.  Without
+  XDG_SESSION_ID in the GNOME autostart environment the fallback raised
+  TypeError, so the overlay never sent Pulse, the driver kept touch
+  suppression enabled, and presses never lit the target.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.62-1
 - Add the EL721 full-screen fingerprint target overlay: a black
   compensation frame with a thin sensor ring, solid white feedback while

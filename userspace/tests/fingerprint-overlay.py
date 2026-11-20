@@ -33,6 +33,15 @@ assert module.light_token_fresh(9_999_000, now)
 assert not module.light_token_fresh(9_000_000, now)
 assert not module.light_token_fresh(10_000_001, now)
 
+assert module.parse_active_session(
+    ("1", "/org/freedesktop/login1/session/_31")
+) == "1"
+assert module.parse_active_session(
+    ("12", "/org/freedesktop/login1/session/_311")
+) == "12"
+assert module.parse_active_session(("", "/")) == ""
+assert module.parse_active_session(None) == ""
+
 assert module.prompt_for_action("enroll") == "请求指纹录入"
 assert module.prompt_for_action("verify") == "请求指纹验证"
 assert module.prompt_for_action("identify") == "请求指纹验证"
