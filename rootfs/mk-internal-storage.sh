@@ -127,14 +127,10 @@ else
         mnt=/bdsro
     fi
 fi
-src=""
 if [ -n "$mnt" ]; then
-    for name in egoptbds.dat egobtpds.dat; do
-        [ -f "$mnt/vendor/biometrics/meta/$name" ] &&
-            src="$mnt/vendor/biometrics/meta/$name" && break
-    done
-    [ -n "$src" ] || src=$(find "$mnt/vendor" -maxdepth 5 \
-        \( -name egoptbds.dat -o -name egobtpds.dat \) 2>/dev/null | head -n 1)
+    src="$mnt/vendor/biometrics/meta/egoptbds.dat"
+    [ -f "$src" ] ||
+        src=$(find "$mnt/vendor" -maxdepth 5 -name egoptbds.dat 2>/dev/null | head -n 1)
     if [ -n "$src" ]; then
         cp "$src" "$OUT" && chmod 600 "$OUT" && echo "found $src"
     fi
