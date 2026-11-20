@@ -4,7 +4,9 @@
 // also present on the lock screen and in the GDM greeter.  It holds no
 // authentication state: it reads the driver's short-lived leases, tells the
 // root broker that a visible target is available, and acknowledges a light
-// request only after the drawn frame has been presented.
+// request only after the drawn frame has been presented.  The target is a
+// black card holding the ring, with no text; a press outside the card
+// cancels the pending verification without blocking the session UI.
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -28,15 +30,10 @@ const RAW_HEIGHT = 2560;
 const DEFAULT_FOD_RECT = [700, 2250, 960, 2480];
 // 14.8 mm optical target on the 147.7 mm short side of the X710 panel.
 const SENSOR_DIAMETER_RATIO = 14.8 / 147.7;
-const PROMPTS = {
-    enroll: '请求指纹录入',
-    verify: '请求指纹验证',
-    identify: '请求指纹验证',
-    none: '请求指纹验证',
-};
 const CARD_PADDING = 24;
 const CARD_RADIUS = 28;
-const TEXT_GAP = 24;
+const CARD_BORDER_WIDTH = 1;
+const CARD_BORDER_RGBA = [1, 1, 1, 0.22];
 const RING_WIDTH = 3.5;
 // GNOME 50 removed the X11-only input-region chrome option; non-reactive
 // actors stay input-transparent without it.
@@ -68,14 +65,12 @@ function readText(path) {
 }
 
 function parseActiveLease(contents, now) {
-    const match = /^active ([0-9]+)(?: ([a-z]+))?\n?$/.exec(contents ?? '');
+    const match = /^active ([0-9]+)(?: [a-z]+)?\n?$/.exec(contents ?? '');
     if (!match)
-        return null;
+        return false;
     const expires = Number(match[1]);
-    if (!Number.isSafeInteger(expires) || expires <= now || expires - now > 3_100_000)
-        return null;
-    const action = match[2] ?? 'verify';
-    return Object.hasOwn(PROMPTS, action) ? action : 'verify';
+    return Number.isSafeInteger(expires) && expires > now &&
+        expires - now <= 3_100_000;
 }
 
 function parseLightRequest(contents, now) {
@@ -138,13 +133,11 @@ export class FingerprintOverlay {
     constructor() {
         this._container = null;
         this._area = null;
-        this._label = null;
         this._card = null;
         this._monitor = null;
         this._rect = DEFAULT_FOD_RECT;
         this._transform = 0;
         this._active = false;
-        this._action = null;
         this._pressed = false;
         this._dismissed = false;
         this._lightToken = 0;
@@ -161,26 +154,18 @@ export class FingerprintOverlay {
         this._brokerErrorLogged = false;
         this._monitorsId = 0;
         this._sessionModeId = 0;
+        this._capturedId = 0;
     }
 
     enable() {
         this._area = new St.DrawingArea({reactive: false});
         this._area.connect('repaint', actor => this._draw(actor));
 
-        this._label = new St.Label({
-            style_class: 'galaxy-tab-fingerprint-label',
-            reactive: false,
-            visible: false,
-        });
-        this._label.clutter_text.line_wrap = false;
-
-        this._container = new St.Widget({reactive: true, visible: false});
+        // The actor spans the monitor but stays input-transparent: the lock
+        // screen and GDM already hold a modal grab, so presses are observed
+        // through a stage capture handler instead of an actor grab.
+        this._container = new St.Widget({reactive: false, visible: false});
         this._container.add_child(this._area);
-        this._container.add_child(this._label);
-        // The card is small, but the actor spans the monitor so a press
-        // anywhere else can cancel the request.
-        this._container.connect('button-press-event',
-            (actor, event) => this._onPress(event));
         Main.layoutManager.addTopChrome(this._container, topChromeOptions(false));
 
         this._monitorsId = Main.layoutManager.connect('monitors-changed', () => {
@@ -191,6 +176,7 @@ export class FingerprintOverlay {
         this._sessionModeId = Main.sessionMode.connect('updated', () => {
             this._sessionId = null;
             this._layout();
+            this._raise();
         });
 
         this._refreshGeometry();
@@ -207,6 +193,7 @@ export class FingerprintOverlay {
             this._tickId = 0;
         }
         this._cancelPresentation();
+        this._setCapture(false);
         if (this._monitorsId) {
             Main.layoutManager.disconnect(this._monitorsId);
             this._monitorsId = 0;
@@ -221,7 +208,6 @@ export class FingerprintOverlay {
             this._container = null;
         }
         this._area = null;
-        this._label = null;
     }
 
     _refreshGeometry() {
@@ -266,33 +252,20 @@ export class FingerprintOverlay {
         this._area.set_size(monitor.width, monitor.height);
         const {cx, cy, radius} = sensorGeometry(
             this._rect, this._transform, monitor.width, monitor.height);
-        const [, natural] = this._label.get_preferred_size();
-        const textX = Math.round(cx - radius - TEXT_GAP - natural.width);
-        const textY = Math.round(cy - natural.height / 2);
-        this._label.set_position(textX, textY);
-
         const half = radius + RING_WIDTH / 2;
-        const left = Math.max(0,
-            Math.round(Math.min(textX, cx - half)) - CARD_PADDING);
-        const top = Math.max(0,
-            Math.round(Math.min(textY, cy - half)) - CARD_PADDING);
+        const left = Math.max(0, Math.round(cx - half) - CARD_PADDING);
+        const top = Math.max(0, Math.round(cy - half) - CARD_PADDING);
         const right = Math.min(monitor.width,
-            Math.round(Math.max(textX + natural.width, cx + half)) + CARD_PADDING);
+            Math.round(cx + half) + CARD_PADDING);
         const bottom = Math.min(monitor.height,
-            Math.round(Math.max(textY + natural.height, cy + half)) + CARD_PADDING);
+            Math.round(cy + half) + CARD_PADDING);
         this._card = {x: left, y: top, w: right - left, h: bottom - top};
         this._area.queue_repaint();
     }
 
-    _setPrompt(action) {
-        this._label.set_text(PROMPTS[action] ?? PROMPTS.verify);
-        this._layout();
-    }
-
     _tick() {
         const now = GLib.get_monotonic_time();
-        const action = parseActiveLease(readText(ACTIVE_LEASE), now);
-        if (action === null) {
+        if (!parseActiveLease(readText(ACTIVE_LEASE), now)) {
             this._dismissed = false;
             if (this._active)
                 this._finishHide();
@@ -300,14 +273,12 @@ export class FingerprintOverlay {
         }
 
         this._active = true;
-        if (action !== this._action) {
-            this._action = action;
-            this._setPrompt(action);
-        }
         if (this._dismissed)
             return;
         if (!this._container.visible)
             this._show(now);
+        else
+            this._raise();
         if (now >= this._nextPulse) {
             this._pulse(true);
             this._nextPulse = now + 250_000;
@@ -329,6 +300,8 @@ export class FingerprintOverlay {
     _show(now) {
         this._layout();
         this._container.show();
+        this._raise();
+        this._setCapture(true);
         this._pressed = false;
         this._area.queue_repaint();
         this._pulse(true);
@@ -337,8 +310,8 @@ export class FingerprintOverlay {
 
     _finishHide() {
         this._cancelPresentation();
+        this._setCapture(false);
         this._active = false;
-        this._action = null;
         this._pressed = false;
         this._lightToken = 0;
         this._presentedToken = 0;
@@ -352,17 +325,45 @@ export class FingerprintOverlay {
         if (this._sessionId)
             this._callBroker('Cancel', new GLib.Variant('(s)', [this._sessionId]));
         this._dismissed = true;
+        this._setCapture(false);
         this._container.hide();
         this._cancelPresentation();
     }
 
-    _onPress(event) {
-        if (!this._active || this._dismissed)
+    // The lock screen's lightbox and the GDM dialog are raised to the top of
+    // uiGroup, above our top chrome; keep the target above them so the card
+    // is not dimmed into the dark shade.  The shield raises its lightbox
+    // during the fade, so re-check while the target is up.
+    _raise() {
+        if (!this._container?.visible || Main.sessionMode.currentMode === 'user')
+            return;
+        if (Main.uiGroup.get_last_child() !== this._container)
+            Main.uiGroup.set_child_above_sibling(this._container, null);
+    }
+
+    _setCapture(active) {
+        if (active && !this._capturedId) {
+            this._capturedId = global.stage.connect('captured-event',
+                (actor, event) => this._onCapturedEvent(event));
+        } else if (!active && this._capturedId) {
+            global.stage.disconnect(this._capturedId);
+            this._capturedId = 0;
+        }
+    }
+
+    _onCapturedEvent(event) {
+        if (!this._active || this._dismissed || !this._container?.visible)
+            return Clutter.EVENT_PROPAGATE;
+        const type = event.type();
+        if (type !== Clutter.EventType.BUTTON_PRESS &&
+            type !== Clutter.EventType.TOUCH_BEGIN)
             return Clutter.EVENT_PROPAGATE;
         const card = this._card;
         if (!card)
-            return Clutter.EVENT_STOP;
+            return Clutter.EVENT_PROPAGATE;
         const [x, y] = event.get_coords();
+        if (!Number.isFinite(x) || !Number.isFinite(y))
+            return Clutter.EVENT_PROPAGATE;
         const monitor = this._monitor;
         const localX = x - (monitor?.x ?? 0);
         const localY = y - (monitor?.y ?? 0);
@@ -370,7 +371,7 @@ export class FingerprintOverlay {
             localY >= card.y && localY < card.y + card.h;
         if (!inside)
             this._dismiss();
-        return Clutter.EVENT_STOP;
+        return Clutter.EVENT_PROPAGATE;
     }
 
     _draw(area) {
@@ -395,7 +396,10 @@ export class FingerprintOverlay {
                     0.5 * Math.PI, Math.PI);
                 cr.closePath();
                 cr.setSourceRGBA(0, 0, 0, 1);
-                cr.fill();
+                cr.fillPreserve();
+                cr.setSourceRGBA(...CARD_BORDER_RGBA);
+                cr.setLineWidth(CARD_BORDER_WIDTH);
+                cr.stroke();
             }
             cr.setSourceRGBA(1, 1, 1, 1);
             cr.setLineWidth(RING_WIDTH);

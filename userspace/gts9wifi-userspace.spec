@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.67
+Version:        0.17.68
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -262,6 +262,14 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.68-1
+- Fingerprint target: drop the prompt text and let the card wrap the ring
+  only, with a faint outline so it stays visible on dark lock-screen
+  wallpapers.  Raise the target above the screen-shield lightbox and the GDM
+  dialog, which otherwise dim it into the shade, and observe presses with a
+  stage capture handler so a tap outside the card cancels verification even
+  while the lock screen holds its modal grab.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.67-1
 - Draw the fingerprint target as a local black rounded card holding the ring
   and prompt instead of a full-screen shade, remove the close button, thicken
