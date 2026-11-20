@@ -7,7 +7,7 @@
 #
 # Override files use the key file format, not the XML of the schema itself.
 [org.gnome.shell]
-enabled-extensions = ['gnome-gts9wifi@tabs9linux']
+enabled-extensions = ['galaxy-tab-extension@tabs9linux']
 
 [org.gnome.settings-daemon.plugins.power]
 power-button-action = 'nothing'

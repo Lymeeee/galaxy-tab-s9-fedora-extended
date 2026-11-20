@@ -2,8 +2,10 @@
 
 aarch64 RPM with the Phase 1 userspace pieces from the Ubuntu port:
 
-- Tab9 Extras GNOME Shell extension v6 (screen-lock/keyboard controls,
-  floating on-screen keyboard button, FOD overlay is a separate phase)
+- Galaxy Tab Extension GNOME Shell extension (screen-lock/keyboard controls,
+  floating on-screen keyboard button, rounded screen corners, and the
+  under-display fingerprint target; loaded in the user session, on the lock
+  screen and on the GDM login screen)
 - `gts9wifi-device-control` with charge_limit / charge_bypass entries and a
   "Bypass when full" policy (100 % -> bypass, 95 % -> release)
 - live battery telemetry (power, voltage, current, temperature) in Tab9 Settings
@@ -23,10 +25,11 @@ aarch64 RPM with the Phase 1 userspace pieces from the Ubuntu port:
   governor/EPP and boost OPPs, GPU devfreq, Wi-Fi powersave), applied at boot;
   balanced, sticky and performance expose CPU7's 3.36 GHz boost OPP
 - fast charging enabled once by default
-- all of the above in the extension's settings page (Extensions app ->
-  gnome-gts9wifi -> Preferences, or
-  `gnome-extensions prefs gnome-gts9wifi@tabs9linux`); power changes
-  authenticate through pkexec
+- device controls and the power profile live in `平板杂项设置` (Tab9 Settings);
+  the extension's own settings page (Extensions app -> Galaxy Tab Extension ->
+  Preferences, or `gnome-extensions prefs galaxy-tab-extension@tabs9linux`)
+  keeps the boot animation, lock behaviour, rounded corners and the floating
+  keyboard button; power changes authenticate through pkexec
 - the GTS9 Plymouth splash theme for the rootfs (selected on install; the
   boot bundle carries the same theme for the initramfs)
 - `平板杂项设置` (Tab9 Settings), a GTK4/libadwaita application in the app grid that

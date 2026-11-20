@@ -1,0 +1,5 @@
+# Load the port's system extension in the GDM greeter: it draws the rounded
+# corners and provides the visible target/light handshake the under-display
+# sensor needs there.  This changes no PAM or password behaviour.
+[org/gnome/shell]
+enabled-extensions=['galaxy-tab-extension@tabs9linux']

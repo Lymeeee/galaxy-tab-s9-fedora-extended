@@ -1,0 +1,9 @@
+{
+  "uuid": "galaxy-tab-extension@tabs9linux",
+  "name": "Galaxy Tab Extension",
+  "settings-schema": "org.gnome.shell.extensions.gts9wifi",
+  "description": "Device-specific GNOME Shell integration for the Galaxy Tab S9 Wi-Fi (SM-X710) Fedora port: rounded screen corners and the under-display fingerprint target, plus tablet keyboard, OSD and brightness helpers.",
+  "shell-version": ["49", "50"],
+  "session-modes": ["user", "unlock-dialog", "gdm"],
+  "version": 2
+}

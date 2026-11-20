@@ -81,6 +81,15 @@ if [ "$desktop" = "gnome" ]; then
     # image; drop it so the first boot goes straight to the gdm login.
     dnf -y --installroot="$rootfs" --use-host-config -q remove \
         gnome-initial-setup || true
+    # Only the port's own system extension should ship.  The Workstation
+    # environment pulls Fedora's classic extensions and gnome-classic-session;
+    # remove them and their now-unused common package from the image.
+    dnf -y --installroot="$rootfs" --use-host-config -q remove \
+        gnome-classic-session \
+        gnome-shell-extension-apps-menu gnome-shell-extension-background-logo \
+        gnome-shell-extension-common gnome-shell-extension-launch-new-instance \
+        gnome-shell-extension-places-menu gnome-shell-extension-window-list \
+        || true
     # The group also pulls libcamera's qcam demo app.  The port's camera app is
     # GNOME Snapshot, so drop qcam and its Qt dependency.  Keep
     # libcamera-tools: its `cam` is the libcamera diagnostic used to verify the
@@ -201,14 +210,14 @@ echo ">>> Applying device overlay"
 cp -a "$repo_dir/rootfs/overlay/." "$rootfs/"
 
 # The overlay ships a gschema override that enables the port's own Shell
-# extension (gnome-gts9wifi) by default, which only takes effect once the
+# extension (galaxy-tab-extension) by default, which only takes effect once the
 # schema cache is rebuilt.  Recompiling is cheap and also repairs the cache if
 # anything else dropped a schema in.
 if command -v glib-compile-schemas >/dev/null 2>&1; then
     echo ">>> Rebuilding the GSettings schema cache"
     glib-compile-schemas "$rootfs/usr/share/glib-2.0/schemas"
 else
-    echo "    (glib-compile-schemas not found: the gnome-gts9wifi extension will not be enabled by default)" >&2
+    echo "    (glib-compile-schemas not found: the galaxy-tab-extension extension will not be enabled by default)" >&2
 fi
 
 echo ">>> Injecting local assets"

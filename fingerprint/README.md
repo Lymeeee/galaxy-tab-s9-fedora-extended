@@ -72,12 +72,9 @@ sudo /usr/libexec/gts9wifi-fingerprint-runtime import-calibration DIR
 prompt to the password stack. Reboot after importing calibration, then enroll
 with GNOME Settings or `fprintd-enroll`.
 
-Still open:
-
-- the GNOME overlay/presented bridge (animated lock-screen fingerprint UI);
-  basic GDM login and lock-screen authentication do not need it;
-- hardware validation: the stack was built and inspected but has not run
-  on the tablet yet.
+The Galaxy Tab Extension provides the visible target and the light/presented
+handshake in the user session, on the lock screen and in the GDM greeter, so
+no separate overlay process is involved.
 
 The kernel half (egis_el721, qcomtee, spcom and the SPSS modules) is
 already in the ported 7.2.0 kernel; nacht's issue 15 shows it stopping at

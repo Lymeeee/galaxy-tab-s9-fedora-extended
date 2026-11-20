@@ -58,12 +58,11 @@ jobs:
                 [ -x "$helper" ] || { echo "not executable: $helper" >&2; exit 1; }
               done
               bash -n /work/userspace/tree/usr/bin/gts9wifi-update
-              for f in /work/userspace/tree/usr/share/gnome-shell/extensions/gnome-gts9wifi@tabs9linux/*.js; do
+              for f in /work/userspace/tree/usr/share/gnome-shell/extensions/galaxy-tab-extension@tabs9linux/*.js; do
                 cp "$f" /tmp/extension-check.mjs
                 node --check /tmp/extension-check.mjs
               done
               desktop-file-validate /work/userspace/tree/usr/share/applications/gts9wifi-settings.desktop
-              desktop-file-validate /work/userspace/tree/etc/xdg/autostart/gts9wifi-fingerprint-overlay.desktop
               find /work/userspace/tree -type d -name __pycache__ -prune -exec rm -rf {} +
               mkdir -p ~/rpmbuild/SOURCES ~/rpmbuild/RPMS /work/out-userspace
               rm -rf /tmp/src

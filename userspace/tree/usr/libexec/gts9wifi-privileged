@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
-# Root actions for the gnome-gts9wifi settings page (invoked through pkexec).
+# Root actions for the Tab9 Settings app (invoked through pkexec).
 set -eu
 
 [ "$(id -u)" -eq 0 ] || { echo "gts9wifi-privileged: run through pkexec" >&2; exit 1; }

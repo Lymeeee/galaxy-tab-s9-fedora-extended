@@ -1,8 +1,9 @@
 # Device controls
 
 Two tablet settings live in the kernel and are exposed by a small helper,
-`/usr/libexec/gts9wifi-device-control`. The GNOME extension's settings page is built from
-that helper's table, so the GUI and a terminal drive exactly the same switches.
+`/usr/libexec/gts9wifi-device-control`. The 设备 page of `平板杂项设置`
+(Tab9 Settings) is built from that helper's table, so the GUI and a terminal
+drive exactly the same switches.
 
 | Control | Group | What it does | Default |
 |---|---|---|---|
@@ -11,11 +12,7 @@ that helper's table, so the GUI and a terminal drive exactly the same switches.
 
 ## From GNOME
 
-Open the Extensions app, find **gnome-gts9wifi** and press its settings button, or run:
-
-```
-gnome-extensions prefs gnome-gts9wifi@tabs9linux
-```
+Open **平板杂项设置** (Tab9 Settings) and go to the **设备** page.
 
 Both switches are on that page. If a switch snaps back, the write was rejected — the rootfs on the tablet
 may predate the control.

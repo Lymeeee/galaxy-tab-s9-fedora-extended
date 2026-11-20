@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 //
 // The extension's own settings page, reachable from the Extensions app or with
-//   gnome-extensions prefs gnome-gts9wifi@tabs9linux
+//   gnome-extensions prefs galaxy-tab-extension@tabs9linux
 //
-// The page is built from whatever the helper reports, grouped by the group
-// field it carries, so a new control shows up here without touching this file.
+// Device controls and the power profile deliberately live in Tab9 Settings
+// only; this page keeps the settings the extension itself implements.
 
 import Adw from 'gi://Adw';
 import Gio from 'gi://Gio';
@@ -13,80 +13,12 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-import {helperAvailable, listControls, setControl} from './deviceControls.js';
-
-const PRIVILEGED_HELPER = '/usr/libexec/gts9wifi-privileged';
-
-function privilegedAvailable() {
-    return GLib.file_test(PRIVILEGED_HELPER, GLib.FileTest.IS_EXECUTABLE);
-}
-
-function runPrivileged(args) {
-    try {
-        const proc = Gio.Subprocess.new(
-            ['pkexec', PRIVILEGED_HELPER, ...args],
-            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
-        proc.communicate_utf8(null, null);
-        return proc.get_successful();
-    } catch (error) {
-        console.error(`gnome-gts9wifi: ${error.message}`);
-        return false;
-    }
-}
-
-export default class Gts9wifiPreferences extends ExtensionPreferences {
+export default class GalaxyTabPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const page = new Adw.PreferencesPage({
-            title: _('设备控制'),
+            title: _('常规'),
             icon_name: 'preferences-system-symbolic',
         });
-
-        const controls = helperAvailable() ? listControls() : [];
-        if (controls.length === 0) {
-            const group = new Adw.PreferencesGroup();
-            group.add(new Adw.ActionRow({
-                title: _('未找到设备控制项'),
-                subtitle: _('此扩展仅在 Galaxy Tab S9 Wi-Fi（SM-X710）的 Linux 移植上生效。'),
-            }));
-            page.add(group);
-            window.add(page);
-            return;
-        }
-
-        const groups = new Map();
-        for (const control of controls) {
-            if (!groups.has(control.group)) {
-                const group = new Adw.PreferencesGroup({title: control.group});
-                groups.set(control.group, group);
-                page.add(group);
-            }
-
-            const row = new Adw.SwitchRow({
-                title: control.label,
-                subtitle: control.description,
-                active: control.enabled,
-            });
-
-            // Reverting `active` after a refusal re-emits this signal, so guard
-            // against recursing into it.
-            let reverting = false;
-            row.connect('notify::active', () => {
-                if (reverting)
-                    return;
-                if (setControl(control.name, row.active))
-                    return;
-
-                reverting = true;
-                row.active = !row.active;
-                reverting = false;
-            });
-
-            groups.get(control.group).add(row);
-        }
-
-        const power = this._powerGroup();
-        if (power)
-            page.add(power);
 
         const boot = this._bootGroup();
         if (boot)
@@ -97,42 +29,10 @@ export default class Gts9wifiPreferences extends ExtensionPreferences {
         window.add(page);
     }
 
-    _powerGroup() {
-        if (!privilegedAvailable())
-            return null;
-
-        const ids = ['powersave', 'sticky', 'balanced', 'performance'];
-        const names = [_('省电'), _('粘性'), _('均衡'),
-            _('性能')];
-        const model = new Gtk.StringList();
-        names.forEach(name => model.append(name));
-
-        let current = 'balanced';
-        try {
-            current = new TextDecoder().decode(
-                GLib.file_get_contents('/var/lib/gts9wifi/power-profile')[1]).trim();
-        } catch {}
-
-        const group = new Adw.PreferencesGroup({title: _('电源')});
-        const row = new Adw.ComboRow({
-            title: _('性能模式'),
-            subtitle: _('CPU 调频/EPP、GPU 调频和 Wi-Fi 省电策略。每次修改都会请求认证。'),
-            model,
-            selected: Math.max(0, ids.indexOf(current)),
-        });
-        row.connect('notify::selected', () => {
-            if (!runPrivileged(['power', ids[row.selected]]))
-                logError(new Error('cannot apply the power profile'),
-                    'gnome-gts9wifi');
-        });
-        group.add(row);
-        return group;
-    }
-
     // The boot animation gts9wifi-boot-animation plays: one of the videos in
     // animations.list (id|label per line, written by the image build), saved
     // as its id in /var/lib/gts9wifi/boot-animation, which the boot service
-    // reads.  The directory belongs to group video, as for the controls above.
+    // reads.  The directory belongs to group video.
     _bootGroup() {
         let lines;
         try {

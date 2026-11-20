@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: MIT
 #
 # Device-specific controls for this port, shared by the boot unit
-# (gts9wifi-device-control.service) and the gnome-gts9wifi GNOME Shell
-# extension.  One table drives every command, so adding a control means adding
-# a line here and nothing at all in the extension:
+# (gts9wifi-device-control.service) and the Tab9 Settings app.  One table
+# drives every command, so adding a control means adding a line here and
+# nothing at all in the app:
 #
 #   list           name, group, label, description and live value, tab separated
 #   get NAME       live value, 0 or 1

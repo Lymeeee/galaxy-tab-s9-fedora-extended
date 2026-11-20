@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.63
+Version:        0.17.64
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -70,6 +70,9 @@ install -m 0755 libgts9-cpuinfo.so %{buildroot}%{_libdir}/gts9wifi/libgts9-cpuin
 
 %post
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
+if command -v dconf >/dev/null 2>&1; then
+    dconf update >/dev/null 2>&1 || :
+fi
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database %{_datadir}/applications >/dev/null 2>&1 || :
 fi
@@ -142,6 +145,9 @@ fi
 
 %postun
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
+if command -v dconf >/dev/null 2>&1; then
+    dconf update >/dev/null 2>&1 || :
+fi
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database %{_datadir}/applications >/dev/null 2>&1 || :
 fi
@@ -165,17 +171,17 @@ fi
 %files
 %{_bindir}/gts9wifi-update
 %{_bindir}/gts9wifi-settings
-%{_bindir}/gts9wifi-fingerprint-overlay
-%config(noreplace) %{_sysconfdir}/xdg/autostart/gts9wifi-fingerprint-overlay.desktop
 %{_prefix}/local/bin/gnome-control-center
 %{_libdir}/gts9wifi/libgts9-cpuinfo.so
 %{_datadir}/applications/gts9wifi-settings.desktop
 %{_datadir}/icons/hicolor/scalable/apps/gts9wifi-settings.svg
 %{_datadir}/libwacom/samsung-gts9wifi-spen.tablet
 %{_datadir}/libwacom/samsung-gts9wifi-spen.stylus
-%dir %{_datadir}/gnome-shell/extensions/gnome-gts9wifi@tabs9linux
-%{_datadir}/gnome-shell/extensions/gnome-gts9wifi@tabs9linux/*
+%dir %{_datadir}/gnome-shell/extensions/galaxy-tab-extension@tabs9linux
+%{_datadir}/gnome-shell/extensions/galaxy-tab-extension@tabs9linux/*
+%config %{_sysconfdir}/dconf/db/gdm.d/99-galaxy-tab-extension
 %{_datadir}/glib-2.0/schemas/org.gnome.shell.extensions.gts9wifi.gschema.xml
+%{_datadir}/glib-2.0/schemas/99-gts9wifi.gschema.override
 %dir %{_datadir}/gts9wifi
 %dir %{_datadir}/gts9wifi/versionlock.d
 %{_datadir}/gts9wifi/versionlock.d/README
@@ -256,6 +262,17 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.64-1
+- Rename the shell extension to Galaxy Tab Extension (uuid
+  galaxy-tab-extension@tabs9linux).  Device controls and the performance
+  profile are removed from its settings page; Tab9 Settings is now the only
+  place for them.  All other settings and runtime helpers are unchanged.
+- Move the EL721 fingerprint target into the extension and run it in the
+  user session, on the lock screen and in the GDM greeter, with the rounded
+  corner mask following the same session modes.  Add a GDM dconf drop-in so
+  GDM loads the system extension.  The standalone GTK4 overlay and its xdg
+  autostart entry are removed.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.63-1
 - fingerprint-overlay: parse logind's ActiveSession (session-id,
   object-path) instead of treating the struct as a path.  Without

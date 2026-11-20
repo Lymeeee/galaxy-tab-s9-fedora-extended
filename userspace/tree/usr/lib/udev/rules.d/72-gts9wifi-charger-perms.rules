@@ -2,7 +2,7 @@
 #
 # The charger driver's switches (fast_charge, charge_limit, charge_bypass) are
 # root-only, so the session cannot change them from its own UI (the
-# gnome-gts9wifi extension and /usr/libexec/gts9wifi-device-control).  Open
+# Tab9 Settings app and /usr/libexec/gts9wifi-device-control).  Open
 # them to group video, the same group 71-gts9wifi-touchscreen-perms.rules uses,
 # because that is the group the seat user already has.  ($$ is a literal $ for
 # udev.)

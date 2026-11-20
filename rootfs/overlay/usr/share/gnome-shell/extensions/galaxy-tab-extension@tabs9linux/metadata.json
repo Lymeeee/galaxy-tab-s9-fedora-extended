@@ -1,0 +1,7 @@
+{
+  "uuid": "galaxy-tab-extension@tabs9linux",
+  "name": "Galaxy Tab Extension",
+  "description": "Bootstrap copy of the Galaxy Tab S9 shell integration; the userspace package installs the full extension over it.",
+  "shell-version": ["49", "50"],
+  "version": 1
+}

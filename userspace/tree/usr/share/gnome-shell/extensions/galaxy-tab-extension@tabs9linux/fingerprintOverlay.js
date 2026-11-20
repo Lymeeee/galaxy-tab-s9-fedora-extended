@@ -1,0 +1,529 @@
+// SPDX-License-Identifier: MIT
+//
+// Under-display fingerprint target, merged into the shell extension so it is
+// also present on the lock screen and in the GDM greeter.  It holds no
+// authentication state: it reads the driver's short-lived leases, tells the
+// root broker that a visible target is available, and acknowledges a light
+// request only after the drawn frame has been presented.
+
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+import St from 'gi://St';
+import cairo from 'cairo';
+
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
+const ACTIVE_LEASE = '/run/gts9wifi-fingerprint/active';
+const LIGHT_REQUEST = '/run/gts9wifi-fingerprint/light';
+const BUS_NAME = 'io.github.lymeeee.Gts9wifiFingerprintUI';
+const OBJECT_PATH = '/io/github/lymeeee/Gts9wifiFingerprintUI';
+const INTERFACE = BUS_NAME;
+
+const RAW_WIDTH = 1600;
+const RAW_HEIGHT = 2560;
+// The FOD rect is reported in the portrait touch coordinate space.  This is
+// the X710 centre the kernel accepts; the driver writes the same rect.
+const DEFAULT_FOD_RECT = [700, 2250, 960, 2480];
+// 14.8 mm optical target on the 147.7 mm short side of the X710 panel.
+const SENSOR_DIAMETER_RATIO = 14.8 / 147.7;
+const PROMPTS = {
+    enroll: '请求指纹录入',
+    verify: '请求指纹验证',
+    identify: '请求指纹验证',
+    none: '请求指纹验证',
+};
+const TRANSFORM_POINTS = [
+    (u, v) => [u, v],
+    (u, v) => [1 - v, u],
+    (u, v) => [1 - u, 1 - v],
+    (u, v) => [v, 1 - u],
+    (u, v) => [1 - u, v],
+    (u, v) => [v, u],
+    (u, v) => [u, 1 - v],
+    (u, v) => [1 - v, 1 - u],
+];
+
+function readText(path) {
+    try {
+        const [, bytes] = GLib.file_get_contents(path);
+        return new TextDecoder().decode(bytes);
+    } catch {
+        return '';
+    }
+}
+
+function parseActiveLease(contents, now) {
+    const match = /^active ([0-9]+)(?: ([a-z]+))?\n?$/.exec(contents ?? '');
+    if (!match)
+        return null;
+    const expires = Number(match[1]);
+    if (!Number.isSafeInteger(expires) || expires <= now || expires - now > 3_100_000)
+        return null;
+    const action = match[2] ?? 'verify';
+    return Object.hasOwn(PROMPTS, action) ? action : 'verify';
+}
+
+function parseLightRequest(contents, now) {
+    const match = /^prepare ([0-9]+)\n?$/.exec(contents ?? '');
+    const token = match ? Number(match[1]) : 0;
+    return Number.isSafeInteger(token) && token > 0 && token <= now &&
+        now - token < 1_000_000 ? token : 0;
+}
+
+function parseFodRect(contents) {
+    const values = (contents ?? '').split(/\s+/).filter(field => field !== '');
+    if (values.length !== 4)
+        return null;
+    const rect = values.map(value => Number(value));
+    if (!rect.every(Number.isInteger) || rect[2] <= rect[0] || rect[3] <= rect[1])
+        return null;
+    return rect;
+}
+
+function findFodRect() {
+    const directory = Gio.File.new_for_path('/sys/bus/i2c/devices');
+    let enumerator = null;
+    try {
+        enumerator = directory.enumerate_children('standard::name',
+            Gio.FileQueryInfoFlags.NONE, null);
+        for (let info = enumerator.next_file(null); info; info = enumerator.next_file(null)) {
+            const name = info.get_name();
+            const entry = `/sys/bus/i2c/devices/${name}`;
+            if (readText(`${entry}/name`).trim().toLowerCase() !== 'fts1ba90a')
+                continue;
+            const rect = parseFodRect(readText(`${entry}/fod_rect`));
+            if (rect)
+                return rect;
+        }
+    } catch {
+        // The sensor is not ready yet; fall back to the X710 rect.
+    } finally {
+        enumerator?.close(null);
+    }
+    return DEFAULT_FOD_RECT;
+}
+
+function sensorFractions(rect, transform) {
+    const [left, top, right, bottom] = rect;
+    // The DTS applies touchscreen-swapped-x-y and touchscreen-inverted-x:
+    // landscape x = raw y, landscape y = RAW_WIDTH - 1 - raw x.  Transform 0
+    // is that native landscape panel; Mutter's rotation is applied after it.
+    const u = ((top + bottom) / 2) / RAW_HEIGHT;
+    const v = 1 - ((left + right) / 2) / RAW_WIDTH;
+    return TRANSFORM_POINTS[transform & 7](u, v);
+}
+
+function sensorGeometry(rect, transform, width, height) {
+    const [u, v] = sensorFractions(rect, transform);
+    const diameter = Math.round(Math.min(width, height) * SENSOR_DIAMETER_RATIO);
+    return {cx: u * width, cy: v * height, radius: diameter / 2};
+}
+
+// Place the prompt on the screen-centre side of the ring: the prompt's
+// horizontal centreline runs through the ring centre, and the text-to-ring
+// gap equals the ring-to-near-screen-edge gap.  On the current landscape
+// panel that puts the prompt to the left of the ring; rotated layouts mirror
+// the same rule.
+function layoutText(width, height, cx, cy, radius, textWidth, textHeight) {
+    const ringLeft = cx - radius;
+    const ringRight = cx + radius;
+    const ringTop = cy - radius;
+    const ringBottom = cy + radius;
+    let x, y;
+    if (Math.abs(cx - width / 2) >= Math.abs(cy - height / 2)) {
+        if (cx >= width / 2) {
+            const gap = Math.max(0, width - ringRight);
+            x = ringLeft - gap - textWidth;
+        } else {
+            const gap = Math.max(0, ringLeft);
+            x = ringRight + gap;
+        }
+        y = cy - textHeight / 2;
+    } else {
+        if (cy >= height / 2) {
+            const gap = Math.max(0, height - ringBottom);
+            y = ringTop - gap - textHeight;
+        } else {
+            const gap = Math.max(0, ringTop);
+            y = ringBottom + gap;
+        }
+        x = cx - textWidth / 2;
+    }
+    return [x, y];
+}
+
+export class FingerprintOverlay {
+    constructor() {
+        this._container = null;
+        this._area = null;
+        this._label = null;
+        this._close = null;
+        this._monitor = null;
+        this._rect = DEFAULT_FOD_RECT;
+        this._transform = 0;
+        this._active = false;
+        this._action = null;
+        this._pressed = false;
+        this._dismissed = false;
+        this._lightToken = 0;
+        this._presentedToken = 0;
+        this._presentingToken = 0;
+        this._presentPaints = 0;
+        this._paintId = 0;
+        this._presentTimeoutId = 0;
+        this._tickId = 0;
+        this._nextPulse = 0;
+        this._sessionId = null;
+        this._sessionLookup = false;
+        this._pulsePending = null;
+        this._brokerErrorLogged = false;
+        this._monitorsId = 0;
+        this._sessionModeId = 0;
+    }
+
+    enable() {
+        this._area = new St.DrawingArea({reactive: false});
+        this._area.connect('repaint', actor => this._draw(actor));
+
+        this._label = new St.Label({
+            style_class: 'galaxy-tab-fingerprint-label',
+            reactive: false,
+            visible: false,
+        });
+        this._label.clutter_text.line_wrap = false;
+
+        this._container = new St.Widget({reactive: false, visible: false});
+        this._container.add_child(this._area);
+        this._container.add_child(this._label);
+
+        this._close = new St.Button({
+            style_class: 'galaxy-tab-fingerprint-close',
+            child: new St.Icon({icon_name: 'window-close-symbolic', icon_size: 16}),
+            reactive: true,
+            can_focus: false,
+            visible: false,
+        });
+        this._close.connect('clicked', () => this._dismiss());
+
+        // The target and label never take input; the close button is a
+        // separate small chrome actor so it can.
+        Main.layoutManager.addTopChrome(this._container,
+            {affectsInputRegion: false, trackFullscreen: false});
+        Main.layoutManager.addTopChrome(this._close, {trackFullscreen: false});
+
+        this._monitorsId = Main.layoutManager.connect('monitors-changed', () => {
+            this._refreshGeometry();
+            this._layout();
+            this._area.queue_repaint();
+        });
+        this._sessionModeId = Main.sessionMode.connect('updated', () => {
+            this._sessionId = null;
+            this._layout();
+        });
+
+        this._refreshGeometry();
+        this._layout();
+        this._tickId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+            this._tick();
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    disable() {
+        if (this._tickId) {
+            GLib.source_remove(this._tickId);
+            this._tickId = 0;
+        }
+        this._cancelPresentation();
+        if (this._monitorsId) {
+            Main.layoutManager.disconnect(this._monitorsId);
+            this._monitorsId = 0;
+        }
+        if (this._sessionModeId) {
+            Main.sessionMode.disconnect(this._sessionModeId);
+            this._sessionModeId = 0;
+        }
+        if (this._container) {
+            Main.layoutManager.removeChrome(this._container);
+            this._container.destroy();
+            this._container = null;
+        }
+        if (this._close) {
+            Main.layoutManager.removeChrome(this._close);
+            this._close.destroy();
+            this._close = null;
+        }
+        this._area = null;
+        this._label = null;
+    }
+
+    _refreshGeometry() {
+        this._rect = findFodRect();
+        this._queryTransform();
+    }
+
+    _queryTransform() {
+        Gio.DBus.session.call(
+            'org.gnome.Mutter.DisplayConfig',
+            '/org/gnome/Mutter/DisplayConfig',
+            'org.gnome.Mutter.DisplayConfig',
+            'GetCurrentState',
+            null, null, Gio.DBusCallFlags.NONE, 1000, null,
+            (connection, result) => {
+                try {
+                    const reply = connection.call_finish(result);
+                    const [, , logicalMonitors] = reply.deep_unpack();
+                    for (const monitor of logicalMonitors) {
+                        const specs = monitor[5];
+                        if (!specs.some(spec => spec[0] === 'DSI-1'))
+                            continue;
+                        this._transform = Number(monitor[3]) & 7;
+                        this._layout();
+                        this._area?.queue_repaint();
+                        return;
+                    }
+                } catch {
+                    // Keep the previous transform; geometry falls back to 0.
+                }
+            });
+    }
+
+    _layout() {
+        const monitor = Main.layoutManager.primaryMonitor;
+        if (!monitor || !this._container)
+            return;
+        this._monitor = monitor;
+        this._container.set_position(monitor.x, monitor.y);
+        this._container.set_size(monitor.width, monitor.height);
+        this._area.set_position(0, 0);
+        this._area.set_size(monitor.width, monitor.height);
+        this._close.set_position(monitor.x + monitor.width - 44, monitor.y + 12);
+
+        const {cx, cy, radius} = sensorGeometry(
+            this._rect, this._transform, monitor.width, monitor.height);
+        const [, natural] = this._label.get_preferred_size();
+        const [x, y] = layoutText(monitor.width, monitor.height, cx, cy, radius,
+            natural.width, natural.height);
+        this._label.set_position(Math.round(x), Math.round(y));
+        this._area.queue_repaint();
+    }
+
+    _setPrompt(action) {
+        this._label.set_text(PROMPTS[action] ?? PROMPTS.verify);
+        this._layout();
+    }
+
+    _tick() {
+        const now = GLib.get_monotonic_time();
+        const action = parseActiveLease(readText(ACTIVE_LEASE), now);
+        if (action === null) {
+            this._dismissed = false;
+            if (this._active)
+                this._finishHide();
+            return;
+        }
+
+        this._active = true;
+        if (action !== this._action) {
+            this._action = action;
+            this._setPrompt(action);
+        }
+        if (this._dismissed)
+            return;
+        if (!this._container.visible)
+            this._show(now);
+        if (now >= this._nextPulse) {
+            this._pulse(true);
+            this._nextPulse = now + 250_000;
+        }
+
+        const token = parseLightRequest(readText(LIGHT_REQUEST), now);
+        if (token !== this._lightToken) {
+            this._lightToken = token;
+            this._pressed = token > 0;
+            this._presentedToken = 0;
+            this._area.queue_repaint();
+            if (token)
+                this._schedulePresentation(token);
+            else
+                this._cancelPresentation();
+        }
+    }
+
+    _show(now) {
+        this._layout();
+        this._container.show();
+        this._close.show();
+        this._pressed = false;
+        this._area.queue_repaint();
+        this._pulse(true);
+        this._nextPulse = now + 250_000;
+    }
+
+    _finishHide() {
+        this._cancelPresentation();
+        this._active = false;
+        this._action = null;
+        this._pressed = false;
+        this._lightToken = 0;
+        this._presentedToken = 0;
+        this._container.hide();
+        this._close.hide();
+        this._pulse(false);
+    }
+
+    _dismiss() {
+        if (!this._active) {
+            this._close.hide();
+            return;
+        }
+        if (this._sessionId)
+            this._callBroker('Cancel', new GLib.Variant('(s)', [this._sessionId]));
+        this._dismissed = true;
+        this._container.hide();
+        this._close.hide();
+        this._cancelPresentation();
+    }
+
+    _draw(area) {
+        const cr = area.get_context();
+        const [width, height] = area.get_surface_size();
+        cr.setOperator(cairo.Operator.SOURCE);
+        cr.setSourceRGBA(0, 0, 0, 1);
+        cr.paint();
+        if (this._active) {
+            const {cx, cy, radius} = sensorGeometry(
+                this._rect, this._transform, width, height);
+            cr.setSourceRGBA(1, 1, 1, 1);
+            cr.setLineWidth(2);
+            cr.arc(cx, cy, radius, 0, 2 * Math.PI);
+            if (this._pressed)
+                cr.fill();
+            else
+                cr.stroke();
+        }
+        cr.$dispose();
+    }
+
+    _schedulePresentation(token) {
+        this._cancelPresentation();
+        this._presentingToken = token;
+        this._presentPaints = 0;
+        this._paintId = global.stage.connect('after-paint', () => {
+            this._presentPaints++;
+            if (this._presentPaints < 2) {
+                // Force a second frame so the first paint that counted is not
+                // an older commit than the one carrying the shade.
+                this._area.queue_repaint();
+                return;
+            }
+            this._disconnectPaint();
+            this._presentTimeoutId = GLib.timeout_add(
+                GLib.PRIORITY_DEFAULT, 35, () => {
+                    this._presentTimeoutId = 0;
+                    this._present(token);
+                    return GLib.SOURCE_REMOVE;
+                });
+        });
+    }
+
+    _cancelPresentation() {
+        this._disconnectPaint();
+        if (this._presentTimeoutId) {
+            GLib.source_remove(this._presentTimeoutId);
+            this._presentTimeoutId = 0;
+        }
+        this._presentingToken = 0;
+    }
+
+    _disconnectPaint() {
+        if (this._paintId) {
+            global.stage.disconnect(this._paintId);
+            this._paintId = 0;
+        }
+    }
+
+    _present(token) {
+        const now = GLib.get_monotonic_time();
+        if (token !== this._lightToken || this._presentingToken !== token ||
+            !this._active || this._dismissed || !this._container.visible ||
+            token === this._presentedToken ||
+            parseLightRequest(readText(LIGHT_REQUEST), now) !== token) {
+            this._presentingToken = 0;
+            return;
+        }
+        if (this._sessionId)
+            this._callBroker('Presented',
+                new GLib.Variant('(st)', [this._sessionId, token]));
+        this._presentedToken = token;
+        this._presentingToken = 0;
+    }
+
+    _ensureSession() {
+        if (this._sessionId || this._sessionLookup)
+            return;
+        this._sessionLookup = true;
+        Gio.DBus.system.call(
+            'org.freedesktop.login1',
+            '/org/freedesktop/login1/seat/seat0',
+            'org.freedesktop.DBus.Properties',
+            'Get',
+            new GLib.Variant('(ss)',
+                ['org.freedesktop.login1.Seat', 'ActiveSession']),
+            new GLib.VariantType('(v)'), Gio.DBusCallFlags.NONE, 1000, null,
+            (connection, result) => {
+                this._sessionLookup = false;
+                try {
+                    const reply = connection.call_finish(result);
+                    let [active] = reply.deep_unpack();
+                    if (active instanceof GLib.Variant)
+                        active = active.deep_unpack();
+                    const [sessionId, sessionPath] = active;
+                    if (sessionId && sessionPath && sessionPath !== '/')
+                        this._sessionId = String(sessionId);
+                } catch {
+                    this._sessionId = null;
+                }
+                if (this._sessionId && this._pulsePending !== null) {
+                    const pending = this._pulsePending;
+                    this._pulsePending = null;
+                    this._callBroker('Pulse',
+                        new GLib.Variant('(sb)', [this._sessionId, pending]));
+                }
+            });
+    }
+
+    _pulse(available) {
+        if (!this._sessionId) {
+            this._pulsePending = available;
+            this._ensureSession();
+            return;
+        }
+        this._pulsePending = null;
+        this._callBroker('Pulse',
+            new GLib.Variant('(sb)', [this._sessionId, available]));
+    }
+
+    _callBroker(method, parameters) {
+        Gio.DBus.system.call(
+            BUS_NAME, OBJECT_PATH, INTERFACE, method, parameters, null,
+            Gio.DBusCallFlags.NONE, 2000, null,
+            (connection, result) => {
+                try {
+                    connection.call_finish(result);
+                    this._brokerErrorLogged = false;
+                } catch (error) {
+                    const message = String(error?.message ?? error);
+                    if (message.includes('NotActiveSession')) {
+                        this._sessionId = null;
+                        if (this._active)
+                            this._pulsePending = true;
+                    }
+                    if (!this._brokerErrorLogged) {
+                        console.log(`Galaxy Tab fingerprint ${method}: ${message}`);
+                        this._brokerErrorLogged = true;
+                    }
+                }
+            });
+    }
+}
