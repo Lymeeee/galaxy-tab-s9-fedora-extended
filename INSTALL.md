@@ -141,6 +141,7 @@ Data*, or a full Odin firmware flash.
   [Hardware Notes](docs/Hardware-Notes.md#hardware-video-decode) for
   which players can actually reach the VPU.
 - `/vendor` (the Android `super` partition) is **not** mounted.
-- SELinux runs **permissive**.
+- SELinux boots **permissive** until the first-boot relabel; installing the
+  userspace package switches it to **enforcing** from the next boot.
 
 The full list is in [Known Issues](docs/Known-Issues.md).

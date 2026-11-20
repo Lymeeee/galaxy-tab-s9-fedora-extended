@@ -31,7 +31,8 @@ Also outstanding, not in the numbered register:
 - the S Pen tilt sensor;
 - the Android `/vendor` (`super`) partition is not mounted — needs a
   `make-dynpart-mappings` equivalent (see below);
-- SELinux runs permissive;
+- SELinux boots permissive until the first-boot relabel and the userspace
+  package install, then runs enforcing;
 - file capabilities are lost when the rootfs is packed (see below);
 - the VPU encoder node `/dev/video18` is untested;
 - early-boot timestamps read 1970 — the RTC has no valid time before NTP;
@@ -113,9 +114,13 @@ or replicate the device-kit approach. Note that the usual
 `persist` needs a permanent read-write mount and `super`/`vendor` need live
 mapping.
 
-### SELinux runs permissive
+### SELinux mode
 
-Not enforced.
+A freshly flashed image boots **permissive**: the rootfs is assembled without
+SELinux and TWRP drops the labels, so the first boot has to relabel the tree
+in permissive mode and reboot. Installing the userspace package loads the
+policy module and switches `/etc/selinux/config` to enforcing once (stamped in
+`/var/lib/gts9wifi/selinux-enforcing`), so the following boot runs enforcing.
 
 ### File capabilities are lost when packing the rootfs
 

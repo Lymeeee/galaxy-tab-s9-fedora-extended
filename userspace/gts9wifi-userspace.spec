@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.72
+Version:        0.17.73
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -85,6 +85,17 @@ if command -v semodule >/dev/null 2>&1; then
         done
         [ -e /dev/esfp0 ] && restorecon -F /dev/esfp0 >/dev/null 2>&1 || :
         [ -e /dev/tee0 ] && restorecon -F /dev/tee0 >/dev/null 2>&1 || :
+        # A fresh image boots permissive, relabels the tree, then reboots.
+        # Only switch to enforcing once that relabel is done and the module
+        # is loaded; the stamp keeps a later manual revert intact.
+        if selinuxenabled 2>/dev/null && [ ! -e /.autorelabel ] \
+               && [ ! -e /var/lib/gts9wifi/selinux-enforcing ] \
+               && grep -q '^SELINUX=permissive' /etc/selinux/config; then
+            install -d /var/lib/gts9wifi
+            sed -i 's/^SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config
+            touch /var/lib/gts9wifi/selinux-enforcing
+            echo "SELinux will run enforcing from the next boot" >&2
+        fi
     else
         echo "warning: could not load the gts9wifi SELinux policy" >&2
     fi
@@ -293,6 +304,12 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.73-1
+- SELinux: after the first-boot relabel has completed and the policy module
+  is loaded, switch a permissive config to enforcing one time.  Fresh images
+  still boot permissive for the relabel, and the stamp file keeps a later
+  manual switch back to permissive.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.72-1
 - SELinux policy: close the remaining permissive-only holes found by an
   enforcing soak: udev labeling of /dev/esfp0 and /dev/tee0, tmpfs

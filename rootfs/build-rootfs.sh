@@ -292,6 +292,9 @@ UUID=$boot_uuid /boot ext2 defaults,nodev,nosuid,noexec 0 0
 EOF
 echo "galaxy-tab-s9" > "$rootfs/etc/hostname"
 if [ -f "$rootfs/etc/selinux/config" ]; then
+    # The image is assembled without SELinux and TWRP drops the labels, so
+    # the first boot must relabel in permissive mode.  gts9wifi-userspace's
+    # %post switches the config to enforcing once that relabel is done.
     sed -i 's/^SELINUX=.*/SELINUX=permissive/' "$rootfs/etc/selinux/config"
 else
     echo "    WARN: /etc/selinux/config not found; SELinux left at default" >&2
