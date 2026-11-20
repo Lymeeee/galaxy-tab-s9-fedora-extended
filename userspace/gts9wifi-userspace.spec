@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.73
+Version:        0.17.74
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -304,6 +304,11 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Sat Nov 21 2026 Lymeeee <mr_xunyu@163.com> - 0.17.74-1
+- SELinux: let rpm_script_t stat and relabel the fingerprint runtime
+  directories and device nodes, so the %post restorecon works with the
+  policy enforced instead of logging getattr denials.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.73-1
 - SELinux: after the first-boot relabel has completed and the policy module
   is loaded, switch a permissive config to enforcing one time.  Fresh images

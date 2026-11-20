@@ -56,6 +56,18 @@ allow { unconfined_t init_t } gts9wifi_fingerprint_device_t:chr_file {
     getattr ioctl lock map open read write
 };
 
+# The userspace %post runs as rpm_script_t: it stats the lease directories,
+# relabels them, and restores the device-node labels.
+allow rpm_script_t gts9wifi_fingerprint_run_t:dir {
+    getattr search open read relabelfrom relabelto
+};
+allow rpm_script_t gts9wifi_fingerprint_run_t:file {
+    getattr open read relabelfrom relabelto
+};
+allow rpm_script_t gts9wifi_fingerprint_device_t:chr_file {
+    getattr open read relabelfrom relabelto
+};
+
 # systemd-udevd labels new device nodes from file_contexts itself; the fs
 # association is devtmpfs (device_t).
 allow udev_t gts9wifi_fingerprint_device_t:chr_file { getattr relabelto write };
