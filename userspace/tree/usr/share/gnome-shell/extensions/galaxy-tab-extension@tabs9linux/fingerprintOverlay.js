@@ -5,8 +5,9 @@
 // authentication state: it reads the driver's short-lived leases, tells the
 // root broker that a visible target is available, and acknowledges a light
 // request only after the drawn frame has been presented.  The target is a
-// black card holding the ring, with no text; a press outside the card
-// cancels the pending verification without blocking the session UI.
+// plain white ring, filled while the finger is down, with no text or backing;
+// a press outside it cancels the pending verification without blocking the
+// session UI.
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -30,11 +31,9 @@ const RAW_HEIGHT = 2560;
 const DEFAULT_FOD_RECT = [700, 2250, 960, 2480];
 // 14.8 mm optical target on the 147.7 mm short side of the X710 panel.
 const SENSOR_DIAMETER_RATIO = 14.8 / 147.7;
-const CARD_PADDING = 24;
-const CARD_RADIUS = 28;
-const CARD_BORDER_WIDTH = 2;
-const CARD_BORDER_RGBA = [1, 1, 1, 1];
-const RING_WIDTH = 3.5;
+const RING_WIDTH = 3;
+// A slightly padded hit zone keeps a near-miss from cancelling verification.
+const HIT_PADDING = 16;
 // GNOME 50 removed the X11-only input-region chrome option; non-reactive
 // actors stay input-transparent without it.
 function topChromeOptions(trackFullscreen) {
@@ -133,7 +132,7 @@ export class FingerprintOverlay {
     constructor() {
         this._container = null;
         this._area = null;
-        this._card = null;
+        this._target = null;
         this._monitor = null;
         this._rect = DEFAULT_FOD_RECT;
         this._transform = 0;
@@ -252,14 +251,11 @@ export class FingerprintOverlay {
         this._area.set_size(monitor.width, monitor.height);
         const {cx, cy, radius} = sensorGeometry(
             this._rect, this._transform, monitor.width, monitor.height);
-        const half = radius + RING_WIDTH / 2;
-        const left = Math.max(0, Math.round(cx - half) - CARD_PADDING);
-        const top = Math.max(0, Math.round(cy - half) - CARD_PADDING);
-        const right = Math.min(monitor.width,
-            Math.round(cx + half) + CARD_PADDING);
-        const bottom = Math.min(monitor.height,
-            Math.round(cy + half) + CARD_PADDING);
-        this._card = {x: left, y: top, w: right - left, h: bottom - top};
+        this._target = {
+            cx,
+            cy,
+            hitRadius: radius + RING_WIDTH / 2 + HIT_PADDING,
+        };
         this._area.queue_repaint();
     }
 
@@ -358,8 +354,8 @@ export class FingerprintOverlay {
         if (type !== Clutter.EventType.BUTTON_PRESS &&
             type !== Clutter.EventType.TOUCH_BEGIN)
             return Clutter.EVENT_PROPAGATE;
-        const card = this._card;
-        if (!card)
+        const target = this._target;
+        if (!target)
             return Clutter.EVENT_PROPAGATE;
         const [x, y] = event.get_coords();
         if (!Number.isFinite(x) || !Number.isFinite(y))
@@ -367,9 +363,8 @@ export class FingerprintOverlay {
         const monitor = this._monitor;
         const localX = x - (monitor?.x ?? 0);
         const localY = y - (monitor?.y ?? 0);
-        const inside = localX >= card.x && localX < card.x + card.w &&
-            localY >= card.y && localY < card.y + card.h;
-        if (!inside)
+        const distance = Math.hypot(localX - target.cx, localY - target.cy);
+        if (distance > target.hitRadius)
             this._dismiss();
         return Clutter.EVENT_PROPAGATE;
     }
@@ -383,24 +378,6 @@ export class FingerprintOverlay {
         if (this._active) {
             const {cx, cy, radius} = sensorGeometry(
                 this._rect, this._transform, width, height);
-            const card = this._card;
-            if (card) {
-                const r = Math.min(CARD_RADIUS, card.w / 2, card.h / 2);
-                cr.newPath();
-                cr.arc(card.x + r, card.y + r, r, Math.PI, 1.5 * Math.PI);
-                cr.arc(card.x + card.w - r, card.y + r, r,
-                    1.5 * Math.PI, 2 * Math.PI);
-                cr.arc(card.x + card.w - r, card.y + card.h - r, r,
-                    0, 0.5 * Math.PI);
-                cr.arc(card.x + r, card.y + card.h - r, r,
-                    0.5 * Math.PI, Math.PI);
-                cr.closePath();
-                cr.setSourceRGBA(0, 0, 0, 1);
-                cr.fillPreserve();
-                cr.setSourceRGBA(...CARD_BORDER_RGBA);
-                cr.setLineWidth(CARD_BORDER_WIDTH);
-                cr.stroke();
-            }
             cr.setSourceRGBA(1, 1, 1, 1);
             cr.setLineWidth(RING_WIDTH);
             cr.arc(cx, cy, radius, 0, 2 * Math.PI);
