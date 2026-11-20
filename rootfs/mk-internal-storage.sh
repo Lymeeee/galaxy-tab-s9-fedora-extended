@@ -204,7 +204,8 @@ if [ -f /tmp/gts9-modules.tar.gz ]; then
 fi
 # The rootfs was built without SELinux labels; the first boot relabels the
 # whole tree and then reboots once.  (The release tarball marks it too.)
-: > /rmnt/.autorelabel
+# -F: restorecon skips files that already carry unlabeled_t.
+echo -F > /rmnt/.autorelabel
 if [ -f /tmp/gts9-egoptbds.dat ]; then
     bds_dir=/rmnt/var/lib/gts9wifi/fingerprint/firmware
     mkdir -p "$bds_dir"

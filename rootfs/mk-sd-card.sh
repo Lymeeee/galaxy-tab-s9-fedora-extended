@@ -96,7 +96,8 @@ mount "$rp" "$m_root"
 extract_tar "$rootfs_tar" "$m_root"
 # The rootfs was built without SELinux labels; the first boot relabels the
 # whole tree and then reboots once.  (The release tarball marks it too.)
-: > "$m_root/.autorelabel"
+# -F: restorecon skips files that already carry unlabeled_t.
+echo -F > "$m_root/.autorelabel"
 
 echo ">>> injecting local assets (CI rootfs ships without them)"
 kver="${GTS9_KERNEL_VERSION:-7.2}"

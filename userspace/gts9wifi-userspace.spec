@@ -81,10 +81,10 @@ if command -v semodule >/dev/null 2>&1; then
     if semodule -i %{_datadir}/gts9wifi/selinux/gts9wifi.pp >/dev/null 2>&1; then
         for path in /run/gts9wifi-fingerprint /run/gts9wifi-fingerprint-ui \
                     /var/lib/gts9wifi/fingerprint; do
-            [ -e "$path" ] && restorecon -R "$path" >/dev/null 2>&1 || :
+            [ -e "$path" ] && restorecon -RF "$path" >/dev/null 2>&1 || :
         done
-        [ -e /dev/esfp0 ] && restorecon /dev/esfp0 >/dev/null 2>&1 || :
-        [ -e /dev/tee0 ] && restorecon /dev/tee0 >/dev/null 2>&1 || :
+        [ -e /dev/esfp0 ] && restorecon -F /dev/esfp0 >/dev/null 2>&1 || :
+        [ -e /dev/tee0 ] && restorecon -F /dev/tee0 >/dev/null 2>&1 || :
     else
         echo "warning: could not load the gts9wifi SELinux policy" >&2
     fi
