@@ -11,9 +11,10 @@ require {
     type udev_t;
     type device_t;
     type tmpfs_t;
-    class dir { add_name create getattr mounton open read remove_name rmdir search setattr write };
-    class file { create execute execute_no_trans getattr map open read rename setattr unlink write };
-    class chr_file { getattr ioctl lock map open read relabelto write };
+    type rpm_script_t;
+    class dir { add_name create getattr mounton open read relabelfrom relabelto remove_name rmdir search setattr write };
+    class file { create execute execute_no_trans getattr map open read relabelfrom relabelto rename setattr unlink write };
+    class chr_file { getattr ioctl lock map open read relabelfrom relabelto write };
     class filesystem { associate };
     class binder { set_context_mgr };
 }
