@@ -32,7 +32,7 @@ jobs:
             quay.io/fedora/fedora:44 \
             bash -lc '
               set -euxo pipefail
-              dnf -y install rpm-build systemd-rpm-macros glib2 glib2-devel libgtop2-devel gcc findutils tar gzip sed python3 desktop-file-utils python3-gobject gtk4 libadwaita nodejs dtc >/dev/null
+              dnf -y install rpm-build systemd-rpm-macros glib2 glib2-devel libgtop2-devel gcc findutils tar gzip sed python3 desktop-file-utils python3-gobject gtk4 libadwaita nodejs dtc checkpolicy policycoreutils >/dev/null
               python3 -m py_compile /work/userspace/tree/usr/bin/gts9wifi-settings /work/userspace/tree/usr/libexec/gts9wifi-power-key /work/userspace/tree/usr/libexec/gts9wifi-charge-mode /work/userspace/tree/usr/libexec/gts9wifi-wifi-bdf /work/userspace/tree/usr/libexec/gts9wifi-spen-remote /work/userspace/tree/usr/libexec/gts9wifi-rtc-time /work/userspace/tree/usr/libexec/gts9wifi-zh-translations /work/userspace/tree/usr/libexec/gts9wifi-camera-calib /work/userspace/tree/usr/libexec/gts9wifi-cover-boot-guard
               rm -rf /work/userspace/tree/usr/bin/__pycache__ /work/userspace/tree/usr/libexec/__pycache__
               python3 /work/userspace/tests/settings-smoke.py
@@ -68,6 +68,7 @@ jobs:
               VERSION=$(sed -n "s/^Version:[[:space:]]*//p" /work/userspace/gts9wifi-userspace.spec | head -1)
               mkdir -p "/tmp/src/gts9wifi-userspace-$VERSION"
               cp -a /work/userspace/tree/. "/tmp/src/gts9wifi-userspace-$VERSION/"
+              cp -a /work/userspace/selinux "/tmp/src/gts9wifi-userspace-$VERSION/"
               tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-$VERSION.tar.gz \
                 "gts9wifi-userspace-$VERSION"
               cp /work/userspace/cpuinfo/gts9-cpuinfo.c ~/rpmbuild/SOURCES/

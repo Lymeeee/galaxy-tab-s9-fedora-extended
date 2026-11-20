@@ -1,0 +1,5 @@
+/run/gts9wifi-fingerprint(/.*)? system_u:object_r:gts9wifi_fingerprint_run_t:s0
+/run/gts9wifi-fingerprint-ui(/.*)? system_u:object_r:gts9wifi_fingerprint_run_t:s0
+/var/lib/gts9wifi/fingerprint(/.*)? system_u:object_r:fprintd_var_lib_t:s0
+/dev/esfp0 -c system_u:object_r:gts9wifi_fingerprint_device_t:s0
+/dev/tee0 -c system_u:object_r:gts9wifi_fingerprint_device_t:s0

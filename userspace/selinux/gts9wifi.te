@@ -1,0 +1,39 @@
+module gts9wifi 1.0;
+
+require {
+    type fprintd_t;
+    type sysfs_t;
+    type systemd_sleep_t;
+    type systemd_systemctl_exec_t;
+    class dir { add_name getattr open read remove_name search write };
+    class file { create execute execute_no_trans getattr map open read rename setattr unlink write };
+    class chr_file { getattr ioctl lock map open read write };
+}
+
+type gts9wifi_fingerprint_run_t;
+type gts9wifi_fingerprint_device_t;
+
+# Lease handshake between libfprint and the GNOME target: active/light are
+# written by fprintd, ready/presented/cancel by the UI broker.
+allow fprintd_t gts9wifi_fingerprint_run_t:dir {
+    add_name getattr open read remove_name search write
+};
+allow fprintd_t gts9wifi_fingerprint_run_t:file {
+    create getattr open read rename setattr unlink write
+};
+
+# /dev/esfp0 is the EL721 sensor; /dev/tee0 is the qcom TEE the trusted app
+# talks through.
+allow fprintd_t gts9wifi_fingerprint_device_t:chr_file {
+    getattr ioctl lock map open read write
+};
+
+# The EL721 driver exposes sensor_power as a sysfs attribute.  sysfs cannot
+# be relabeled, so scope those writes to the fprintd daemon.
+allow fprintd_t sysfs_t:dir { add_name search write };
+allow fprintd_t sysfs_t:file { create getattr open read setattr write };
+
+# The camera suspend hook clears a stale failed unit with systemctl.
+allow systemd_sleep_t systemd_systemctl_exec_t:file {
+    execute execute_no_trans getattr map open read
+};

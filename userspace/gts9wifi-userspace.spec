@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.69
+Version:        0.17.70
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -13,6 +13,8 @@ BuildRequires:  systemd-rpm-macros
 BuildRequires:  gcc
 BuildRequires:  glib2-devel
 BuildRequires:  libgtop2-devel
+BuildRequires:  checkpolicy
+BuildRequires:  policycoreutils
 Requires:       glib2
 Requires:       gnome-shell
 Requires:       gnome-control-center
@@ -59,16 +61,34 @@ stm32_gts9family.bin into /lib/firmware/keyboard_stm/ separately.
 gcc %{optflags} -fPIC -shared -Wall -Wextra -o libgts9-cpuinfo.so %{SOURCE1} \
     $(pkg-config --cflags glib-2.0 libgtop-2.0) \
     $(pkg-config --libs glib-2.0) -ldl
+checkmodule -M -m -o gts9wifi.mod selinux/gts9wifi.te
+semodule_package -o gts9wifi.pp -m gts9wifi.mod -f selinux/gts9wifi.fc
 
 %install
 rm -rf %{buildroot}
 mkdir -p %{buildroot}
 cp -a . %{buildroot}/
-rm -f %{buildroot}/libgts9-cpuinfo.so
+rm -f %{buildroot}/libgts9-cpuinfo.so \
+      %{buildroot}/gts9wifi.mod %{buildroot}/gts9wifi.pp
+rm -rf %{buildroot}/selinux
 install -d %{buildroot}%{_libdir}/gts9wifi
 install -m 0755 libgts9-cpuinfo.so %{buildroot}%{_libdir}/gts9wifi/libgts9-cpuinfo.so
+install -d %{buildroot}%{_datadir}/gts9wifi/selinux
+install -m 0644 gts9wifi.pp %{buildroot}%{_datadir}/gts9wifi/selinux/gts9wifi.pp
 
 %post
+if command -v semodule >/dev/null 2>&1; then
+    if semodule -i %{_datadir}/gts9wifi/selinux/gts9wifi.pp >/dev/null 2>&1; then
+        for path in /run/gts9wifi-fingerprint /run/gts9wifi-fingerprint-ui \
+                    /var/lib/gts9wifi/fingerprint; do
+            [ -e "$path" ] && restorecon -R "$path" >/dev/null 2>&1 || :
+        done
+        [ -e /dev/esfp0 ] && restorecon /dev/esfp0 >/dev/null 2>&1 || :
+        [ -e /dev/tee0 ] && restorecon /dev/tee0 >/dev/null 2>&1 || :
+    else
+        echo "warning: could not load the gts9wifi SELinux policy" >&2
+    fi
+fi
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
 if command -v dconf >/dev/null 2>&1; then
     dconf update >/dev/null 2>&1 || :
@@ -144,6 +164,9 @@ if command -v rpm >/dev/null 2>&1 && command -v setcap >/dev/null 2>&1; then
 fi
 
 %postun
+if [ "$1" = 0 ] && command -v semodule >/dev/null 2>&1; then
+    semodule -r gts9wifi >/dev/null 2>&1 || :
+fi
 glib-compile-schemas %{_datadir}/glib-2.0/schemas >/dev/null 2>&1 || :
 if command -v dconf >/dev/null 2>&1; then
     dconf update >/dev/null 2>&1 || :
@@ -183,6 +206,8 @@ fi
 %{_datadir}/glib-2.0/schemas/org.gnome.shell.extensions.gts9wifi.gschema.xml
 %{_datadir}/glib-2.0/schemas/99-gts9wifi.gschema.override
 %dir %{_datadir}/gts9wifi
+%dir %{_datadir}/gts9wifi/selinux
+%{_datadir}/gts9wifi/selinux/gts9wifi.pp
 %dir %{_datadir}/gts9wifi/versionlock.d
 %{_datadir}/gts9wifi/versionlock.d/README
 %dir %{_datadir}/plymouth/themes/gts9wifi
@@ -256,12 +281,25 @@ fi
 %dir %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-wait-sensor-proxy.service
 %config(noreplace) %{_sysconfdir}/systemd/system/gts9wifi-android-parts.service.d/10-gts9wifi-mounts.conf
+%dir %{_sysconfdir}/systemd/system/pd-mapper.service.d
+%config(noreplace) %{_sysconfdir}/systemd/system/pd-mapper.service.d/10-gts9wifi-selinux.conf
+%dir %{_sysconfdir}/systemd/system/hexagonrpcd-adsp-sensorspd.service.d
+%config(noreplace) %{_sysconfdir}/systemd/system/hexagonrpcd-adsp-sensorspd.service.d/20-gts9wifi-selinux.conf
+%dir %{_sysconfdir}/systemd/system/hexagonrpcd-adsp-rootpd.service.d
+%config(noreplace) %{_sysconfdir}/systemd/system/hexagonrpcd-adsp-rootpd.service.d/10-gts9wifi-selinux.conf
 %attr(0755, root, root) %{_libexecdir}/gts9wifi-camera-suspend-pre
 %dir %{_unitdir}/systemd-suspend.service.d
 %{_unitdir}/systemd-suspend.service.d/10-gts9wifi-camera-suspend.conf
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.70-1
+- Ship a small SELinux policy that labels the fingerprint lease
+  directories and the EL721/qcomtee devices, allows fprintd the sysfs and
+  device access it needs, and lets the camera sleep hook run systemctl.
+  Rootfs installs relabel themselves on first boot, and pd-mapper plus
+  hexagonrpcd run in unconfined_service_t instead of init_t.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.69-1
 - Fingerprint target: show just the 3px white ring, fill it while the finger
   is down, and drop the black card backing.  A near-miss inside the padded
