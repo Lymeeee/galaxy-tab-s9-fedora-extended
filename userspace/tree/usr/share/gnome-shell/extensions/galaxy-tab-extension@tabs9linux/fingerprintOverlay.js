@@ -9,6 +9,7 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import St from 'gi://St';
+import Clutter from 'gi://Clutter';
 import cairo from 'cairo';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -33,6 +34,10 @@ const PROMPTS = {
     identify: '请求指纹验证',
     none: '请求指纹验证',
 };
+const CARD_PADDING = 24;
+const CARD_RADIUS = 28;
+const TEXT_GAP = 24;
+const RING_WIDTH = 3.5;
 // GNOME 50 removed the X11-only input-region chrome option; non-reactive
 // actors stay input-transparent without it.
 function topChromeOptions(trackFullscreen) {
@@ -129,45 +134,12 @@ function sensorGeometry(rect, transform, width, height) {
     return {cx: u * width, cy: v * height, radius: diameter / 2};
 }
 
-// Place the prompt on the screen-centre side of the ring: the prompt's
-// horizontal centreline runs through the ring centre, and the text-to-ring
-// gap equals the ring-to-near-screen-edge gap.  On the current landscape
-// panel that puts the prompt to the left of the ring; rotated layouts mirror
-// the same rule.
-function layoutText(width, height, cx, cy, radius, textWidth, textHeight) {
-    const ringLeft = cx - radius;
-    const ringRight = cx + radius;
-    const ringTop = cy - radius;
-    const ringBottom = cy + radius;
-    let x, y;
-    if (Math.abs(cx - width / 2) >= Math.abs(cy - height / 2)) {
-        if (cx >= width / 2) {
-            const gap = Math.max(0, width - ringRight);
-            x = ringLeft - gap - textWidth;
-        } else {
-            const gap = Math.max(0, ringLeft);
-            x = ringRight + gap;
-        }
-        y = cy - textHeight / 2;
-    } else {
-        if (cy >= height / 2) {
-            const gap = Math.max(0, height - ringBottom);
-            y = ringTop - gap - textHeight;
-        } else {
-            const gap = Math.max(0, ringTop);
-            y = ringBottom + gap;
-        }
-        x = cx - textWidth / 2;
-    }
-    return [x, y];
-}
-
 export class FingerprintOverlay {
     constructor() {
         this._container = null;
         this._area = null;
         this._label = null;
-        this._close = null;
+        this._card = null;
         this._monitor = null;
         this._rect = DEFAULT_FOD_RECT;
         this._transform = 0;
@@ -202,23 +174,14 @@ export class FingerprintOverlay {
         });
         this._label.clutter_text.line_wrap = false;
 
-        this._container = new St.Widget({reactive: false, visible: false});
+        this._container = new St.Widget({reactive: true, visible: false});
         this._container.add_child(this._area);
         this._container.add_child(this._label);
-
-        this._close = new St.Button({
-            style_class: 'galaxy-tab-fingerprint-close',
-            child: new St.Icon({icon_name: 'window-close-symbolic', icon_size: 16}),
-            reactive: true,
-            can_focus: false,
-            visible: false,
-        });
-        this._close.connect('clicked', () => this._dismiss());
-
-        // The target and label never take input; the close button is a
-        // separate small chrome actor so it can.
+        // The card is small, but the actor spans the monitor so a press
+        // anywhere else can cancel the request.
+        this._container.connect('button-press-event',
+            (actor, event) => this._onPress(event));
         Main.layoutManager.addTopChrome(this._container, topChromeOptions(false));
-        Main.layoutManager.addTopChrome(this._close, {trackFullscreen: false});
 
         this._monitorsId = Main.layoutManager.connect('monitors-changed', () => {
             this._refreshGeometry();
@@ -256,11 +219,6 @@ export class FingerprintOverlay {
             Main.layoutManager.removeChrome(this._container);
             this._container.destroy();
             this._container = null;
-        }
-        if (this._close) {
-            Main.layoutManager.removeChrome(this._close);
-            this._close.destroy();
-            this._close = null;
         }
         this._area = null;
         this._label = null;
@@ -306,14 +264,23 @@ export class FingerprintOverlay {
         this._container.set_size(monitor.width, monitor.height);
         this._area.set_position(0, 0);
         this._area.set_size(monitor.width, monitor.height);
-        this._close.set_position(monitor.x + monitor.width - 44, monitor.y + 12);
-
         const {cx, cy, radius} = sensorGeometry(
             this._rect, this._transform, monitor.width, monitor.height);
         const [, natural] = this._label.get_preferred_size();
-        const [x, y] = layoutText(monitor.width, monitor.height, cx, cy, radius,
-            natural.width, natural.height);
-        this._label.set_position(Math.round(x), Math.round(y));
+        const textX = Math.round(cx - radius - TEXT_GAP - natural.width);
+        const textY = Math.round(cy - natural.height / 2);
+        this._label.set_position(textX, textY);
+
+        const half = radius + RING_WIDTH / 2;
+        const left = Math.max(0,
+            Math.round(Math.min(textX, cx - half)) - CARD_PADDING);
+        const top = Math.max(0,
+            Math.round(Math.min(textY, cy - half)) - CARD_PADDING);
+        const right = Math.min(monitor.width,
+            Math.round(Math.max(textX + natural.width, cx + half)) + CARD_PADDING);
+        const bottom = Math.min(monitor.height,
+            Math.round(Math.max(textY + natural.height, cy + half)) + CARD_PADDING);
+        this._card = {x: left, y: top, w: right - left, h: bottom - top};
         this._area.queue_repaint();
     }
 
@@ -362,7 +329,6 @@ export class FingerprintOverlay {
     _show(now) {
         this._layout();
         this._container.show();
-        this._close.show();
         this._pressed = false;
         this._area.queue_repaint();
         this._pulse(true);
@@ -377,34 +343,62 @@ export class FingerprintOverlay {
         this._lightToken = 0;
         this._presentedToken = 0;
         this._container.hide();
-        this._close.hide();
         this._pulse(false);
     }
 
     _dismiss() {
-        if (!this._active) {
-            this._close.hide();
+        if (!this._active)
             return;
-        }
         if (this._sessionId)
             this._callBroker('Cancel', new GLib.Variant('(s)', [this._sessionId]));
         this._dismissed = true;
         this._container.hide();
-        this._close.hide();
         this._cancelPresentation();
+    }
+
+    _onPress(event) {
+        if (!this._active || this._dismissed)
+            return Clutter.EVENT_PROPAGATE;
+        const card = this._card;
+        if (!card)
+            return Clutter.EVENT_STOP;
+        const [x, y] = event.get_coords();
+        const monitor = this._monitor;
+        const localX = x - (monitor?.x ?? 0);
+        const localY = y - (monitor?.y ?? 0);
+        const inside = localX >= card.x && localX < card.x + card.w &&
+            localY >= card.y && localY < card.y + card.h;
+        if (!inside)
+            this._dismiss();
+        return Clutter.EVENT_STOP;
     }
 
     _draw(area) {
         const cr = area.get_context();
         const [width, height] = area.get_surface_size();
         cr.setOperator(cairo.Operator.SOURCE);
-        cr.setSourceRGBA(0, 0, 0, 1);
+        cr.setSourceRGBA(0, 0, 0, 0);
         cr.paint();
         if (this._active) {
             const {cx, cy, radius} = sensorGeometry(
                 this._rect, this._transform, width, height);
+            const card = this._card;
+            if (card) {
+                const r = Math.min(CARD_RADIUS, card.w / 2, card.h / 2);
+                cr.newPath();
+                cr.arc(card.x + r, card.y + r, r, Math.PI, 1.5 * Math.PI);
+                cr.arc(card.x + card.w - r, card.y + r, r,
+                    1.5 * Math.PI, 2 * Math.PI);
+                cr.arc(card.x + card.w - r, card.y + card.h - r, r,
+                    0, 0.5 * Math.PI);
+                cr.arc(card.x + r, card.y + card.h - r, r,
+                    0.5 * Math.PI, Math.PI);
+                cr.closePath();
+                cr.setSourceRGBA(0, 0, 0, 1);
+                cr.fill();
+            }
             cr.setSourceRGBA(1, 1, 1, 1);
-            cr.setLineWidth(2);
+            cr.setLineWidth(RING_WIDTH);
             cr.arc(cx, cy, radius, 0, 2 * Math.PI);
             if (this._pressed)
                 cr.fill();

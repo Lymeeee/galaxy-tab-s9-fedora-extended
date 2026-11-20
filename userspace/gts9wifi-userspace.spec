@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.66
+Version:        0.17.67
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -262,6 +262,11 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.67-1
+- Draw the fingerprint target as a local black rounded card holding the ring
+  and prompt instead of a full-screen shade, remove the close button, thicken
+  the ring, and cancel on a press outside the card.  Global panel HBM stays.
+
 * Fri Nov 20 2026 Lymeeee <mr_xunyu@163.com> - 0.17.66-1
 - Stop passing the removed affectsInputRegion chrome option to
   addTopChrome() on GNOME 50, which rejected it and aborted the whole
