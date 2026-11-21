@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.75
+Version:        0.17.76
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -304,6 +304,11 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Sat Nov 21 2026 Lymeeee <mr_xunyu@163.com> - 0.17.76-1
+- Camera calibration: stop rewriting hi1337-gts9u-front-uw.yaml.  The
+  front-uw sensor only exists on the Tab S9 Ultra; gts9wifi has a single
+  front HI1337 and the YAML was never used.
+
 * Sat Nov 21 2026 Lymeeee <mr_xunyu@163.com> - 0.17.75-1
 - SELinux: restorecon runs as setfiles_t, which also needs stat and relabel
   access to the fingerprint runtime directories and device nodes, so the

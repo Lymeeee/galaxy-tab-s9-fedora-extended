@@ -34,11 +34,9 @@ TARGETS = {
     ),
     "front": (
         "/usr/share/libcamera/ipa/simple/hi1337-gts9u-front.yaml",
-        "/usr/share/libcamera/ipa/simple/hi1337-gts9u-front-uw.yaml",
     ),
     "front-full": (
         "/usr/share/libcamera/ipa/simple/hi1337-gts9u-front.yaml",
-        "/usr/share/libcamera/ipa/simple/hi1337-gts9u-front-uw.yaml",
     ),
 }
 STATE_DIR = "/var/lib/gts9wifi/camera-calib"
