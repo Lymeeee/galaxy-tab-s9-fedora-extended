@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.80
+Version:        0.17.81
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -304,6 +304,13 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Mon Nov 23 2026 Lymeeee <mr_xunyu@163.com> - 0.17.81-1
+- gts9wifi-speaker-protection: cache per-unit CS35L45 factory calibration
+  (rdc/vsc/isc/temp) from sec_efs/cirrus into /var/lib/gts9wifi/speaker-cal,
+  align DSP_RX1..8 sensor routing with Samsung mixer_paths.xml, and apply
+  per-amp CAL_R/CAL_AMBIENT/CAL_STATUS/CAL_CHECKSUM/VSC/ISC controls (keeping
+  DACPCM Source on ASP_RX1/2 until live DSP validation).
+
 * Mon Nov 23 2026 Lymeeee <mr_xunyu@163.com> - 0.17.80-1
 - Tune 99-gts9wifi-zram.conf for zstd zram: vm.swappiness=180,
   vm.page-cluster=0, vm.watermark_boost_factor=0, and

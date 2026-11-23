@@ -2,10 +2,19 @@
 # SPDX-License-Identifier: MIT
 #
 # Samsung ships the CS35L45 speaker-protection DSP program and the Tab S9
-# tuning on the vendor partition.  Stage them for the kernel and arm the four
-# amplifiers so the protection runs with its calibrated coefficients.
+# tuning on the vendor partition, plus per-unit factory speaker calibration
+# (rdc/vsc/isc/temp) on sec_efs under /cirrus/.  Stage the firmware, cache
+# the unit's calibration under /var/lib/gts9wifi/speaker-cal, wire the
+# DSP1 sensor inputs per Samsung's mixer_paths.xml, and preload the four
+# amplifiers with their factory coefficients.
+#
+# Note: DACPCM Source remains on ASP_RX1/ASP_RX2 until after-class live
+# validation confirms AL_SET_STATUS, CSPL_ERRORNO and L_TEMPERATURE.
 
 set -u
+
+CAL_DIR="/var/lib/gts9wifi/speaker-cal"
+CAL_FILES="temp_cal rdc_cal rdc_cal_r rdc_cal_b rdc_cal_br vsc_cal vsc_cal_r vsc_cal_b vsc_cal_br isc_cal isc_cal_r isc_cal_b isc_cal_br"
 
 for f in cs35l45-dsp1-spk-prot.wmfw cs35l45-dsp1-spk-prot.bin; do
 	[ -e "/lib/firmware/$f" ] && continue
@@ -13,12 +22,116 @@ for f in cs35l45-dsp1-spk-prot.wmfw cs35l45-dsp1-spk-prot.bin; do
 	cp "/vendor/firmware/$f" "/lib/firmware/$f" 2>/dev/null || true
 done
 
+cal_cached() {
+	for f in $CAL_FILES; do
+		[ -r "$CAL_DIR/$f" ] || return 1
+	done
+	return 0
+}
+
+cache_cal_from_secefs() {
+	cal_cached && return 0
+	[ -b /dev/disk/by-partlabel/sec_efs ] || return 0
+	mnt=$(mktemp -d /run/gts9wifi-secefs.XXXXXX) || return 0
+	if mount -o ro,nosuid,nodev,noexec /dev/disk/by-partlabel/sec_efs "$mnt" 2>/dev/null; then
+		if [ -d "$mnt/cirrus" ]; then
+			install -d -m 0700 "$CAL_DIR" 2>/dev/null || true
+			for f in $CAL_FILES; do
+				if [ -r "$mnt/cirrus/$f" ]; then
+					install -m 0600 "$mnt/cirrus/$f" "$CAL_DIR/$f" 2>/dev/null || true
+				fi
+			done
+		fi
+		umount "$mnt" 2>/dev/null || true
+	fi
+	rmdir "$mnt" 2>/dev/null || true
+}
+
+read_u24() {
+	[ -r "$1" ] || return 1
+	val=$(tr -cd '0-9' < "$1" 2>/dev/null)
+	[ -n "$val" ] || return 1
+	[ "$val" -ge 0 ] && [ "$val" -le 16777215 ] || return 1
+	printf '%s\n' "$val"
+}
+
+be32_hex() {
+	printf '0x%02x,0x%02x,0x%02x,0x%02x' \
+		$(( ($1 >> 24) & 0xff )) \
+		$(( ($1 >> 16) & 0xff )) \
+		$(( ($1 >> 8) & 0xff )) \
+		$(( $1 & 0xff ))
+}
+
+find_card() {
+	for idf in /proc/asound/card*/id; do
+		[ -r "$idf" ] || continue
+		case "$(cat "$idf" 2>/dev/null)" in
+			sound|Samsung-Galaxy-Tab-S9|SamsungGalaxyTa)
+				c="${idf#/proc/asound/card}"
+				printf '%s\n' "${c%/id}"
+				return 0
+				;;
+		esac
+	done
+	return 1
+}
+
+cache_cal_from_secefs
+
+CARD=""
 i=0
-while [ "$i" -lt 20 ] && ! amixer -c 0 info >/dev/null 2>&1; do
+while [ "$i" -lt 20 ]; do
+	if CARD=$(find_card) && amixer -c "$CARD" info >/dev/null 2>&1; then
+		break
+	fi
 	sleep 0.5
 	i=$((i + 1))
 done
+[ -n "$CARD" ] || CARD=0
 
-for amp in "Front Left" "Front Right" "Rear Left" "Rear Right"; do
-	amixer -c 0 cset name="$amp DSP1 Preload Switch" on >/dev/null 2>&1 || true
-done
+TEMP=$(read_u24 "$CAL_DIR/temp_cal" 2>/dev/null || true)
+
+apply_amp() {
+	amp="$1"
+	slot="$2"
+	sfx="$3"
+
+	# Match Samsung's mixer_paths.xml sensor routing into DSP1 (adapted
+	# for 2-channel stereo MI2S: left amps take ASP_RX1, right take ASP_RX2).
+	amixer -c "$CARD" cset name="$amp DSP_RX1 Source" "$slot" >/dev/null 2>&1 || true
+	amixer -c "$CARD" cset name="$amp DSP_RX2 Source" "$slot" >/dev/null 2>&1 || true
+	amixer -c "$CARD" cset name="$amp DSP_RX3 Source" VMON >/dev/null 2>&1 || true
+	amixer -c "$CARD" cset name="$amp DSP_RX4 Source" IMON >/dev/null 2>&1 || true
+	amixer -c "$CARD" cset name="$amp DSP_RX5 Source" VDD_BATTMON >/dev/null 2>&1 || true
+	amixer -c "$CARD" cset name="$amp DSP_RX6 Source" VDD_BSTMON >/dev/null 2>&1 || true
+	amixer -c "$CARD" cset name="$amp DSP_RX7 Source" CLASSH_TGT >/dev/null 2>&1 || true
+	amixer -c "$CARD" cset name="$amp DSP_RX8 Source" VDD_BATTMON >/dev/null 2>&1 || true
+
+	amixer -c "$CARD" cset name="$amp DSP1 Preload Switch" on >/dev/null 2>&1 || true
+
+	rdc=$(read_u24 "$CAL_DIR/rdc_cal$sfx" 2>/dev/null || true)
+	vsc=$(read_u24 "$CAL_DIR/vsc_cal$sfx" 2>/dev/null || true)
+	isc=$(read_u24 "$CAL_DIR/isc_cal$sfx" 2>/dev/null || true)
+
+	if [ -n "$rdc" ] && [ -n "$TEMP" ]; then
+		# Cirrus Halo Protect Lite expects 4-byte big-endian values;
+		# CAL_CHECKSUM is verified against AL_SET_STATUS on first DSP run.
+		csum=$(( rdc + 9 ))
+		amixer -c "$CARD" cset name="$amp DSP1 Protection cd CAL_R" "$(be32_hex "$rdc")" >/dev/null 2>&1 || true
+		amixer -c "$CARD" cset name="$amp DSP1 Protection cd CAL_AMBIENT" "$(be32_hex "$TEMP")" >/dev/null 2>&1 || true
+		amixer -c "$CARD" cset name="$amp DSP1 Protection cd CAL_STATUS" 0x00,0x00,0x00,0x01 >/dev/null 2>&1 || true
+		amixer -c "$CARD" cset name="$amp DSP1 Protection cd CAL_CHECKSUM" "$(be32_hex "$csum")" >/dev/null 2>&1 || true
+	fi
+	if [ -n "$vsc" ]; then
+		amixer -c "$CARD" cset name="$amp DSP1 Protection f204 VSC" "$(be32_hex "$vsc")" >/dev/null 2>&1 || true
+	fi
+	if [ -n "$isc" ]; then
+		amixer -c "$CARD" cset name="$amp DSP1 Protection f204 ISC" "$(be32_hex "$isc")" >/dev/null 2>&1 || true
+	fi
+}
+
+apply_amp "Front Left"  ASP_RX1 ""
+apply_amp "Front Right" ASP_RX2 "_r"
+apply_amp "Rear Left"   ASP_RX1 "_b"
+apply_amp "Rear Right"  ASP_RX2 "_br"
