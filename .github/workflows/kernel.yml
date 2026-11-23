@@ -81,7 +81,7 @@ jobs:
                   openssl openssl-devel elfutils-libelf-devel python3 tar xz \
                   zstd rpm-build ccache dtc findutils dwarves dracut \
                   cpio lz4 iproute plymouth plymouth-plugin-script \
-                  pkgconf-pkg-config >/dev/null
+                  wireless-regdb pkgconf-pkg-config >/dev/null
 
               # --- kernel ---
               mkdir -p /tmp/kcache
@@ -123,6 +123,8 @@ jobs:
               zcat /tmp/initramfs.img | cpio -it 2>/dev/null > /tmp/initramfs.list
               grep -qx 'usr/share/plymouth/themes/gts9wifi/gts9wifi.script' /tmp/initramfs.list
               grep -qx 'usr/share/plymouth/themes/gts9wifi/spinner-0084.png' /tmp/initramfs.list
+              grep -qx 'usr/lib/firmware/regulatory.db' /tmp/initramfs.list
+              grep -qx 'usr/lib/firmware/regulatory.db.p7s' /tmp/initramfs.list
 
               # --- boot bundle ---
               bash /work/boot/build-bundle.sh \

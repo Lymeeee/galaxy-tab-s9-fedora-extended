@@ -63,7 +63,7 @@ jobs:
             bash -lc '
               set -euxo pipefail
               dnf -y install dracut cpio lz4 iproute curl dtc findutils python3 \
-                plymouth plymouth-plugin-script >/dev/null
+                plymouth plymouth-plugin-script wireless-regdb >/dev/null
 
               # --- pinned kernel RPM ---
               mkdir -p out-kernel
