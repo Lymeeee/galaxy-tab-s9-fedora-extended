@@ -37,7 +37,7 @@ jobs:
               --title "GTS9 Latest" \
               --notes "Rolling channel: newest userspace/dynpart/kernel/camera builds."
           old=$(gh release view latest --json assets --jq '.assets[].name' \
-            | grep -E '\.gts9wifi[0-9]+\.' || true)
+            | grep -E '^(libcamera|python3-libcamera).*\.gts9wifi[0-9]+\.' || true)
           gh release upload latest --clobber out-camera/*.rpm out-camera/LIBCAMERA-SHA256SUMS
           for name in $old; do
             [ -f "out-camera/$name" ] && continue

@@ -36,7 +36,7 @@ sed -i '/^Patch02:/a Patch03: gts9wifi-libcamera-0.7.2.patch' "$spec"
 sed -i '/^Patch03:/a Patch04: gts9wifi-libcamera-camss-concurrent.patch' "$spec"
 sed -i '/^Patch04:/a Patch05: gts9wifi-libcamera-awb-unclipped.patch' "$spec"
 sed -i '/^Patch05:/a Patch06: gts9wifi-libcamera-af-gentle.patch' "$spec"
-sed -i 's/^Release:.*/Release: 3%{?dist}.gts9wifi8/' "$spec"
+sed -i 's/^Release:.*/Release: 3%{?dist}.gts9wifi9/' "$spec"
 
 rpmbuild -bb "$spec"
 

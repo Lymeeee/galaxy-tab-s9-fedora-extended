@@ -1,38 +1,116 @@
 diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
-index 29b469d..fc24a64 100644
 --- a/src/ipa/simple/soft_simple.cpp
 +++ b/src/ipa/simple/soft_simple.cpp
-@@ -112,6 +112,14 @@ private:
+@@ -78,7 +78,7 @@ protected:
+ 
+ private:
+ 	void updateExposure(double exposureMSV);
+-	void startFocusScan(bool retry = false);
++	void startFocusScan(bool retry = false, bool fullSweep = false);
+ 	std::optional<int32_t> processFocusStats(uint64_t score);
+ 
+ 	DebayerParams *params_;
+@@ -88,6 +88,7 @@ private:
+ 	enum class AfPhase {
+ 		Idle,
+ 		Coarse,
++		Hill,
+ 		Fine,
+ 		Probe,
+ 		Locked,
+@@ -96,6 +97,7 @@ private:
+ 	int32_t afMode_ = controls::AfModeContinuous;
+ 	int32_t afState_ = controls::AfStateIdle;
+ 	AfPhase afPhase_ = AfPhase::Idle;
++	bool afHasPrior_ = false;
+ 	std::array<int32_t, 7> afPositions_{};
+ 	unsigned int afPositionCount_ = 0;
+ 	unsigned int afPositionIndex_ = 0;
+@@ -110,6 +112,25 @@ private:
+ 	uint64_t afProbeScore_ = 0;
  	uint64_t afMinScore_ = 0;
  	unsigned int afFailedScans_ = 0;
- 
-+	/*
-+	 * Gentle contrast AF: fewer steps, a settle window long enough for the
-+	 * VCM to move without a rapid click train, and a rare, small probe so a
-+	 * locked preview stays quiet.
-+	 */
-+	static constexpr unsigned int kAfSettleFrames = 4;
-+	static constexpr unsigned int kAfProbeInterval = 1800;
++	int32_t afHillStart_ = 384;
++	int32_t afHillDir_ = 1;
++	bool afHillReversed_ = false;
++	unsigned int afHillSteps_ = 0;
++	uint64_t afHillStartScore_ = 0;
++	uint64_t afHillPrevScore_ = 0;
++	std::array<uint64_t, 3> afFineScores_{};
 +
++	/*
++	 * Fast, smooth contrast AF: 2-frame settle (~66 ms for the DW9808 VCM),
++	 * local directional hill-climbing from the prior focus position (falling
++	 * back to a 5-point coarse sweep only on cold start or flat curves), and
++	 * 3-point parabolic peak interpolation for sub-step accuracy.
++	 */
++	static constexpr unsigned int kAfSettleFrames = 2;
++	static constexpr unsigned int kAfProbeInterval = 1800;
++	static constexpr int32_t kAfHillStep = 64;
++	static constexpr int32_t kAfFineStep = 32;
++	static constexpr unsigned int kAfMaxHillSteps = 10;
+ 
  	/* Local parameter storage */
  	struct IPAContext context_;
- };
-@@ -421,10 +429,10 @@ void IPASoftSimple::startFocusScan(bool retry)
+@@ -414,21 +435,42 @@ void IPASoftSimple::processStats(const uint32_t frame,
+ 	setSensorControls.emit(ctrls);
+ }
+ 
+-void IPASoftSimple::startFocusScan(bool retry)
++void IPASoftSimple::startFocusScan(bool retry, bool fullSweep)
+ {
+ 	if (!retry)
  		afFailedScans_ = 0;
- 	afPhase_ = AfPhase::Coarse;
+-	afPhase_ = AfPhase::Coarse;
  	afState_ = controls::AfStateScanning;
 -	afPositions_ = { 128, 256, 384, 512, 640, 768, 896 };
-+	afPositions_ = { 128, 320, 512, 704, 896 };
- 	afPositionCount_ = afPositions_.size();
- 	afPositionIndex_ = 0;
+-	afPositionCount_ = afPositions_.size();
+-	afPositionIndex_ = 0;
 -	afSettleStats_ = 1;
-+	afSettleStats_ = kAfSettleFrames;
  	afLockedStats_ = 0;
  	afDropStats_ = 0;
- 	afBestPosition_ = 512;
-@@ -464,17 +472,17 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
- 			startFocusScan(true);
- 		else if (afDropStats_ >= 12)
+-	afBestPosition_ = 512;
+ 	afBestScore_ = 0;
+ 	afMinScore_ = std::numeric_limits<uint64_t>::max();
++
++	if (!fullSweep && afHasPrior_) {
++		afPhase_ = AfPhase::Hill;
++		afHillStart_ = std::clamp(afPosition_, 0, 1023);
++		afHillDir_ = (afHillStart_ + kAfHillStep <= 1023) ? 1 : -1;
++		afHillReversed_ = false;
++		afHillSteps_ = 0;
++		afHillStartScore_ = 0;
++		afHillPrevScore_ = 0;
++		afBestPosition_ = afHillStart_;
++		afPositions_[0] = afHillStart_;
++		afPositionCount_ = 1;
++		afPositionIndex_ = 0;
++		afSettleStats_ = 1;
++		return;
++	}
++
++	afPhase_ = AfPhase::Coarse;
++	afPositions_[0] = 160;
++	afPositions_[1] = 320;
++	afPositions_[2] = 480;
++	afPositions_[3] = 640;
++	afPositions_[4] = 832;
++	afPositionCount_ = 5;
++	afPositionIndex_ = 0;
++	afSettleStats_ = kAfSettleFrames;
++	afBestPosition_ = 384;
+ }
+ 
+ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+@@ -457,23 +499,23 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 		 * lower contrast before declaring that focus was lost.
+ 		 */
+ 		if (afState_ == controls::AfStateFailed &&
+ 		    afLockedStats_ >= 60 && afFailedScans_ < 3)
+-			startFocusScan(true);
+-		else if (afDropStats_ >= 12)
++			startFocusScan(true, true);
++		else if (afDropStats_ >= 10)
  			startFocusScan();
 -		else if (afLockedStats_ >= 180) {
 +		else if (afLockedStats_ >= kAfProbeInterval) {
@@ -52,7 +130,9 @@ index 29b469d..fc24a64 100644
  			afPositionCount_ = 3;
  			afPositionIndex_ = 0;
  			afBestScore_ = 0;
-@@ -488,7 +496,7 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 			afBestPosition_ = afPosition_;
+ 		}
+@@ -485,12 +527,65 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
  		afSettleStats_--;
  		if (afPosition_ != afPositions_[afPositionIndex_]) {
  			afPosition_ = afPositions_[afPositionIndex_];
@@ -61,7 +141,69 @@ index 29b469d..fc24a64 100644
  			return afPosition_;
  		}
  		return std::nullopt;
-@@ -506,7 +514,7 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 	}
+ 
++	if (afPhase_ == AfPhase::Hill) {
++		afMinScore_ = std::min(afMinScore_, score);
++		if (score > afBestScore_) {
++			afBestScore_ = score;
++			afBestPosition_ = afPosition_;
++		}
++
++		int32_t nextPos = -1;
++		if (afHillSteps_ == 0) {
++			afHillStartScore_ = score;
++			afHillPrevScore_ = score;
++			nextPos = std::clamp(afHillStart_ + afHillDir_ * kAfHillStep, 0, 1023);
++		} else if (score > afHillPrevScore_ && afHillSteps_ < kAfMaxHillSteps) {
++			afHillPrevScore_ = score;
++			int32_t candidate = afPosition_ + afHillDir_ * kAfHillStep;
++			if (candidate >= 0 && candidate <= 1023)
++				nextPos = candidate;
++		} else if (!afHillReversed_ && afHillSteps_ == 1) {
++			/* First step went downhill: probe the opposite direction from start. */
++			afHillReversed_ = true;
++			afHillDir_ = -afHillDir_;
++			afHillPrevScore_ = afHillStartScore_;
++			int32_t candidate = afHillStart_ + afHillDir_ * kAfHillStep;
++			if (candidate >= 0 && candidate <= 1023)
++				nextPos = candidate;
++		}
++
++		if (nextPos >= 0 && nextPos != afPosition_) {
++			afHillSteps_++;
++			afPosition_ = nextPos;
++			afPositions_[0] = nextPos;
++			afSettleStats_ = kAfSettleFrames;
++			return afPosition_;
++		}
++
++		/* If local hill-climbing saw a flat curve, fall back to a full sweep. */
++		if (afBestScore_ <= afMinScore_ + afMinScore_ / 16) {
++			startFocusScan(true, true);
++			return std::nullopt;
++		}
++
++		afPhase_ = AfPhase::Fine;
++		afPositionCount_ = 3;
++		afPositionIndex_ = 0;
++		afBestScore_ = 0;
++		afPositions_[0] = std::clamp(afBestPosition_ - kAfFineStep, 0, 1023);
++		afPositions_[1] = afBestPosition_;
++		afPositions_[2] = std::clamp(afBestPosition_ + kAfFineStep, 0, 1023);
++		afSettleStats_ = kAfSettleFrames;
++		afPosition_ = afPositions_[0];
++		return afPosition_;
++	}
++
+ 	if (afPhase_ == AfPhase::Probe && !afPositionIndex_)
+ 		afProbeScore_ = score;
+ 	if (afPhase_ != AfPhase::Probe)
+@@ -501,9 +596,11 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 		afBestPosition_ = afPosition_;
+ 	}
++	if (afPhase_ == AfPhase::Fine && afPositionIndex_ < 3)
++		afFineScores_[afPositionIndex_] = score;
  
  	afPositionIndex_++;
  	if (afPositionIndex_ < afPositionCount_) {
@@ -70,7 +212,7 @@ index 29b469d..fc24a64 100644
  		afPosition_ = afPositions_[afPositionIndex_];
  		return afPosition_;
  	}
-@@ -523,14 +531,14 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+@@ -520,16 +617,31 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
  
  	if (afPhase_ == AfPhase::Coarse) {
  		afPhase_ = AfPhase::Fine;
@@ -78,17 +220,42 @@ index 29b469d..fc24a64 100644
 +		afPositionCount_ = 3;
  		afPositionIndex_ = 0;
  		afBestScore_ = 0;
- 		for (unsigned int i = 0; i < afPositionCount_; ++i) {
+-		for (unsigned int i = 0; i < afPositionCount_; ++i) {
 -			int32_t offset = (static_cast<int32_t>(i) - 2) * 48;
-+			int32_t offset = (static_cast<int32_t>(i) - 1) * 48;
- 			afPositions_[i] = std::clamp(afBestPosition_ + offset, 0, 1023);
- 		}
+-			afPositions_[i] = std::clamp(afBestPosition_ + offset, 0, 1023);
+-		}
 -		afSettleStats_ = 1;
++		afPositions_[0] = std::clamp(afBestPosition_ - kAfFineStep, 0, 1023);
++		afPositions_[1] = afBestPosition_;
++		afPositions_[2] = std::clamp(afBestPosition_ + kAfFineStep, 0, 1023);
 +		afSettleStats_ = kAfSettleFrames;
  		afPosition_ = afPositions_[0];
  		return afPosition_;
  	}
-@@ -550,7 +558,7 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 
++	if (afPhase_ == AfPhase::Fine &&
++	    afPositions_[0] < afPositions_[1] && afPositions_[1] < afPositions_[2]) {
++		/* Three-point parabolic peak fit around the center sample. */
++		int64_t y0 = static_cast<int64_t>(afFineScores_[0]);
++		int64_t y1 = static_cast<int64_t>(afFineScores_[1]);
++		int64_t y2 = static_cast<int64_t>(afFineScores_[2]);
++		int64_t denom = y0 - 2 * y1 + y2;
++		if (y1 > y0 && y1 > y2 && denom < 0) {
++			int64_t step = afPositions_[1] - afPositions_[0];
++			int64_t delta = (step * (y0 - y2)) / (2 * denom);
++			delta = std::clamp(delta, -step, step);
++			afBestPosition_ = std::clamp(
++				afPositions_[1] + static_cast<int32_t>(delta), 0, 1023);
++		}
++	}
++
+ 	/* A nearly flat contrast curve is not evidence of optical focus.
+@@ -544,9 +656,11 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 	afPhase_ = AfPhase::Locked;
+ 	afState_ = focused ? controls::AfStateFocused : controls::AfStateFailed;
++	if (focused)
++		afHasPrior_ = true;
+ 	afLockedScore_ = afBestScore_;
  	afLockedStats_ = 0;
  	afDropStats_ = 0;
  	afPosition_ = afBestPosition_;
@@ -96,4 +263,3 @@ index 29b469d..fc24a64 100644
 +	afSettleStats_ = kAfSettleFrames;
  	return afPosition_;
  }
- 
