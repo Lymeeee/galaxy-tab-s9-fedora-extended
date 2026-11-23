@@ -9,21 +9,24 @@ diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
 +	void startFocusScan(bool retry = false, bool fullSweep = false);
  	std::optional<int32_t> processFocusStats(uint64_t score);
  
- 	DebayerParams *params_;@@ -89,6 +89,7 @@ private:
+ 	DebayerParams *params_;
+@@ -89,6 +89,7 @@ private:
  	enum class AfPhase {
  		Idle,
  		Coarse,
 +		Hill,
  		Fine,
  		Probe,
- 		Locked,@@ -97,6 +98,7 @@ private:
+ 		Locked,
+@@ -97,6 +98,7 @@ private:
  	int32_t afMode_ = controls::AfModeContinuous;
  	int32_t afState_ = controls::AfStateIdle;
  	AfPhase afPhase_ = AfPhase::Idle;
 +	bool afHasPrior_ = false;
  	std::array<int32_t, 7> afPositions_{};
  	unsigned int afPositionCount_ = 0;
- 	unsigned int afPositionIndex_ = 0;@@ -111,6 +113,25 @@ private:
+ 	unsigned int afPositionIndex_ = 0;
+@@ -111,6 +113,25 @@ private:
  	uint64_t afProbeScore_ = 0;
  	uint64_t afMinScore_ = 0;
  	unsigned int afFailedScans_ = 0;
@@ -48,7 +51,8 @@ diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
 +	static constexpr unsigned int kAfMaxHillSteps = 10;
  
  	/* Local parameter storage */
- 	struct IPAContext context_;@@ -414,21 +435,42 @@ void IPASoftSimple::processStats(const uint32_t frame,
+ 	struct IPAContext context_;
+@@ -414,21 +435,42 @@ void IPASoftSimple::processStats(const uint32_t frame,
  	setSensorControls.emit(ctrls);
  }
  
@@ -97,7 +101,8 @@ diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
 +	afBestPosition_ = 384;
  }
  
- std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)@@ -459,23 +501,23 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+@@ -459,23 +501,23 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
  		 * lower contrast before declaring that focus was lost.
  		 */
  		if (afState_ == controls::AfStateFailed &&
@@ -126,7 +131,8 @@ diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
  			afPositionIndex_ = 0;
  			afBestScore_ = 0;
  			afBestPosition_ = afPosition_;
- 		}@@ -487,12 +529,65 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 		}
+@@ -487,12 +529,65 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
  		afSettleStats_--;
  		if (afPosition_ != afPositions_[afPositionIndex_]) {
  			afPosition_ = afPositions_[afPositionIndex_];
@@ -192,7 +198,8 @@ diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
 +
  	if (afPhase_ == AfPhase::Probe && !afPositionIndex_)
  		afProbeScore_ = score;
- 	if (afPhase_ != AfPhase::Probe)@@ -503,9 +598,11 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 	if (afPhase_ != AfPhase::Probe)
+@@ -503,9 +598,11 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
  		afBestPosition_ = afPosition_;
  	}
 +	if (afPhase_ == AfPhase::Fine && afPositionIndex_ < 3)
@@ -204,7 +211,8 @@ diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
 +		afSettleStats_ = kAfSettleFrames;
  		afPosition_ = afPositions_[afPositionIndex_];
  		return afPosition_;
- 	}@@ -522,16 +619,31 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 	}
+@@ -522,16 +619,31 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
  
  	if (afPhase_ == AfPhase::Coarse) {
  		afPhase_ = AfPhase::Fine;
@@ -241,7 +249,8 @@ diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
 +		}
 +	}
 +
- 	/* A nearly flat contrast curve is not evidence of optical focus.@@ -546,9 +658,11 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
+ 	/* A nearly flat contrast curve is not evidence of optical focus.
+@@ -546,9 +658,11 @@ std::optional<int32_t> IPASoftSimple::processFocusStats(uint64_t score)
  	afPhase_ = AfPhase::Locked;
  	afState_ = focused ? controls::AfStateFocused : controls::AfStateFailed;
 +	if (focused)
