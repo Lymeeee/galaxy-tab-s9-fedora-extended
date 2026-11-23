@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.79
+Version:        0.17.80
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -304,6 +304,11 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Mon Nov 23 2026 Lymeeee <mr_xunyu@163.com> - 0.17.80-1
+- Tune 99-gts9wifi-zram.conf for zstd zram: vm.swappiness=180,
+  vm.page-cluster=0, vm.watermark_boost_factor=0, and
+  vm.watermark_scale_factor=125.
+
 * Mon Nov 23 2026 Lymeeee <mr_xunyu@163.com> - 0.17.79-1
 - gts9wifi-update: fix Flatpak VA-API override to use --filesystem=host-os:ro
   and LIBVA_DRIVERS_PATH=/run/host/usr/lib64/qcom-va-driver-flatpak (Flatpak
