@@ -1986,6 +1986,17 @@
 	};
 };
 /*
+ * Disable QCE (1dfa000.crypto / qcrypto): on SM8550 it holds a permanent
+ * sleep-set DDR interconnect vote, while blacklisting only the module leaves
+ * fw_devlink waiting forever on 1dfa000.crypto and prevents interconnect-1 /
+ * 1700000.interconnect from running sync_state() (pinning DDR at INT_MAX).
+ * ARMv8 CE in-CPU crypto is faster and always available.
+ */
+&crypto {
+	status = "disabled";
+};
+
+/*
  * Samsung Pogo Pin Keyboard Cover (EF-DX710 / STM32 on QUPv3 SE15 / i2c15)
  */
 &i2c15 {
