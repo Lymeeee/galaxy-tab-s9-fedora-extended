@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.81
+Version:        0.17.82
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -284,6 +284,8 @@ fi
 %{_udevrulesdir}/60-gts9wifi-sd-uuid.rules
 %{_udevrulesdir}/90-gts9wifi-hide-internal.rules
 %{_udevrulesdir}/90-gts9wifi-hide-camss-video.rules
+%{_udevrulesdir}/90-gts9wifi-usb-pm.rules
+%{_prefix}/lib/modprobe.d/90-gts9wifi-blacklist-qcrypto.conf
 %config(noreplace) %{_sysconfdir}/NetworkManager/dispatcher.d/90-gts9wifi-no-bgscan
 %config(noreplace) %{_sysconfdir}/NetworkManager/conf.d/90-gts9wifi-powersave.conf
 %config(noreplace) %{_sysconfdir}/systemd/zram-generator.conf.d/10-gts9wifi-zstd.conf
@@ -304,6 +306,11 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Mon Nov 23 2026 Lymeeee <mr_xunyu@163.com> - 0.17.82-1
+- Blacklist qcrypto (1dfa000.crypto holds a permanent sleep-set DDR
+  bandwidth vote) and enable runtime PM on a600000.usb (drops its 1 GB/s
+  sleep-set DDR vote when idle) to unblock deep suspend CXSD/AOSD.
+
 * Mon Nov 23 2026 Lymeeee <mr_xunyu@163.com> - 0.17.81-1
 - gts9wifi-speaker-protection: cache per-unit CS35L45 factory calibration
   (rdc/vsc/isc/temp) from sec_efs/cirrus into /var/lib/gts9wifi/speaker-cal,
