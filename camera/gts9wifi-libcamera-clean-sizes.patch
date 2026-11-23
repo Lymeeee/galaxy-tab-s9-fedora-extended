@@ -1,0 +1,89 @@
+From: GTS9 Fedora <gts9wifi@local>
+Subject: [PATCH] libcamera: stream: trim rangeDiscreteSizes to practical resolutions
+
+The simple pipeline with SoftwareISP advertises a continuous SizeRange
+for each output pixel format. StreamFormats::sizes() expands that range
+against a 53-entry table of legacy V4L2 sizes (160x120, 240x160, 400x240,
+768x480, 1360x768, 2960x1440, 3200x2048, ...), flooding PipeWire/OBS and
+browser camera pickers with ~180 useless EnumFormat entries per camera.
+
+Trim rangeDiscreteSizes to a concise set of common 4:3 and 16:9 sizes
+and include the range's native maximum resolution (e.g. 3400x2556 front,
+4120x3096 rear) so still capture keeps full sensor resolution.
+
+--- a/src/libcamera/stream.cpp
++++ b/src/libcamera/stream.cpp
+@@ -136,59 +136,12 @@ std::vector<Size> StreamFormats::sizes(const PixelFormat &pixelformat) const
+ 	 * from v4l2 documentation and source code as well as lists of
+ 	 * common frame sizes.
+ 	 */
+-	static const std::array<Size, 53> rangeDiscreteSizes = {
+-		Size(160, 120),
+-		Size(240, 160),
+-		Size(320, 240),
+-		Size(400, 240),
+-		Size(480, 320),
+-		Size(640, 360),
++	static const std::array<Size, 6> rangeDiscreteSizes = {
+ 		Size(640, 480),
+-		Size(720, 480),
+-		Size(720, 576),
+-		Size(768, 480),
+-		Size(800, 600),
+-		Size(854, 480),
+-		Size(960, 540),
+-		Size(960, 640),
+-		Size(1024, 576),
+-		Size(1024, 600),
+-		Size(1024, 768),
+-		Size(1152, 864),
+-		Size(1280, 1024),
+-		Size(1280, 1080),
+ 		Size(1280, 720),
+-		Size(1280, 800),
+-		Size(1360, 768),
+-		Size(1366, 768),
+-		Size(1400, 1050),
+-		Size(1440, 900),
+-		Size(1536, 864),
+-		Size(1600, 1200),
+-		Size(1600, 900),
+-		Size(1680, 1050),
++		Size(1440, 1080),
+ 		Size(1920, 1080),
+-		Size(1920, 1200),
+-		Size(2048, 1080),
+-		Size(2048, 1152),
+-		Size(2048, 1536),
+-		Size(2160, 1080),
+-		Size(2560, 1080),
+ 		Size(2560, 1440),
+-		Size(2560, 1600),
+-		Size(2560, 2048),
+-		Size(2960, 1440),
+-		Size(3200, 1800),
+-		Size(3200, 2048),
+-		Size(3200, 2400),
+-		Size(3440, 1440),
+-		Size(3840, 1080),
+-		Size(3840, 1600),
+ 		Size(3840, 2160),
+-		Size(3840, 2400),
+-		Size(4096, 2160),
+-		Size(5120, 2160),
+-		Size(5120, 2880),
+-		Size(7680, 4320),
+ 	};
+ 	std::vector<Size> sizes;
+@@ -222,6 +175,11 @@ std::vector<Size> StreamFormats::sizes(const PixelFormat &pixelformat) const
+ 		for (const Size &size : rangeDiscreteSizes)
+ 			if (limit.contains(size))
+ 				sizes.push_back(size);
++
++		if (limit.max.width > 0 && limit.max.height > 0 &&
++		    limit.contains(limit.max) &&
++		    std::find(sizes.begin(), sizes.end(), limit.max) == sizes.end())
++			sizes.push_back(limit.max);
+ 	}
+ 
+ 	std::sort(sizes.begin(), sizes.end());
