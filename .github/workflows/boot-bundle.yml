@@ -62,12 +62,15 @@ jobs:
             quay.io/fedora/fedora:44 \
             bash -lc '
               set -euxo pipefail
-              dnf -y install dracut cpio lz4 iproute curl dtc findutils python3 >/dev/null
+              dnf -y install dracut cpio lz4 iproute curl dtc findutils python3 \
+                plymouth plymouth-plugin-script >/dev/null
 
               # --- pinned kernel RPM ---
-              curl -sfL "$KERNEL_RPM_URL" -o /tmp/kernel.rpm
-              echo "$KERNEL_SHA256  /tmp/kernel.rpm" | sha256sum -c -
-              dnf -y install /tmp/kernel.rpm
+              mkdir -p out-kernel
+              rpm_name=$(basename "$KERNEL_RPM_URL")
+              curl -sfL "$KERNEL_RPM_URL" -o "out-kernel/$rpm_name"
+              echo "$KERNEL_SHA256  out-kernel/$rpm_name" | sha256sum -c -
+              dnf -y install "out-kernel/$rpm_name"
               depmod -a "$KVER"
               ls /boot/vmlinuz-"$KVER" /boot/dtbs-7.2.0-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb
 
@@ -84,6 +87,10 @@ jobs:
 
               # --- initramfs ---
               cp /work/boot/dracut/dracut.conf.d/gts9wifi.conf /usr/lib/dracut/dracut.conf.d/
+              install -d /usr/share/plymouth/themes/gts9wifi
+              cp -a /work/boot/plymouth-theme-gts9wifi/. /usr/share/plymouth/themes/gts9wifi/
+              plymouth-set-default-theme gts9wifi
+              grep -q "^ShowDelay=" /etc/plymouth/plymouthd.conf || echo "ShowDelay=0" >> /etc/plymouth/plymouthd.conf
               dracut --kver "$KVER" --force /tmp/initramfs.img
 
               # --- bundle + TWRP zip ---
@@ -112,5 +119,5 @@ jobs:
             gh release create "$REL" --title "$REL" \
               --notes "Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           gh release upload "$REL" --clobber \
-            out-bundle/*.img out-bundle/SHA256SUMS out-bundle/BUILD-METADATA.txt \
-            out-twrp/*.zip
+            out-kernel/*.rpm out-bundle/*.img out-bundle/SHA256SUMS \
+            out-bundle/BUILD-METADATA.txt out-twrp/*.zip
