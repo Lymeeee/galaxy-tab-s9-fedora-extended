@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.76
+Version:        0.17.77
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -304,6 +304,11 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Mon Nov 23 2026 Lymeeee <mr_xunyu@163.com> - 0.17.77-1
+- gts9wifi-update: add the vaapi component (qcom-va-driver RPM from
+  latest, Firefox hardware-decoding policy, and system Flatpak VA-API
+  override) and track it in check/check-all/all.
+
 * Sat Nov 21 2026 Lymeeee <mr_xunyu@163.com> - 0.17.76-1
 - Camera calibration: stop rewriting hi1337-gts9u-front-uw.yaml.  The
   front-uw sensor only exists on the Tab S9 Ultra; gts9wifi has a single

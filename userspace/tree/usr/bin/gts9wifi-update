@@ -43,9 +43,10 @@ Usage: gts9wifi-update <command> [options]
 Commands:
   check                 show installed versions, release assets and boot state
   check-all             compare every installed component with its release
-  all                   update userspace, dynpart, libcamera, fingerprint and ffmpeg
+  all                   update userspace, dynpart, libcamera, vaapi, fingerprint and ffmpeg
   userspace             install the userspace RPM from the release
   wifi                  reapply the WCN6855 board data (5 GHz RX fix)
+  vaapi                 install qcom-va-driver (Iris VA-API) + Flatpak override
   ffmpeg                install the rebuilt ffmpeg-free (v4l2m2m) RPMs
   libcamera             install the patched libcamera (HI1337 AWB/autofocus)
   fingerprint           install libfprint EL721 + the secure-start runtime
@@ -422,6 +423,11 @@ PY
     fi
     echo "installed:"
     rpm -q linux-gts9wifi gts9wifi-userspace 2>/dev/null || true
+    if rpm -q qcom-va-driver >/dev/null 2>&1; then
+        echo "vaapi driver: $(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' qcom-va-driver)"
+    else
+        echo "vaapi driver: not installed"
+    fi
     if rpm -q libavcodec-free >/dev/null 2>&1; then
         echo "ffmpeg codecs: $(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}' libavcodec-free)"
     else
@@ -869,6 +875,8 @@ cmd_check_all() {
     report_component dynpart "$(installed_evr gts9wifi-dynpart)" "$avail"
     avail=$(asset_evr_for "$latest" '^libcamera-[0-9].*\.aarch64\.rpm$' libcamera || true)
     report_component libcamera "$(installed_evr libcamera)" "$avail"
+    avail=$(asset_evr_for "$latest" '^qcom-va-driver-[0-9].*\.aarch64\.rpm$' qcom-va-driver || true)
+    report_component vaapi "$(installed_evr qcom-va-driver)" "$avail"
     avail=$(asset_evr_for "$fp_tag" '^gts9wifi-fingerprint-[0-9].*\.aarch64\.rpm$' gts9wifi-fingerprint || true)
     report_component fingerprint "$(installed_evr gts9wifi-fingerprint)" "$avail"
     avail=$(asset_evr_for "$lf_tag" '^libfprint-[0-9].*\.aarch64\.rpm$' libfprint || true)
@@ -949,6 +957,57 @@ cmd_libcamera() {
     echo "libcamera updated; reboot or log out so PipeWire loads the new library"
 }
 
+configure_flatpak_vaapi() {
+    command -v flatpak >/dev/null 2>&1 || return 0
+    [ -f /usr/lib64/qcom-va-driver-flatpak/qcom_drv_video.so ] || return 0
+    flatpak override --system \
+        --device=all \
+        --filesystem=/usr/lib64/qcom-va-driver-flatpak:ro \
+        --env=LIBVA_DRIVERS_PATH=/usr/lib64/qcom-va-driver-flatpak \
+        --env=GST_VA_ALL_DRIVERS=1 \
+        --env=GST_PLUGIN_FEATURE_RANK=vah264dec:1000,vah264enc:1000,vah265dec:1000,vah265enc:1000,vavp9dec:1000,vaav1dec:1000
+}
+
+cmd_vaapi() {
+    [ -n "$tag" ] || tag=$DEFAULT_TAG
+    local line name url rpm dir="$STATE/cache/$tag"
+    local inst avail
+    need_root
+    need_cmd dnf
+    need_cmd rpm
+    need_cmd sha256sum
+    line=$(asset_for "$tag" '^qcom-va-driver-[0-9].*\.aarch64\.rpm$') ||
+        die "no qcom-va-driver asset in release $tag"
+    IFS=$'\t' read -r name url <<<"$line"
+    inst=$(installed_evr qcom-va-driver)
+    avail=$(asset_evr qcom-va-driver "$name")
+    if [ "$dry" -eq 1 ]; then
+        echo "would install $name from $tag"
+        echo "would apply Firefox hardware-video-decoding policy and system Flatpak VA-API override"
+        return 0
+    fi
+    rpm=$(download_asset "$name" "$url" "$dir")
+    if line=$(asset_for "$tag" '^VAAPI-SHA256SUMS$' 2>/dev/null); then
+        local sname surl
+        IFS=$'\t' read -r sname surl <<<"$line"
+        download_asset "$sname" "$surl" "$dir" >/dev/null
+        (cd "$dir" && sha256sum -c --ignore-missing VAAPI-SHA256SUMS) ||
+            die "vaapi checksum verification failed"
+    fi
+    echo "installing $name"
+    update_begin
+    dnf -y --nogpgcheck install "$rpm"
+    install_firefox_policy
+    configure_flatpak_vaapi
+    update_end
+    echo "qcom-va-driver ($avail) installed; Flatpak and Firefox policies applied"
+    if command -v v4l2-ctl >/dev/null 2>&1 && [ -e /dev/video17 ]; then
+        if ! v4l2-ctl -d /dev/video17 --list-ctrls 2>/dev/null | grep -q 'dec_display_delay'; then
+            echo "note: running kernel lacks iris decode-order output; flash the latest kernel and reboot before testing VA-API"
+        fi
+    fi
+}
+
 cmd_calib() {
     need_root
     [ -x /usr/libexec/gts9wifi-fingerprint-runtime ] ||
@@ -970,7 +1029,7 @@ cmd_all() {
     local ffmpeg_tag=$DEFAULT_FFMPEG_TAG
     local lf_tag=${libfprint_tag:-$DEFAULT_LIBFPRINT_TAG}
     local fp_tag=${fingerprint_tag:-$DEFAULT_FINGERPRINT_TAG}
-    local up_userspace=0 up_libcamera=0 up_fprint=0 up_ffmpeg=0
+    local up_userspace=0 up_libcamera=0 up_vaapi=0 up_fprint=0 up_ffmpeg=0
     local inst avail
 
     inst=$(installed_evr gts9wifi-userspace)
@@ -984,6 +1043,10 @@ cmd_all() {
     avail=$(asset_evr_for "$latest" '^libcamera-[0-9].*\.aarch64\.rpm$' libcamera || true)
     if component_update_available "$inst" "$avail"; then up_libcamera=1; fi
 
+    inst=$(installed_evr qcom-va-driver)
+    avail=$(asset_evr_for "$latest" '^qcom-va-driver-[0-9].*\.aarch64\.rpm$' qcom-va-driver || true)
+    if component_update_available "$inst" "$avail"; then up_vaapi=1; fi
+
     inst=$(installed_evr libfprint)
     avail=$(asset_evr_for "$lf_tag" '^libfprint-[0-9].*\.aarch64\.rpm$' libfprint || true)
     if component_update_available "$inst" "$avail"; then up_fprint=1; fi
@@ -995,12 +1058,13 @@ cmd_all() {
     avail=$(asset_evr_for "$ffmpeg_tag" '^libavcodec-free-[0-9].*\.aarch64\.rpm$' libavcodec-free || true)
     if component_update_available "$inst" "$avail"; then up_ffmpeg=1; fi
 
-    if [ "$up_userspace$up_libcamera$up_fprint$up_ffmpeg" = 0000 ]; then
+    if [ "$up_userspace$up_libcamera$up_vaapi$up_fprint$up_ffmpeg" = 00000 ]; then
         echo "all installed components are up to date"
     elif [ "$dry" -eq 1 ]; then
         echo "would update:"
         if [ "$up_userspace" -eq 1 ]; then echo "  userspace/dynpart ($latest)"; fi
         if [ "$up_libcamera" -eq 1 ]; then echo "  libcamera ($latest)"; fi
+        if [ "$up_vaapi" -eq 1 ]; then echo "  vaapi ($latest)"; fi
         if [ "$up_fprint" -eq 1 ]; then echo "  fingerprint/libfprint ($lf_tag, $fp_tag)"; fi
         if [ "$up_ffmpeg" -eq 1 ]; then echo "  ffmpeg ($ffmpeg_tag)"; fi
     else
@@ -1012,6 +1076,10 @@ cmd_all() {
         if [ "$up_libcamera" -eq 1 ]; then
             echo "== libcamera =="
             cmd_libcamera
+        fi
+        if [ "$up_vaapi" -eq 1 ]; then
+            echo "== vaapi =="
+            cmd_vaapi
         fi
         tag=
         if [ "$up_fprint" -eq 1 ]; then
@@ -1038,6 +1106,7 @@ case "$cmd" in
     all) cmd_all ;;
     userspace) cmd_userspace ;;
     wifi) need_root; /usr/libexec/gts9wifi-wifi-bdf ;;
+    vaapi) cmd_vaapi ;;
     ffmpeg) cmd_ffmpeg ;;
     libcamera) cmd_libcamera ;;
     fingerprint) cmd_fingerprint ;;
