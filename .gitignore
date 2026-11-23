@@ -30,3 +30,7 @@ ubuntu-galaxy-tab-s9-ultra/
 SHA256SUMS
 gts9wifi-fedora-*.tar.gz
 gts9wifi-fedora-*.zip
+
+# macOS metadata
+*:Zone.Identifier
+.DS_Store
