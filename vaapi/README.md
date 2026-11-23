@@ -25,8 +25,8 @@ Enable it for all Flatpak apps with:
 ```sh
 sudo flatpak override --system \
   --device=all \
-  --filesystem=/usr/lib64/qcom-va-driver-flatpak:ro \
-  --env=LIBVA_DRIVERS_PATH=/usr/lib64/qcom-va-driver-flatpak \
+  --filesystem=host-os:ro \
+  --env=LIBVA_DRIVERS_PATH=/run/host/usr/lib64/qcom-va-driver-flatpak \
   --env=GST_VA_ALL_DRIVERS=1 \
   --env=GST_PLUGIN_FEATURE_RANK=vah264dec:1000,vah264enc:1000,vah265dec:1000,vah265enc:1000,vavp9dec:1000,vaav1dec:1000
 ```

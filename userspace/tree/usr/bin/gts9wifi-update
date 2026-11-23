@@ -518,6 +518,44 @@ fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
 with os.fdopen(fd, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
+os.chmod(tmp, 0o644)
+os.replace(tmp, path)
+PY
+}
+
+remove_firefox_policy() {
+    local path="/etc/firefox/policies/policies.json"
+    [ -f "$path" ] || return 0
+    python3 - <<'PY'
+import json
+import os
+import tempfile
+
+path = "/etc/firefox/policies/policies.json"
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    raise SystemExit(0)
+policies = data.get("policies")
+if not isinstance(policies, dict):
+    raise SystemExit(0)
+prefs = policies.get("Preferences")
+if not isinstance(prefs, dict) or "media.hardware-video-decoding.force-enabled" not in prefs:
+    raise SystemExit(0)
+del prefs["media.hardware-video-decoding.force-enabled"]
+if not prefs:
+    del policies["Preferences"]
+if not policies:
+    del data["policies"]
+if not data:
+    os.remove(path)
+    raise SystemExit(0)
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+with os.fdopen(fd, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+os.chmod(tmp, 0o644)
 os.replace(tmp, path)
 PY
 }
@@ -960,10 +998,15 @@ cmd_libcamera() {
 configure_flatpak_vaapi() {
     command -v flatpak >/dev/null 2>&1 || return 0
     [ -f /usr/lib64/qcom-va-driver-flatpak/qcom_drv_video.so ] || return 0
+    # Strip the obsolete /usr/lib64/qcom-va-driver-flatpak:ro entry (Flatpak
+    # reserves /usr and refuses to share subpaths under it directly).
+    if [ -f /var/lib/flatpak/overrides/global ]; then
+        sed -i 's|/usr/lib64/qcom-va-driver-flatpak:ro;||g' /var/lib/flatpak/overrides/global
+    fi
     flatpak override --system \
         --device=all \
-        --filesystem=/usr/lib64/qcom-va-driver-flatpak:ro \
-        --env=LIBVA_DRIVERS_PATH=/usr/lib64/qcom-va-driver-flatpak \
+        --filesystem=host-os:ro \
+        --env=LIBVA_DRIVERS_PATH=/run/host/usr/lib64/qcom-va-driver-flatpak \
         --env=GST_VA_ALL_DRIVERS=1 \
         --env=GST_PLUGIN_FEATURE_RANK=vah264dec:1000,vah264enc:1000,vah265dec:1000,vah265enc:1000,vavp9dec:1000,vaav1dec:1000
 }
@@ -983,7 +1026,7 @@ cmd_vaapi() {
     avail=$(asset_evr qcom-va-driver "$name")
     if [ "$dry" -eq 1 ]; then
         echo "would install $name from $tag"
-        echo "would apply Firefox hardware-video-decoding policy and system Flatpak VA-API override"
+        echo "would apply system Flatpak VA-API override"
         return 0
     fi
     rpm=$(download_asset "$name" "$url" "$dir")
@@ -998,12 +1041,12 @@ cmd_vaapi() {
     update_begin
     dnf -y --nogpgcheck install "$rpm"
     rm -f "$LOCKDIR/50-ffmpeg.list"
-    install_firefox_policy
+    remove_firefox_policy
     configure_flatpak_vaapi
     update_end
-    echo "qcom-va-driver ($avail) installed; Flatpak and Firefox policies applied"
+    echo "qcom-va-driver ($avail) installed; system Flatpak VA-API override applied"
     if command -v v4l2-ctl >/dev/null 2>&1 && [ -e /dev/video17 ]; then
-        if ! v4l2-ctl -d /dev/video17 --list-ctrls 2>/dev/null | grep -q 'dec_display_delay'; then
+        if ! v4l2-ctl -d /dev/video17 --list-ctrls 2>/dev/null | grep -q 'display_delay'; then
             echo "note: running kernel lacks iris decode-order output; flash the latest kernel and reboot before testing VA-API"
         fi
     fi

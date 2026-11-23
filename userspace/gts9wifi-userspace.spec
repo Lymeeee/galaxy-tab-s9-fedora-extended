@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.78
+Version:        0.17.79
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -304,6 +304,13 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Mon Nov 23 2026 Lymeeee <mr_xunyu@163.com> - 0.17.79-1
+- gts9wifi-update: fix Flatpak VA-API override to use --filesystem=host-os:ro
+  and LIBVA_DRIVERS_PATH=/run/host/usr/lib64/qcom-va-driver-flatpak (Flatpak
+  reserves /usr), drop the unnecessary Firefox policy from vaapi (and clean
+  up the legacy entry), fix install_firefox_policy 0644 permissions, and
+  match the actual display_delay V4L2 control name.
+
 * Mon Nov 23 2026 Lymeeee <mr_xunyu@163.com> - 0.17.78-1
 - gts9wifi-protect: drop the patched ffmpeg-free packages from EXCLUDES
   and protect qcom-va-driver instead; gts9wifi-update vaapi removes the
