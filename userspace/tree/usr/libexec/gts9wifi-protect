@@ -11,7 +11,7 @@ VARS=/etc/dnf/vars/releasever
 STATE=/var/lib/gts9wifi/protect
 BEGIN='# BEGIN gts9wifi-protect'
 END='# END gts9wifi-protect'
-EXCLUDES='kernel*,linux-firmware*,atheros-firmware,qcom-firmware,gts9wifi-*,libfprint,ffmpeg-free,libavcodec-free,libavdevice-free,libavfilter-free,libavformat-free,libavutil-free,libswresample-free,libswscale-free,iio-sensor-proxy,hexagonrpcd*,libssc*,pd-mapper,fedora-release*,fedora-repos*'
+EXCLUDES='kernel*,linux-firmware*,atheros-firmware,qcom-firmware,gts9wifi-*,libfprint,qcom-va-driver,iio-sensor-proxy,hexagonrpcd*,libssc*,pd-mapper,fedora-release*,fedora-repos*'
 
 enabled() {
     grep -q "^$BEGIN$" "$CONF" 2>/dev/null && [ -f "$VARS" ]

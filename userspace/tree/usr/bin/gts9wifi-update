@@ -997,6 +997,7 @@ cmd_vaapi() {
     echo "installing $name"
     update_begin
     dnf -y --nogpgcheck install "$rpm"
+    rm -f "$LOCKDIR/50-ffmpeg.list"
     install_firefox_policy
     configure_flatpak_vaapi
     update_end
