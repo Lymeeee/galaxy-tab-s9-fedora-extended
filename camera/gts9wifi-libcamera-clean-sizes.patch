@@ -11,9 +11,10 @@ Trim rangeDiscreteSizes to a concise set of common 4:3 and 16:9 sizes
 and include the range's native maximum resolution (e.g. 3400x2556 front,
 4120x3096 rear) so still capture keeps full sensor resolution.
 
+diff --git a/src/libcamera/stream.cpp b/src/libcamera/stream.cpp
 --- a/src/libcamera/stream.cpp
 +++ b/src/libcamera/stream.cpp
-@@ -136,59 +136,12 @@ std::vector<Size> StreamFormats::sizes(const PixelFormat &pixelformat) const
+@@ -136,60 +136,13 @@
  	 * from v4l2 documentation and source code as well as lists of
  	 * common frame sizes.
  	 */
@@ -75,7 +76,8 @@ and include the range's native maximum resolution (e.g. 3400x2556 front,
 -		Size(7680, 4320),
  	};
  	std::vector<Size> sizes;
-@@ -222,6 +175,11 @@ std::vector<Size> StreamFormats::sizes(const PixelFormat &pixelformat) const
+ 
+@@ -222,6 +175,11 @@
  		for (const Size &size : rangeDiscreteSizes)
  			if (limit.contains(size))
  				sizes.push_back(size);
