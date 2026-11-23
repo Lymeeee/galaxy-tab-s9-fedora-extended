@@ -1,0 +1,76 @@
+name: VA-API (qcom-va-driver)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'vaapi/**'
+      - '.github/workflows/vaapi.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-vaapi:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    env:
+      QCOM_VA_COMMIT: 0980a1decf26d34c9aa71cd0a4a0d25703a7a17f
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Flatpak-compatible qcom_drv_video.so on Ubuntu 24.04 (glibc 2.39)
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential meson ninja-build pkg-config curl \
+            libva-dev libdrm-dev libegl-dev libgles-dev libgbm-dev \
+            libvulkan-dev glslang-tools
+          mkdir -p /tmp/va-fp out-vaapi-fp
+          curl -fsSL --retry 3 \
+            "https://github.com/radxa-pkg/qcom-va-driver/archive/${QCOM_VA_COMMIT}.tar.gz" \
+            | tar -xz -C /tmp/va-fp
+          src="/tmp/va-fp/qcom-va-driver-${QCOM_VA_COMMIT}"
+          meson setup /tmp/va-fp/build "$src" \
+            --buildtype=release \
+            --prefix=/usr \
+            -Dgpu_copy=enabled \
+            -Dcdsp_vpp=disabled \
+            -Dvulkan_vpp=enabled \
+            -Dv4l2_symlink=true \
+            -Dtests=false
+          meson compile -C /tmp/va-fp/build
+          cp /tmp/va-fp/build/qcom_drv_video.so out-vaapi-fp/qcom_drv_video.so
+          echo "=== Flatpak driver symbol versions ==="
+          readelf --version-info out-vaapi-fp/qcom_drv_video.so | grep -E 'Name: (GLIBC|GLIBCXX)_' | sort -u
+
+      - name: Build Fedora 44 aarch64 RPM
+        run: |
+          mkdir -p out-vaapi
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/work" -w /work \
+            -e QCOM_VA_COMMIT \
+            -e FLATPAK_DRIVER_SO=/work/out-vaapi-fp/qcom_drv_video.so \
+            quay.io/fedora/fedora:44 \
+            bash /work/vaapi/build-vaapi.sh
+
+      - name: Publish to latest
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          gh release view latest >/dev/null 2>&1 || \
+            gh release create latest --target "$GITHUB_SHA" --latest \
+              --title "GTS9 Latest" \
+              --notes "Rolling channel: newest userspace/dynpart/kernel/camera/vaapi builds."
+          old=$(gh release view latest --json assets --jq '.assets[].name' \
+            | grep -E '^qcom-va-driver-[0-9].*\.aarch64\.rpm$' || true)
+          gh release upload latest --clobber \
+            out-vaapi/*.rpm out-vaapi/VAAPI-SHA256SUMS out-vaapi/VAAPI-BUILD-METADATA.txt
+          for name in $old; do
+            [ -f "out-vaapi/$name" ] && continue
+            gh release delete-asset latest "$name" --yes || true
+          done
