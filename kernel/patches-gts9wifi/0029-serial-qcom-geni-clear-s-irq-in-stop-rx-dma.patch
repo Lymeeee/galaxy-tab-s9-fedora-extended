@@ -1,0 +1,43 @@
+Subject: [PATCH] tty: serial: qcom-geni-serial: clear S_IRQ status in stop_rx_dma to prevent suspend IRQ storm
+
+During system suspend, uart_suspend_port() sets uport->suspended = 1,
+acquires the port spinlock with IRQs disabled, calls ops->stop_rx()
+(qcom_geni_serial_stop_rx_dma() on DMA UARTs such as the WCN6855
+Bluetooth UART), and then unlocks IRQs before calling ops->shutdown()
+(which disables uport->irq).
+
+qcom_geni_serial_stop_rx_dma() issues geni_se_cancel_s_cmd(), which
+asserts S_CMD_CANCEL_EN in SE_GENI_S_IRQ_STATUS, but only clears
+SE_DMA_RX_IRQ_CLR and never clears SE_GENI_S_IRQ_CLEAR (unlike
+qcom_geni_serial_stop_rx_fifo()).  As soon as uart_suspend_port()
+re-enables IRQs, the level-triggered GENI SE IRQ fires while
+uport->suspended is already 1; qcom_geni_serial_isr() returns IRQ_NONE
+without clearing the status register, causing an interrupt storm until
+the kernel reports "irq N: nobody cared" and permanently disables the
+Bluetooth UART IRQ until reboot.
+
+Clear SE_GENI_S_IRQ_STATUS via SE_GENI_S_IRQ_CLEAR in
+qcom_geni_serial_stop_rx_dma() after cancelling/aborting the secondary
+command.
+
+---
+--- a/drivers/tty/serial/qcom_geni_serial.c
++++ b/drivers/tty/serial/qcom_geni_serial.c
+@@ -842,6 +842,7 @@
+ static void qcom_geni_serial_stop_rx_dma(struct uart_port *uport)
+ {
+ 	struct qcom_geni_serial_port *port = to_dev_port(uport);
++	u32 s_irq_status;
+ 	bool done;
+ 
+ 	if (!qcom_geni_serial_secondary_active(uport))
+@@ -863,6 +864,9 @@ static void qcom_geni_serial_stop_rx_dma(struct uart_port *uport)
+ 				uport->membase + SE_DMA_RX_IRQ_CLR);
+ 	}
+ 
++	s_irq_status = readl(uport->membase + SE_GENI_S_IRQ_STATUS);
++	writel(s_irq_status, uport->membase + SE_GENI_S_IRQ_CLEAR);
++
+ 	if (port->rx_dma_addr) {
+ 		geni_se_rx_dma_unprep(&port->se, port->rx_dma_addr,
+ 				      DMA_RX_BUF_SIZE);

@@ -1,0 +1,96 @@
+Subject: [PATCH] drm/msm/dsi/phy: unprepare iface clk on runtime suspend to unblock XO/deep sleep
+
+dsi_phy_driver_probe() currently manages the DSI PHY "iface" clock
+(disp_cc_mdss_ahb_clk) via devm_pm_clk_create() / pm_clk_add() and
+pm_clk_suspend() / pm_clk_resume().  Because the pm_clk framework
+prepares clocks once at registration and pm_clk_suspend() only calls
+clk_disable() without clk_unprepare(), ae95000.phy holds
+disp_cc_mdss_ahb_clk permanently prepared (prepare_count >= 1) across
+PM_SUSPEND_MEM.
+
+On SM8550, disp_cc_mdss_ahb_clk parents through
+disp_cc_mdss_ahb_clk_src -> bi-tcxo-div2-clk -> bi_tcxo (clk-rpmh).
+Because clk-rpmh only releases its RPMh xo.lvl (0x300c0) vote in
+clk_rpmh_unprepare(), leaving disp_cc_mdss_ahb_clk prepared prevents
+bi_tcxo from ever unpreparing during system suspend, permanently
+blocking AOSD, CXSD, and DDR collapse.
+
+Replace pm_clk with an explicit ahb_clk handle and runtime PM callbacks
+that call clk_disable_unprepare() on suspend and clk_prepare_enable()
+on resume, plus SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
+pm_runtime_force_resume).
+
+---
+--- a/drivers/gpu/drm/msm/dsi/phy/dsi_phy.h
++++ b/drivers/gpu/drm/msm/dsi/phy/dsi_phy.h
+@@ -107,6 +107,7 @@ struct msm_dsi_phy {
+ 	int id;
+ 
+ 	struct regulator_bulk_data *supplies;
++	struct clk *ahb_clk;
+ 
+ 	struct msm_dsi_dphy_timing timing;
+ 	const struct msm_dsi_phy_cfg *cfg;
+--- a/drivers/gpu/drm/msm/dsi/phy/dsi_phy.c
++++ b/drivers/gpu/drm/msm/dsi/phy/dsi_phy.c
+@@ -3,9 +3,9 @@
+  * Copyright (c) 2015, The Linux Foundation. All rights reserved.
+  */
+ 
++#include <linux/clk.h>
+ #include <linux/clk-provider.h>
+ #include <linux/platform_device.h>
+-#include <linux/pm_clock.h>
+ #include <linux/pm_runtime.h>
+ #include <dt-bindings/phy/phy.h>
+ 
+@@ -683,18 +683,15 @@ static int dsi_phy_driver_probe(struct platform_device *pdev)
+ 
+ 	platform_set_drvdata(pdev, phy);
+ 
++	phy->ahb_clk = devm_clk_get(dev, "iface");
++	if (IS_ERR(phy->ahb_clk))
++		return dev_err_probe(dev, PTR_ERR(phy->ahb_clk),
++				     "Unable to get iface clk\n");
++
+ 	ret = devm_pm_runtime_enable(dev);
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = devm_pm_clk_create(dev);
+-	if (ret)
+-		return ret;
+-
+-	ret = pm_clk_add(dev, "iface");
+-	if (ret < 0)
+-		return dev_err_probe(dev, ret, "Unable to get iface clk\n");
+-
+ 	if (phy->cfg->ops.pll_init) {
+ 		ret = phy->cfg->ops.pll_init(phy);
+ 		if (ret)
+@@ -711,8 +708,24 @@ static int dsi_phy_driver_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
++static int dsi_phy_runtime_suspend(struct device *dev)
++{
++	struct msm_dsi_phy *phy = dev_get_drvdata(dev);
++
++	clk_disable_unprepare(phy->ahb_clk);
++	return 0;
++}
++
++static int dsi_phy_runtime_resume(struct device *dev)
++{
++	struct msm_dsi_phy *phy = dev_get_drvdata(dev);
++
++	return clk_prepare_enable(phy->ahb_clk);
++}
++
+ static const struct dev_pm_ops dsi_phy_pm_ops = {
+-	SET_RUNTIME_PM_OPS(pm_clk_suspend, pm_clk_resume, NULL)
++	SET_RUNTIME_PM_OPS(dsi_phy_runtime_suspend, dsi_phy_runtime_resume, NULL)
++	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend, pm_runtime_force_resume)
+ };
+ 
+ static struct platform_driver dsi_phy_platform_driver = {
