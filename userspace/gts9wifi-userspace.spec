@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.83
+Version:        0.17.84
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -306,6 +306,13 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Tue Nov 24 2026 Lymeeee <mr_xunyu@163.com> - 0.17.84-1
+- Keep PPS direct charging alive across power key, lid close, and power menu
+  suspend by arming charge_hold proactively below 90% and blanking via Mutter
+  DisplayConfig PowerSaveMode instead of read-only DRM dpms sysfs.
+- Fix gts9wifi-cover-boot-guard panel blanking on charger boot (lpcharge=1)
+  by using backlight bl_power (FB_BLANK_POWERDOWN) instead of read-only dpms.
+
 * Tue Nov 24 2026 Lymeeee <mr_xunyu@163.com> - 0.17.83-1
 - Enable runtime PM on 88e8000.phy (USB3 QMP combo PHY) in
   90-gts9wifi-usb-pm.rules and trigger GCC/GPUCC sync_state() in

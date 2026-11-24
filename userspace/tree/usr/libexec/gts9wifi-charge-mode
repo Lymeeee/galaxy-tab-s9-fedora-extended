@@ -157,8 +157,14 @@ class ChargeMode:
         return read_int('/sys/power/pm_wakeup_irq')
 
     def blank(self):
-        if read_text(DPMS) not in ('Off', 'off'):
-            write_text(DPMS, 'Off')
+        if not self.display_off():
+            self.call(
+                self.session, 'org.gnome.Mutter.DisplayConfig',
+                '/org/gnome/Mutter/DisplayConfig',
+                'org.freedesktop.DBus.Properties', 'Set',
+                GLib.Variant('(ssv)', ('org.gnome.Mutter.DisplayConfig',
+                                       'PowerSaveMode',
+                                       GLib.Variant('i', 1))))
 
     def save_state(self, fast, gsd):
         fast = fast if fast in ('0', '1') else ''
@@ -284,6 +290,8 @@ class ChargeMode:
         if not switch_on():
             if self.engaged:
                 self.release('switch off')
+            elif read_text(HOLD) == '1':
+                write_text(HOLD, '0')
             return True
 
         online = read_int(USB + '/online')
@@ -291,6 +299,8 @@ class ChargeMode:
         if online != 1 or capacity is None:
             if self.engaged:
                 self.release('AC offline')
+            elif read_text(HOLD) == '1':
+                write_text(HOLD, '0')
             return True
 
         locked = self.locked()
@@ -298,13 +308,21 @@ class ChargeMode:
 
         if capacity >= THRESHOLD:
             if self.engaged:
-                self.release('threshold', suspend=locked)
+                self.release('threshold', suspend=locked or display_off)
+            elif read_text(HOLD) == '1':
+                write_text(HOLD, '0')
             return True
+
+        # Keep kernel charge_hold armed proactively whenever 息屏直充 is enabled
+        # and we are charging below 90%, so lid close or Power Menu -> Suspend
+        # is intercepted by sm5440_pm_notify before PPS drops to 9V fixed PD.
+        if read_text(HOLD) != '1':
+            write_text(HOLD, '1')
 
         idle = self.idle_ms()
 
         if self.engaged:
-            if not locked:
+            if not locked and not display_off:
                 self.release('user active')
                 return True
             if not display_off:
@@ -323,12 +341,10 @@ class ChargeMode:
                 write_text(FAST, '1')
             return True
 
-        if not locked:
-            return True
         if display_off:
-            if idle is not None and idle < IDLE_MS:
-                return True
             self.engage()
+            return True
+        if not locked:
             return True
         if idle is None:
             return True
@@ -345,17 +361,27 @@ class ChargeMode:
 
     def on_prepare_for_sleep(self, bus, sender, path, iface, signal, args):
         if args.unpack()[0]:
+            self.sleep_started = time.monotonic()
             return
         GLib.timeout_add(50, self.on_resume)
 
     def on_resume(self):
-        if self.wake_irq() == self.usbpd_irq and switch_on() and \
-                not power_key_mark_fresh():
-            online = read_int(USB + '/online')
-            capacity = read_int(BAT + '/capacity')
-            if online == 1 and capacity is not None and capacity < THRESHOLD \
-                    and self.locked():
-                self.blank()
+        online = read_int(USB + '/online')
+        capacity = read_int(BAT + '/capacity')
+        eligible = (switch_on() and online == 1 and
+                    capacity is not None and capacity < THRESHOLD)
+        # If lid close or Power Menu -> Suspend was blocked by charge_hold,
+        # PrepareForSleep(False) arrives almost immediately: blank the panel
+        # and engage charge mode so PPS stays alive with the screen dark.
+        blocked = (getattr(self, 'sleep_started', 0) and
+                   time.monotonic() - self.sleep_started < 3.0)
+        if eligible and blocked and not power_key_mark_fresh():
+            self.blank()
+            self.engage()
+            return False
+        if self.wake_irq() == self.usbpd_irq and eligible and \
+                not power_key_mark_fresh() and self.locked():
+            self.blank()
         self.tick()
         return False
 

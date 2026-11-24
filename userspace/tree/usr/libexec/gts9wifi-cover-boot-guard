@@ -17,7 +17,7 @@ import time
 
 CMDLINE = '/proc/cmdline'
 POGO_DIAG = '/sys/bus/i2c/devices/9-002a/diagnostics'
-DPMS = '/sys/class/drm/card0-DSI-1/dpms'
+BL_POWER = '/sys/class/backlight/ae94000.dsi.0/bl_power'
 EVENT = struct.Struct('llHHi')
 WAKE_TYPES = (1, 3)  # EV_KEY, EV_ABS
 SETTLE_S = 3
@@ -49,10 +49,13 @@ def pogo_connected():
     return None
 
 
-def write_dpms(value):
+def write_bl_power(powerdown):
+    # /sys/class/drm/card0-DSI-1/dpms is read-only (EIO on write); use the
+    # panel backlight bl_power (4 = FB_BLANK_POWERDOWN, 0 = FB_BLANK_UNBLANK),
+    # which drives ANA38407 DBV to 0 (pure black) without losing user brightness.
     try:
-        with open(DPMS, 'w') as f:
-            f.write(value)
+        with open(BL_POWER, 'w') as f:
+            f.write('4\n' if powerdown else '0\n')
         return True
     except OSError:
         return False
@@ -115,23 +118,24 @@ def main():
         log('cover open at boot, not blanking')
         return
 
-    if wait_for(lambda: True if os.path.exists(DPMS) else None, 30) is None:
-        log('no DRM connector, leaving the panel alone')
+    if wait_for(lambda: True if os.path.exists(BL_POWER) else None, 30) is None:
+        log('no backlight device, leaving the panel alone')
         return
 
     log('charger boot with the cover shut: holding the panel dark')
     fds = open_inputs()
     start = time.monotonic()
-    while True:
-        write_dpms('Off')
-        if pogo_connected():
-            log('cover opened, restoring the panel')
-            write_dpms('On')
-            return
-        if time.monotonic() - start > SETTLE_S and user_activity(fds, POLL_S):
-            log('user input, restoring the panel')
-            write_dpms('On')
-            return
+    try:
+        while True:
+            write_bl_power(True)
+            if pogo_connected():
+                log('cover opened, restoring the panel')
+                return
+            if time.monotonic() - start > SETTLE_S and user_activity(fds, POLL_S):
+                log('user input, restoring the panel')
+                return
+    finally:
+        write_bl_power(False)
 
 
 if __name__ == '__main__':

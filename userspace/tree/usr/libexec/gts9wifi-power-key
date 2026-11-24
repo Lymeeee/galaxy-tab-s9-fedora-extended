@@ -225,9 +225,42 @@ class PowerKey:
         except (OSError, TypeError):
             pass
 
+    def charge_hold_eligible(self):
+        if read('/var/lib/gts9wifi/charge-hold') == '0':
+            return False
+        if read('/sys/class/power_supply/sm5714-usb/online') != '1':
+            return False
+        try:
+            cap = int(read('/sys/class/power_supply/sm5714-battery/capacity') or '100')
+        except ValueError:
+            return False
+        return cap < 90 and os.path.exists('/sys/bus/i2c/devices/4-0063/charge_hold')
+
+    def blank_display(self):
+        try:
+            self.session.call_sync(
+                'org.gnome.Mutter.DisplayConfig',
+                '/org/gnome/Mutter/DisplayConfig',
+                'org.freedesktop.DBus.Properties', 'Set',
+                GLib.Variant('(ssv)', ('org.gnome.Mutter.DisplayConfig',
+                                       'PowerSaveMode',
+                                       GLib.Variant('i', 1))),
+                None, Gio.DBusCallFlags.NONE, 1000, None)
+        except GLib.Error as e:
+            print(f'PowerSaveMode blank failed: {e.message}', file=sys.stderr)
+
     def suspend(self):
-        # The charge mode may have pinned the system awake for PPS charging;
-        # an explicit power-key suspend always wins.
+        if self.charge_hold_eligible():
+            # Keep PPS direct charging alive with the screen off until 90%.
+            for path in ('/sys/bus/i2c/devices/6-0049/fast_charge',
+                         '/sys/bus/i2c/devices/4-0063/charge_hold'):
+                try:
+                    with open(path, 'w') as f:
+                        f.write('1\n')
+                except OSError:
+                    pass
+            self.blank_display()
+            return
         try:
             with open('/sys/bus/i2c/devices/4-0063/charge_hold', 'w') as f:
                 f.write('0\n')
