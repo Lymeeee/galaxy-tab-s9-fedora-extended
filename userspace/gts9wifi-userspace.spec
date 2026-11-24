@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.82
+Version:        0.17.83
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -306,6 +306,12 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Tue Nov 24 2026 Lymeeee <mr_xunyu@163.com> - 0.17.83-1
+- Enable runtime PM on 88e8000.phy (USB3 QMP combo PHY) in
+  90-gts9wifi-usb-pm.rules and trigger GCC/GPUCC sync_state() in
+  gts9wifi-mem-sleep once the GPU driver is bound, allowing usb3_phy_gdsc
+  and usb30_prim_gdsc to collapse to off-0 when idle.
+
 * Mon Nov 23 2026 Lymeeee <mr_xunyu@163.com> - 0.17.82-1
 - Blacklist qcrypto (1dfa000.crypto holds a permanent sleep-set DDR
   bandwidth vote) and enable runtime PM on a600000.usb (drops its 1 GB/s

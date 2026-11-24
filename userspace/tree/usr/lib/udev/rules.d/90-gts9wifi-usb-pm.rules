@@ -1,3 +1,5 @@
-# Enable runtime PM on the SM8550 primary DWC3 USB controller so it
-# drops its 1 GB/s sleep-set DDR interconnect vote when idle/suspended.
+# Enable runtime PM on the SM8550 primary DWC3 USB controller and its
+# QMP combo PHY so they drop their sleep-set DDR vote and usb3 GDSCs
+# when idle/suspended.
 ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="a600000.usb", ATTR{power/control}="auto"
+ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="88e8000.phy", ATTR{power/control}="auto"

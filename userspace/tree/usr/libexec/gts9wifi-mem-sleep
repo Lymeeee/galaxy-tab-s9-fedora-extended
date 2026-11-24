@@ -2,7 +2,21 @@
 # SPDX-License-Identifier: MIT
 set -eu
 state=/sys/power/mem_sleep
-[ -w "$state" ] || exit 0
-grep -qw deep "$state" || exit 0
-current=$(sed -n 's/.*\[\(.*\)\].*/\1/p' "$state")
-[ "$current" = deep ] || echo deep > "$state"
+if [ -w "$state" ] && grep -qw deep "$state"; then
+    current=$(sed -n 's/.*\[\(.*\)\].*/\1/p' "$state")
+    [ "$current" = deep ] || echo deep > "$state"
+fi
+
+# 3d6a000.gmu is bound internally by drm/msm rather than as a standalone
+# platform driver, leaving fw_devlink holding GCC/GPUCC sync_state() forever
+# and preventing unused boot-on GDSCs (e.g. usb30_prim_gdsc) from collapsing.
+# Once the GPU driver is bound, explicitly complete sync_state() (strict "1"
+# without trailing newline).
+if [ -e /sys/devices/platform/soc@0/3d00000.gpu/driver ]; then
+    for cc in /sys/devices/platform/soc@0/100000.clock-controller/state_synced \
+              /sys/devices/platform/soc@0/3d90000.clock-controller/state_synced; do
+        [ -w "$cc" ] || continue
+        [ "$(cat "$cc" 2>/dev/null || echo 1)" = 0 ] || continue
+        printf 1 > "$cc" 2>/dev/null || true
+    done
+fi
