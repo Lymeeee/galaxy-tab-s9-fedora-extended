@@ -1,0 +1,39 @@
+Subject: [PATCH] PCI: qcom: clear spurious Hot-Plug Capable bits in PCI_EXP_SLTCAP
+
+Qualcomm DesignWare PCIe Root Ports (including SM8550 17cb:0113) default
+to advertising Hot-Plug Capable (PCI_EXP_SLTCAP_HPC) and Hot-Plug
+Surprise (PCI_EXP_SLTCAP_HPS) in PCI_EXP_SLTCAP even when the hardware
+does not implement a hotplug slot.
+
+This causes pci_init_capabilities() to mark the Root Port with
+is_hotplug_bridge = 1.  When CONFIG_HOTPLUG_PCI_PCIE is disabled (as on
+gts9wifi, where pciehp also times out on Qualcomm's non-functional
+hotplug registers), pci_bridge_d3_possible() hits:
+
+    if (bridge->is_hotplug_bridge && !bridge->is_pciehp)
+        return false;
+
+before checking pci_bridge_d3_force (pcie_port_pm=force), permanently
+vetoing bridge_d3.  During PM_SUSPEND_MEM, the Root Port therefore stays
+in D0 even after the endpoint enters D3hot, causing
+pci_host_common_d3cold_possible() to return false and
+dw_pcie_suspend_noirq() to skip qcom_pcie_host_deinit().  All PCIe/PHY
+clocks (including tcsr_pcie_0_clkref_en -> bi_tcxo,
+gcc_pcie_0_phy_rchng_clk -> gcc_gpll0, and gcc_ddrss_pcie_sf_qtb_clk)
+and pcie_0_gdsc / pcie_0_phy_gdsc remain enabled across suspend,
+preventing CXSD/AOSD/DDR collapse.
+
+Clear PCI_EXP_SLTCAP_HPC and PCI_EXP_SLTCAP_HPS alongside setting
+PCI_EXP_SLTCAP_NCCS in qcom_pcie_set_slot_nccs().
+
+---
+--- a/drivers/pci/controller/dwc/pcie-qcom.c
++++ b/drivers/pci/controller/dwc/pcie-qcom.c
+@@ -371,6 +371,7 @@ static void qcom_pcie_set_slot_nccs(struct dw_pcie *pci)
+ 	 */
+ 	val = readl(pci->dbi_base + offset + PCI_EXP_SLTCAP);
+ 	val |= PCI_EXP_SLTCAP_NCCS;
++	val &= ~(PCI_EXP_SLTCAP_HPC | PCI_EXP_SLTCAP_HPS);
+ 	writel(val, pci->dbi_base + offset + PCI_EXP_SLTCAP);
+ 
+ 	dw_pcie_dbi_ro_wr_dis(pci);
