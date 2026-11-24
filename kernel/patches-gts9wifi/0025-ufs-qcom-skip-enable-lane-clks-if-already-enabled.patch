@@ -1,0 +1,36 @@
+Subject: [PATCH] scsi: ufs: ufs-qcom: skip enabling lane clocks if already enabled
+
+ufs_qcom_init_lane_clks() acquires all controller clocks via
+devm_clk_bulk_get_all() into host->clks (including GCC AXI/AHB/ICE/UniPro
+clocks and TCSR ref_clk on SM8550).  While ufs_qcom_disable_lane_clks()
+guards clk_bulk_disable_unprepare() with if (!host->is_lane_clks_enabled),
+ufs_qcom_enable_lane_clks() lacked the symmetric early return when
+host->is_lane_clks_enabled is already true.
+
+On every runtime resume from HIBERN8 (rpm_lvl=3), ufshcd_runtime_resume()
+invokes ufs_qcom_setup_clocks(on=true, PRE_CHANGE) ->
+ufs_qcom_enable_lane_clks(), and immediately afterward
+ufshcd_wl_runtime_resume() invokes ufs_qcom_resume() ->
+ufs_qcom_enable_lane_clks() a second time.  Likewise, system resume from
+link-off calls ufs_qcom_enable_lane_clks() in both ufs_qcom_resume() and
+ufs_qcom_hce_enable_notify(PRE_CHANGE).  Because the matching disable only
+decrements the refcount once, every resume permanently leaks +1 on all 9
+UFS clocks (including tcsr_ufs_pad_clkref_en -> bi_tcxo and gcc_gpll0),
+preventing XO/CXSD/AOSD/DDR collapse during PM_SUSPEND_MEM.
+
+Return 0 early in ufs_qcom_enable_lane_clks() when host->is_lane_clks_enabled
+is already true, matching ufs_qcom_disable_lane_clks().
+
+---
+--- a/drivers/ufs/host/ufs-qcom.c
++++ b/drivers/ufs/host/ufs-qcom.c
+@@ -356,6 +356,9 @@ static int ufs_qcom_enable_lane_clks(struct ufs_qcom_host *host)
+ {
+ 	int err;
+ 
++	if (host->is_lane_clks_enabled)
++		return 0;
++
+ 	err = clk_bulk_prepare_enable(host->num_clks, host->clks);
+ 	if (err)
+ 		return err;
