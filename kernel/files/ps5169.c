@@ -17,6 +17,7 @@
 #include <linux/usb/typec_dp.h>
 #include <linux/usb/typec_mux.h>
 #include <linux/usb/typec_retimer.h>
+#include <linux/workqueue.h>
 
 #define PS5169_REG_MODE			0x40
 #define PS5169_REG_USB_DIRECTION	0x04
@@ -35,6 +36,8 @@ struct ps5169 {
 	struct typec_switch *typec_switch;
 	struct typec_mux *typec_mux;
 	struct usb_role_switch *role_switch;
+	struct delayed_work role_sync_work;
+	enum usb_role programmed_role;
 	enum typec_orientation orientation;
 	unsigned long mode;
 	unsigned int svid;
@@ -75,8 +78,10 @@ static int ps5169_program(struct ps5169 *ps)
 	int ret;
 
 	if (ps->orientation == TYPEC_ORIENTATION_NONE ||
-	    ps->mode == TYPEC_STATE_SAFE)
+	    ps->mode == TYPEC_STATE_SAFE) {
+		cancel_delayed_work(&ps->role_sync_work);
 		return ps5169_set_safe(ps);
+	}
 
 	if (ps->role_switch)
 		role = usb_role_switch_get_role(ps->role_switch);
@@ -94,10 +99,23 @@ static int ps5169_program(struct ps5169 *ps)
 				   role == USB_ROLE_DEVICE ? 0x44 : 0x00);
 		if (ret)
 			return ret;
+		ps->programmed_role = role;
 		ret = regmap_write(ps->regmap, 0x8d, 0x01);
 		if (ret)
 			return ret;
-		return regmap_write(ps->regmap, 0x90, 0x01);
+		ret = regmap_write(ps->regmap, 0x90, 0x01);
+		if (ret)
+			return ret;
+		/*
+		 * TCPM calls typec_set_orientation/typec_set_mode before
+		 * usb_role_switch_set_role, so usb_role_switch_get_role() can
+		 * still report the previous role (e.g. DEVICE) here.  Re-sync
+		 * the direction register once role switching settles.
+		 */
+		if (ps->role_switch)
+			mod_delayed_work(system_wq, &ps->role_sync_work,
+					 msecs_to_jiffies(50));
+		return 0;
 
 	case TYPEC_DP_STATE_C:
 	case TYPEC_DP_STATE_E:
@@ -137,6 +155,25 @@ static int ps5169_program(struct ps5169 *ps)
 	default:
 		return -EOPNOTSUPP;
 	}
+}
+
+static void ps5169_role_sync_work(struct work_struct *work)
+{
+	struct ps5169 *ps = container_of(work, struct ps5169,
+					 role_sync_work.work);
+	enum usb_role role;
+
+	mutex_lock(&ps->lock);
+	if (ps->orientation != TYPEC_ORIENTATION_NONE &&
+	    ps->mode == TYPEC_STATE_USB && ps->role_switch) {
+		role = usb_role_switch_get_role(ps->role_switch);
+		if (role != ps->programmed_role) {
+			regmap_write(ps->regmap, PS5169_REG_USB_DIRECTION,
+				     role == USB_ROLE_DEVICE ? 0x44 : 0x00);
+			ps->programmed_role = role;
+		}
+	}
+	mutex_unlock(&ps->lock);
 }
 
 static int ps5169_switch_set(struct typec_switch_dev *sw,
@@ -268,6 +305,7 @@ static int ps5169_probe(struct i2c_client *client)
 				     "failed to allocate regmap\n");
 
 	mutex_init(&ps->lock);
+	INIT_DELAYED_WORK(&ps->role_sync_work, ps5169_role_sync_work);
 	ps->orientation = TYPEC_ORIENTATION_NONE;
 	ps->mode = TYPEC_STATE_SAFE;
 	ps->reg50 = 0x10;
@@ -359,6 +397,7 @@ static void ps5169_remove(struct i2c_client *client)
 	typec_retimer_unregister(ps->retimer);
 	typec_mux_unregister(ps->mux);
 	typec_switch_unregister(ps->sw);
+	cancel_delayed_work_sync(&ps->role_sync_work);
 	usb_role_switch_put(ps->role_switch);
 	typec_mux_put(ps->typec_mux);
 	typec_switch_put(ps->typec_switch);
