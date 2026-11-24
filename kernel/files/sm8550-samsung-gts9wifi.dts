@@ -41,6 +41,7 @@
 	chassis-type = "tablet";
 
 	aliases {
+		serial0 = &uart14;
 		mmc1 = &sdhc_2;
 	};
 
