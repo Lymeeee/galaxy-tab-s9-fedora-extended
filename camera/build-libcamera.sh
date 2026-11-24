@@ -23,6 +23,7 @@ patch2=/work/camera/gts9wifi-libcamera-camss-concurrent.patch
 patch3=/work/camera/gts9wifi-libcamera-awb-unclipped.patch
 patch4=/work/camera/gts9wifi-libcamera-af-gentle.patch
 patch5=/work/camera/gts9wifi-libcamera-clean-sizes.patch
+patch6=/work/camera/gts9wifi-libcamera-argb-only.patch
 out=/work/out-camera
 
 dnf -y install rpm-build dnf5-plugins curl bzip2 tar findutils
@@ -31,14 +32,15 @@ curl -fsSL -o /tmp/libcamera.src.rpm "$srpm_url"
 rpm -i /tmp/libcamera.src.rpm
 dnf -y builddep /root/rpmbuild/SPECS/libcamera.spec
 
-cp "$patch" "$patch2" "$patch3" "$patch4" "$patch5" /root/rpmbuild/SOURCES/
+cp "$patch" "$patch2" "$patch3" "$patch4" "$patch5" "$patch6" /root/rpmbuild/SOURCES/
 spec=/root/rpmbuild/SPECS/libcamera.spec
 sed -i '/^Patch02:/a Patch03: gts9wifi-libcamera-0.7.2.patch' "$spec"
 sed -i '/^Patch03:/a Patch04: gts9wifi-libcamera-camss-concurrent.patch' "$spec"
 sed -i '/^Patch04:/a Patch05: gts9wifi-libcamera-awb-unclipped.patch' "$spec"
 sed -i '/^Patch05:/a Patch06: gts9wifi-libcamera-af-gentle.patch' "$spec"
 sed -i '/^Patch06:/a Patch07: gts9wifi-libcamera-clean-sizes.patch' "$spec"
-sed -i 's/^Release:.*/Release: 3%{?dist}.gts9wifi10/' "$spec"
+sed -i '/^Patch07:/a Patch08: gts9wifi-libcamera-argb-only.patch' "$spec"
+sed -i 's/^Release:.*/Release: 3%{?dist}.gts9wifi11/' "$spec"
 
 rpmbuild -bb "$spec"
 

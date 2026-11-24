@@ -1,0 +1,43 @@
+From: GTS9 Fedora <gts9wifi@local>
+Subject: [PATCH] libcamera: software_isp: advertise only ARGB8888 output format
+
+DebayerEGL and DebayerCpu advertise four 32-bit RGB variants (XRGB8888,
+ARGB8888, XBGR8888, ABGR8888), quadrupling PipeWire/OBS camera format
+lists. On GTS9 Fedora, OBS renders XBGR8888 as black and XRGB8888 as
+corrupted, while ARGB8888 (PipeWire BGRA) works reliably across OBS,
+GNOME Snapshot, Wayland, and browsers.
+
+Restrict advertised SoftwareISP output formats to ARGB8888 only.
+
+diff --git a/src/libcamera/software_isp/debayer_egl.cpp b/src/libcamera/software_isp/debayer_egl.cpp
+--- a/src/libcamera/software_isp/debayer_egl.cpp
++++ b/src/libcamera/software_isp/debayer_egl.cpp
+@@ -55,10 +55,7 @@
+ 	BayerFormat bayerFormat =
+ 		BayerFormat::fromPixelFormat(inputFormat);
+ 
+-	std::vector<PixelFormat> outputFormats = { formats::XRGB8888,
+-						   formats::ARGB8888,
+-						   formats::XBGR8888,
+-						   formats::ABGR8888 };
++	std::vector<PixelFormat> outputFormats = { formats::ARGB8888 };
+ 
+ 	if ((bayerFormat.bitDepth == 8 || bayerFormat.bitDepth == 10) &&
+ 	    bayerFormat.packing == BayerFormat::Packing::None &&
+diff --git a/src/libcamera/software_isp/debayer_cpu.cpp b/src/libcamera/software_isp/debayer_cpu.cpp
+--- a/src/libcamera/software_isp/debayer_cpu.cpp
++++ b/src/libcamera/software_isp/debayer_cpu.cpp
+@@ -432,12 +432,7 @@
+ {
+ 	BayerFormat bayerFormat =
+ 		BayerFormat::fromPixelFormat(inputFormat);
+-	std::vector<PixelFormat> outputFormats = { formats::RGB888,
+-						   formats::XRGB8888,
+-						   formats::ARGB8888,
+-						   formats::BGR888,
+-						   formats::XBGR8888,
+-						   formats::ABGR8888 };
++	std::vector<PixelFormat> outputFormats = { formats::ARGB8888 };
+ 
+ 	if ((bayerFormat.bitDepth == 8 || bayerFormat.bitDepth == 10 || bayerFormat.bitDepth == 12) &&
+ 	    bayerFormat.packing == BayerFormat::Packing::None &&
