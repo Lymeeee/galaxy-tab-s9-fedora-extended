@@ -1560,10 +1560,12 @@
  * usb_1 itself now.
  */
 &usb_1 {
+	/delete-property/ snps,usb3_lpm_capable;
 	snps,disable-clk-gating;
 	snps,has-lpm-erratum;
 	snps,is-utmi-l1-suspend;
 	snps,dis_u2_susphy_quirk;
+	snps,parkmode-disable-ss-quirk;
 	snps,ssp-u3-u0-quirk;
 	tx-fifo-resize;
 };
