@@ -41,12 +41,10 @@
 	chassis-type = "tablet";
 
 	aliases {
-		serial0 = &uart7;
 		mmc1 = &sdhc_2;
 	};
 
 	chosen {
-		stdout-path = "serial0:115200n8";
 		/*
 		 * The simple-framebuffer is intentionally gone: the native msm
 		 * DPU + DSI pipeline (below) owns the panel now.  If the panel
@@ -1404,8 +1402,14 @@
 	};
 };
 
+/*
+ * Disable debug UART7 (a9c000.serial / ttyMSM0): not externally routed on
+ * Tab S9, and qcom_geni_serial keeps gcc_qupv3_wrap1_s7_clk enabled across
+ * PM_SUSPEND_MEM (even leaking enable=1 on unbind), pinning gcc_gpll0 and
+ * bi_tcxo and blocking CXSD/AOSD/DDR deep sleep collapse.
+ */
 &uart7 {
-	status = "okay";
+	status = "disabled";
 };
 
 /*
