@@ -1,0 +1,58 @@
+Subject: [PATCH] PCI: qcom: drop OPP vote during PM_SUSPEND_MEM suspend
+
+On OPP-managed Qualcomm PCIe hosts such as SM8550 (where pcie->use_pm_opp
+is true and pcie->icc_mem is NULL), qcom_pcie_suspend_noirq() previously
+gated dev_pm_opp_set_opp(dev, NULL) behind pm_suspend_target_state !=
+PM_SUSPEND_MEM.  During deep sleep (PM_SUSPEND_MEM) with the host still
+active (!pcie->pci->suspended), this left the Gen3 x1 OPP active across
+suspend, holding a 984,500 kB/s QCOM_ICC_TAG_ALWAYS vote on MC0/SH0
+(DDR/LLCC) and an rpmhpd_opp_nom corner in SLEEP_SET and preventing
+AOSD/CXSD/DDR collapse.
+
+Drop the OPP vote in qcom_pcie_suspend_noirq() and restore max OPP in
+qcom_pcie_resume_noirq() regardless of PM_SUSPEND_MEM.  On SM8550, the
+PCIe OPP table only manages interconnect bandwidth and required-opps (no
+clocks or GDSC power-off), and max OPP is restored before
+qcom_pcie_icc_opp_update() or any child resume_noirq runs.
+
+---
+--- a/drivers/pci/controller/dwc/pcie-qcom.c
++++ b/drivers/pci/controller/dwc/pcie-qcom.c
+@@ -2206,10 +2206,10 @@
+ 			if (ret)
+ 				dev_err(dev, "Failed to disable CPU-PCIe interconnect path: %d\n",
+ 					ret);
+-
+-			if (pcie->use_pm_opp)
+-				dev_pm_opp_set_opp(pcie->pci->dev, NULL);
+ 		}
++
++		if (pcie->use_pm_opp)
++			dev_pm_opp_set_opp(pcie->pci->dev, NULL);
+ 	}
+ 	return ret;
+ }
+@@ -2252,15 +2252,15 @@
+ 		if (ret && ret != -ENODEV && ret != -EIO)
+ 			goto disable_icc_mem;
+ 	} else {
++		if (pcie->use_pm_opp) {
++			ret = qcom_pcie_set_max_opp(dev);
++			if (ret) {
++				dev_err(dev, "Failed to set max OPP: %d\n", ret);
++				return ret;
++			}
++		}
++
+ 		if (pm_suspend_target_state != PM_SUSPEND_MEM) {
+-			if (pcie->use_pm_opp) {
+-				ret = qcom_pcie_set_max_opp(dev);
+-				if (ret) {
+-					dev_err(dev, "Failed to set max OPP: %d\n", ret);
+-					return ret;
+-				}
+-			}
+-
+ 			ret = icc_enable(pcie->icc_cpu);
+ 			if (ret) {
+ 				dev_err(dev, "Failed to enable CPU-PCIe interconnect path: %d\n",
