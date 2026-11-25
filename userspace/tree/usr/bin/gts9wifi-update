@@ -101,9 +101,15 @@ api_json() {
     local f="$STATE/release-$t.json"
     if [ ! -s "$f" ] || [ "${GTS9WIFI_REFRESH:-0}" = 1 ] ||
         [ -n "$(find "$f" -mmin +5 2>/dev/null)" ]; then
-        curl -fsSL --retry 3 --retry-delay 2 \
-            "https://api.github.com/repos/$REPO/releases/tags/$t" -o "$f.part" &&
-            mv "$f.part" "$f"
+        if curl -fsSL --retry 3 --retry-delay 2 \
+            "https://api.github.com/repos/$REPO/releases/tags/$t" -o "$f.part"; then
+            mv -f "$f.part" "$f"
+        else
+            rm -f "$f.part"
+            if [ "${GTS9WIFI_REFRESH:-0}" = 1 ] || [ ! -s "$f" ]; then
+                return 1
+            fi
+        fi
     fi
     printf '%s\n' "$f"
 }
@@ -721,6 +727,8 @@ cmd_kernel() {
     [ -n "$tag" ] || tag=$DEFAULT_TAG
     local line krpm_name krpm_url kzip_name kzip_url dir rpm zip imgdir p dev
     local backup running
+    GTS9WIFI_REFRESH=1 api_json "$tag" >/dev/null ||
+        die "failed to refresh release metadata for $tag"
     line=$(asset '^linux-gts9wifi-.*\.aarch64\.rpm$') ||
         die "no kernel RPM in release $tag"
     IFS=$'\t' read -r krpm_name krpm_url <<<"$line"

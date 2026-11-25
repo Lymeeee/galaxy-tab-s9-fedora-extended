@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.84
+Version:        0.17.85
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -306,6 +306,12 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Wed Nov 25 2026 Lymeeee <mr_xunyu@163.com> - 0.17.85-1
+- Force fresh release metadata in gts9wifi-update kernel before selecting
+  assets so a stale cached release JSON never causes an older kernel to be
+  re-flashed; fail cleanly when explicit refresh fails and use mv -f to avoid
+  interactive overwrite prompts on root-owned cache files.
+
 * Tue Nov 24 2026 Lymeeee <mr_xunyu@163.com> - 0.17.84-1
 - Keep PPS direct charging alive across power key, lid close, and power menu
   suspend by arming charge_hold proactively below 90% and blanking via Mutter
