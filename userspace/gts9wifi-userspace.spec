@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.86
+Version:        0.17.87
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -305,8 +305,22 @@ fi
 %dir %{_unitdir}/systemd-suspend.service.d
 %{_unitdir}/systemd-suspend.service.d/10-gts9wifi-camera-suspend.conf
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
+%attr(0755, root, root) %{_prefix}/lib/systemd/system-sleep/gts9wifi-speaker-protection
+%dir %{_datadir}/pipewire
+%dir %{_datadir}/pipewire/client.conf.d
+%{_datadir}/pipewire/client.conf.d/90-gts9wifi-upmix.conf
+%dir %{_datadir}/pipewire/pipewire-pulse.conf.d
+%{_datadir}/pipewire/pipewire-pulse.conf.d/90-gts9wifi-upmix.conf
 
 %changelog
+* Wed Nov 25 2026 Lymeeee <mr_xunyu@163.com> - 0.17.87-1
+- Fix CS35L45 speaker-protection CAL_CHECKSUM formula (CAL_R + 1, matching
+  Linux cs-amp-lib.c) and write order (CAL_AMBIENT -> CAL_R -> CAL_STATUS ->
+  CAL_CHECKSUM), and add a non-blocking systemd-sleep post hook to reload
+  DSP1 and re-apply volatile calibration after resume.
+- Ship PipeWire 2.0->4.0 PSD upmix drop-in configs (no-op on 2-ch sinks,
+  ready for 4-channel TDM).
+
 * Wed Nov 25 2026 Lymeeee <mr_xunyu@163.com> - 0.17.86-1
 - Streamline gts9wifi-settings from 8 tabs to 6: merge charging controls into
   the Power tab, move the logging switch into Advanced, remove COPR, redundant

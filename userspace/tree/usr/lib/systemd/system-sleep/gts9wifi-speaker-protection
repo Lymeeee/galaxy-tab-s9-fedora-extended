@@ -1,0 +1,18 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Reload CS35L45 DSP1 and re-apply volatile per-amp factory calibration
+# (CAL_R/CAL_STATUS/CAL_CHECKSUM/VSC/ISC) after system resume so DSP1 does
+# not stay frozen after deep suspend.
+
+set -u
+
+case "${1:-}" in
+post)
+	systemctl reset-failed gts9wifi-speaker-protection-resume >/dev/null 2>&1 || true
+	/usr/bin/systemd-run --unit=gts9wifi-speaker-protection-resume --collect \
+		--no-block /usr/libexec/gts9wifi-speaker-protection --resume || true
+	;;
+esac
+
+exit 0
