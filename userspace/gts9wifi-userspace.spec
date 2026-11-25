@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.87
+Version:        0.17.88
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -314,6 +314,11 @@ fi
 %{_datadir}/pipewire/pipewire-pulse.conf.d/90-gts9wifi-upmix.conf
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.88-1
+- Rebuild userspace RPM cleanly after GitHub Actions outage (includes all
+  0.17.87 CS35L45 calibration/resume hook, PipeWire 4.0 upmix, and irqbalance
+  preset changes).
+
 * Wed Nov 25 2026 Lymeeee <mr_xunyu@163.com> - 0.17.87-1
 - Fix CS35L45 speaker-protection CAL_CHECKSUM formula (CAL_R + 1, matching
   Linux cs-amp-lib.c) and write order (CAL_AMBIENT -> CAL_R -> CAL_STATUS ->
