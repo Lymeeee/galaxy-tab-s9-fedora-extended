@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.85
+Version:        0.17.86
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -33,6 +33,7 @@ Requires:       systemd
 Requires:       polkit
 Requires:       alsa-utils
 Requires:       plymouth
+Requires:       irqbalance
 Requires:       plymouth-plugin-script
 Requires:       python3-gobject
 Requires:       gtk4
@@ -306,6 +307,19 @@ fi
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
 
 %changelog
+* Wed Nov 25 2026 Lymeeee <mr_xunyu@163.com> - 0.17.86-1
+- Streamline gts9wifi-settings from 8 tabs to 6: merge charging controls into
+  the Power tab, move the logging switch into Advanced, remove COPR, redundant
+  check-all/reinstall-userspace actions and manual keyboard firmware picker,
+  and show qcom-va-driver instead of legacy ffmpeg in Status.
+- Fix broken RPM Fusion installed check ('未安装' vs 'not installed'), move
+  blocking pkexec calls off the GTK main thread, and clean up the battery
+  polling timer on window destroy.
+- Lower gts9wifi-update kernel flash battery threshold from 60% to 25% and drop
+  legacy ffmpeg from `gts9wifi-update all`.
+- Relax gts9wifi-charge-guard.timer polling from 20s to 60s and require
+  irqbalance so SoC SPI IRQs are not pinned exclusively to CPU0.
+
 * Wed Nov 25 2026 Lymeeee <mr_xunyu@163.com> - 0.17.85-1
 - Force fresh release metadata in gts9wifi-update kernel before selecting
   assets so a stale cached release JSON never causes an older kernel to be

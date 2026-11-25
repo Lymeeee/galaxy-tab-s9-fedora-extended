@@ -3,9 +3,7 @@
 # Tab9 Settings: GTK4/libadwaita front end for the gts9wifi controls.
 
 import glob
-import hashlib
 import os
-import re
 import shlex
 import shutil
 import subprocess
@@ -22,8 +20,6 @@ DEVICE_CONTROL = '/usr/libexec/gts9wifi-device-control'
 PRIVILEGED = '/usr/libexec/gts9wifi-privileged'
 POWER_PROFILE = '/var/lib/gts9wifi/power-profile'
 KEYBOARD_FW = '/lib/firmware/keyboard_stm/stm32_gts9family.bin'
-KEYBOARD_FW_SIZE = 52132
-KEYBOARD_FW_SHA256 = '1b48d88c23523ae205cd960e6d42725268638a15a47d8a5e52854eb01108caa3'
 UPDATE = '/usr/bin/gts9wifi-update'
 PROTECT = '/usr/libexec/gts9wifi-protect'
 CAMERA_CALIB = '/usr/libexec/gts9wifi-camera-calib'
@@ -106,35 +102,34 @@ class Settings(Adw.Application):
         super().__init__(application_id=APP_ID)
         self.connect('activate', self.activate)
         self._status_rows = {}
+        self._battery_timer_id = None
 
     def activate(self, app):
         window = Adw.PreferencesWindow(application=app, title='平板杂项设置')
         window.set_default_size(540, 820)
+        window.connect('destroy', self._on_window_destroy)
         self.window = window
-        window.add(self.device_page())
-        window.add(self.spen_page())
         window.add(self.power_page())
+        window.add(self.spen_page())
         window.add(self.display_page())
-        window.add(self.debug_page())
         window.add(self.setup_page())
         window.add(self.advanced_page())
         window.add(self.status_page())
         window.present()
 
-    def device_page(self):
-        page = Adw.PreferencesPage(title='设备', icon_name='preferences-system-symbolic')
+    def _on_window_destroy(self, _window):
+        if self._battery_timer_id is not None:
+            GLib.source_remove(self._battery_timer_id)
+            self._battery_timer_id = None
+
+    def add_device_controls(self, page):
         controls = self.controls()
         if not controls:
-            group = Adw.PreferencesGroup()
-            group.add(Adw.ActionRow(
-                title='没有设备控制项',
-                subtitle='未找到 gts9wifi-device-control。'))
-            page.add(group)
-            return page
+            return
         groups = {}
         for control in controls:
             if control['group'] not in groups:
-                group = Adw.PreferencesGroup(title=control['group'])
+                group = Adw.PreferencesGroup(title='充电控制')
                 groups[control['group']] = group
                 page.add(group)
             row = Adw.SwitchRow(
@@ -167,7 +162,6 @@ class Settings(Adw.Application):
 
             row.connect('notify::active', toggled)
             groups[control['group']].add(row)
-        return page
 
     def spen_page(self):
         page = Adw.PreferencesPage(title='S Pen', icon_name='input-tablet-symbolic')
@@ -282,18 +276,29 @@ class Settings(Adw.Application):
             if guard['busy']:
                 return
             profile = POWER_IDS[row.get_selected()]
-            result = run(['pkexec', PRIVILEGED, 'power', profile], timeout=60)
-            if result is None or result.returncode != 0:
-                saved = read(POWER_PROFILE) or 'balanced'
-                if saved not in POWER_IDS:
-                    saved = 'balanced'
-                guard['busy'] = True
-                row.set_selected(POWER_IDS.index(saved))
+            guard['busy'] = True
+            row.set_sensitive(False)
+
+            def worker():
+                result = run(['pkexec', PRIVILEGED, 'power', profile], timeout=60)
+                GLib.idle_add(finish, result)
+
+            def finish(result):
+                row.set_sensitive(True)
+                if result is None or result.returncode != 0:
+                    saved = read(POWER_PROFILE) or 'balanced'
+                    if saved not in POWER_IDS:
+                        saved = 'balanced'
+                    row.set_selected(POWER_IDS.index(saved))
                 guard['busy'] = False
+                return False
+
+            threading.Thread(target=worker, daemon=True).start()
 
         row.connect('notify::selected', changed)
         group.add(row)
         page.add(group)
+        self.add_device_controls(page)
         self.add_battery_group(page)
         return page
 
@@ -315,7 +320,7 @@ class Settings(Adw.Application):
             self._battery_rows[key] = battery_row
         page.add(battery)
         self.update_battery()
-        GLib.timeout_add(1000, self.update_battery)
+        self._battery_timer_id = GLib.timeout_add(1000, self.update_battery)
 
     def update_battery(self):
         rows = getattr(self, '_battery_rows', None)
@@ -387,16 +392,12 @@ class Settings(Adw.Application):
         page.add(group)
         return page
 
-    def debug_page(self):
-        page = Adw.PreferencesPage(title='调试', icon_name='utilities-terminal-symbolic')
-
+    def add_logging_group(self, page):
         logs = Adw.PreferencesGroup(
             title='日志',
             description='关闭 journald 存储、rsyslog/auditd/ABRT 等日志服务，'
                         '并清空 journal、/var/log、崩溃转储和内核缓冲区。'
-                        '内核环形缓冲区无法停写，只能在开关时和每次启动时清空；'
-                        '关闭后睡眠、崩溃等问题将无法再诊断，重新打开也不会'
-                        '恢复已删除的日志。')
+                        '关闭后睡眠、崩溃等问题将无法诊断，重新打开也不会恢复已删除的日志。')
         logrow = Adw.SwitchRow(
             title='关闭所有日志',
             active=os.path.exists(LOGGING_FLAG))
@@ -453,7 +454,6 @@ class Settings(Adw.Application):
         logrow.connect('notify::active', log_changed)
         logs.add(logrow)
         page.add(logs)
-        return page
 
     def setup_page(self):
         page = Adw.PreferencesPage(title='配置', icon_name='applications-system-symbolic')
@@ -470,18 +470,10 @@ class Settings(Adw.Application):
             '安装', self.install_onlyoffice)
         page.add(applications)
 
-        repositories = Adw.PreferencesGroup(
-            title='软件仓库',
-            description='COPR不走镜像，网络不好建议科学上网'
-        )
+        repositories = Adw.PreferencesGroup(title='软件仓库')
         self.action_row(repositories, 'RPM Fusion',
             'free与nonfree', '启用',
             self.enable_rpmfusion)
-        self.copr_entry = Adw.EntryRow(title='COPR项目（owner/project）')
-        repositories.add(self.copr_entry)
-        self.action_row(repositories, 'COPR仓库',
-            '如有需要会自动安装dnf5-plugins，无需操心',
-            '安装', self.enable_copr)
         page.add(repositories)
 
         protection = Adw.PreferencesGroup(title='保护')
@@ -496,11 +488,21 @@ class Settings(Adw.Application):
             if guard['busy']:
                 return
             action = 'on' if row.get_active() else 'off'
-            result = run(['pkexec', PROTECT, action], timeout=30)
-            if result is None or result.returncode != 0:
-                guard['busy'] = True
-                row.set_active(self.protect_enabled())
+            guard['busy'] = True
+            row.set_sensitive(False)
+
+            def worker():
+                result = run(['pkexec', PROTECT, action], timeout=30)
+                GLib.idle_add(finish, result)
+
+            def finish(result):
+                row.set_sensitive(True)
+                if result is None or result.returncode != 0:
+                    row.set_active(self.protect_enabled())
                 guard['busy'] = False
+                return False
+
+            threading.Thread(target=worker, daemon=True).start()
 
         self.protect_row.connect('notify::active', protect_toggled)
         protection.add(self.protect_row)
@@ -556,37 +558,50 @@ class Settings(Adw.Application):
         if getattr(self, '_powerkey_busy', False):
             return
         enable = row.get_active()
-        ok = True
-        if enable:
-            result = run(['pkexec', POWERKEY, 'on'], timeout=30)
-            ok = result is not None and result.returncode == 0
-            if ok:
-                run(['systemctl', '--user', 'daemon-reload'], timeout=20)
-                result = run(['systemctl', '--user', 'enable', '--now',
-                              'gts9wifi-power-key.service'], timeout=30)
+        self._powerkey_busy = True
+        row.set_sensitive(False)
+
+        def worker():
+            ok = True
+            if enable:
+                result = run(['pkexec', POWERKEY, 'on'], timeout=30)
                 ok = result is not None and result.returncode == 0
-            if ok:
+                if ok:
+                    run(['systemctl', '--user', 'daemon-reload'], timeout=20)
+                    result = run(['systemctl', '--user', 'enable', '--now',
+                                  'gts9wifi-power-key.service'], timeout=30)
+                    ok = result is not None and result.returncode == 0
+                if ok:
+                    run(['gsettings', 'set', 'org.gnome.settings-daemon.plugins.power',
+                         'power-button-action', 'nothing'], timeout=10)
+                    run(['systemctl', '--user', 'restart',
+                         'org.gnome.SettingsDaemon.MediaKeys.service'], timeout=20)
+            else:
+                run(['systemctl', '--user', 'disable', '--now',
+                     'gts9wifi-power-key.service'], timeout=30)
                 run(['gsettings', 'set', 'org.gnome.settings-daemon.plugins.power',
-                     'power-button-action', 'nothing'], timeout=10)
+                     'power-button-action', 'suspend'], timeout=10)
+                result = run(['pkexec', POWERKEY, 'off'], timeout=30)
+                ok = result is not None and result.returncode == 0
                 run(['systemctl', '--user', 'restart',
                      'org.gnome.SettingsDaemon.MediaKeys.service'], timeout=20)
-                self.alert('请注销后重新登录',
-                    '电源键才会按预期工作。')
-        else:
-            run(['systemctl', '--user', 'disable', '--now',
-                 'gts9wifi-power-key.service'], timeout=30)
-            run(['gsettings', 'set', 'org.gnome.settings-daemon.plugins.power',
-                 'power-button-action', 'suspend'], timeout=10)
-            result = run(['pkexec', POWERKEY, 'off'], timeout=30)
-            ok = result is not None and result.returncode == 0
-            run(['systemctl', '--user', 'restart',
-                 'org.gnome.SettingsDaemon.MediaKeys.service'], timeout=20)
-        if not ok:
-            self._powerkey_busy = True
-            row.set_active(os.path.exists('/etc/gts9wifi/power-key-enabled'))
-            self._powerkey_busy = False
-            self.alert('电源键模式设置失败',
-                '无法切换模式；请检查 polkit 提示或用户服务。')
+            GLib.idle_add(finish, ok)
+
+        def finish(ok):
+            row.set_sensitive(True)
+            if ok and enable:
+                self._powerkey_busy = False
+                self.alert('请注销后重新登录', '电源键才会按预期工作。')
+            elif not ok:
+                row.set_active(os.path.exists('/etc/gts9wifi/power-key-enabled'))
+                self._powerkey_busy = False
+                self.alert('电源键模式设置失败',
+                    '无法切换模式；请检查 polkit 提示或用户服务。')
+            else:
+                self._powerkey_busy = False
+            return False
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def open_easyeffects(self):
         if shutil.which('easyeffects'):
@@ -603,7 +618,7 @@ class Settings(Adw.Application):
                 'pkexec dnf install -y easyeffects && easyeffects']))
 
     def enable_rpmfusion(self):
-        if rpm('rpmfusion-free-release') != 'not installed':
+        if rpm('rpmfusion-free-release') != '未安装':
             self.alert('RPM Fusion已启用', '发行版软件包已安装。')
             return
         host = self.mirror_host()
@@ -614,18 +629,6 @@ class Settings(Adw.Application):
         self.confirm_simple(
             '启用 RPM Fusion？',
             '从 %s 安装 RPM Fusion 发行版软件包。' % host,
-            lambda: self.open_terminal(['bash', '-lc', command]))
-
-    def enable_copr(self):
-        project = self.copr_entry.get_text().strip()
-        if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', project):
-            self.alert('COPR项目无效', '请使用 owner/project 的形式。')
-            return
-        command = ('pkexec dnf install -y dnf5-plugins && '
-                   'pkexec dnf copr enable -y ' + shlex.quote(project))
-        self.confirm_simple(
-            '启用COPR仓库？',
-            '安装 %s。' % project,
             lambda: self.open_terminal(['bash', '-lc', command]))
 
     def enable_chinese(self):
@@ -676,45 +679,27 @@ class Settings(Adw.Application):
         page = Adw.PreferencesPage(title='高级', icon_name='dialog-warning-symbolic')
 
         components = Adw.PreferencesGroup(
-            title='组件',
-            description='检查并更新 userspace、dynpart、libcamera、指纹和 ffmpeg；'
-                        '内核仍需在下方单独刷写。更新会打开终端。')
-        self.action_row(components, '检查所有组件更新',
-            '只读取已安装版本和 GitHub Releases 资产，不安装任何东西。',
-            '检查', self.check_all_updates)
+            title='组件与校准',
+            description='更新 userspace、dynpart、libcamera、VA-API 和指纹组件；'
+                        '内核请在下方单独刷写。')
         self.action_row(components, '一键更新所有组件',
-            '安装所有已安装组件的 RPM 更新；内核不在其中。',
+            '安装所有已安装组件的 RPM 更新（不含内核）。',
             '更新', lambda: self.confirm_simple(
                 '更新所有组件？',
                 '从 GitHub Releases 下载并安装 userspace、dynpart、'
-                'libcamera、指纹和 ffmpeg 的更新。内核不在其中。'
+                'libcamera、VA-API 和指纹的更新（不含内核）。'
                 '完成后可能需要重启或重新登录。',
                 lambda: self.open_terminal(['pkexec', UPDATE, 'all'])))
         self.action_row(components, '指纹校准',
-            '只读导入本机 sec_efs 的 calib.dat/egoptbds.dat；'
-            '一键更新只装包，不做校准。',
+            '只读导入本机 sec_efs 的 calib.dat/egoptbds.dat。',
             '导入', lambda: self.confirm_simple(
                 '导入指纹校准？',
                 '从本机 sec_efs 只读导入 calib.dat 和 egoptbds.dat，'
                 '需要已安装指纹栈。',
                 lambda: self.open_terminal(
                     ['pkexec', UPDATE, 'calib', '--calib-from-device'])))
-        self.action_row(components, '用户态软件包',
-            '单独重装最新的用户态控制项和更新工具。',
-            '安装', lambda: self.confirm_simple(
-                '更新用户态软件包？',
-                '从Github Releases安装用户态软件包',
-                lambda: self.open_terminal(['pkexec', UPDATE, 'userspace'])))
-        page.add(components)
-
-        camera = Adw.PreferencesGroup(
-            title='相机',
-            description='从本机 vendor 分区导入三星原厂颜色校准；'
-                        '不更新内核或 libcamera，导入后重开相机生效。')
-        self.action_row(camera, '导入相机校准',
-            '解析本机 vendor 里 HI1337 的 Chromatix 调校，'
-            '分别写入后摄和前摄的 libcamera CCM。'
-            '刚刷完系统或发现颜色偏色时可点一次。',
+        self.action_row(components, '导入相机校准',
+            '解析本机 vendor 里 HI1337 的 Chromatix 调校并写入 libcamera CCM。',
             '导入', lambda: self.confirm_simple(
                 '导入相机校准？',
                 '只读解析本机 vendor 分区的相机调校文件，并覆盖后摄'
@@ -722,7 +707,7 @@ class Settings(Adw.Application):
                 '（hi1337-gts9u-front.yaml）的 tuning。'
                 '会先备份现有文件；重新打开相机后生效。',
                 lambda: self.open_terminal(['pkexec', CAMERA_CALIB])))
-        page.add(camera)
+        page.add(components)
 
         kernel = Adw.PreferencesGroup(
             title='内核与启动',
@@ -738,17 +723,7 @@ class Settings(Adw.Application):
             '回滚', self.rollback_boot, destructive=True)
         page.add(kernel)
 
-        keyboard = Adw.PreferencesGroup(
-            title='键盘',
-            description='这里负责安装键盘固件；如果固件不是V37，键盘可能会无法使用。')
-        self.keyboard_row = Adw.ActionRow(
-            title='STM32 V37固件',
-            subtitle=self.keyboard_subtitle())
-        install = Gtk.Button(label='安装')
-        install.connect('clicked', lambda _button: self.choose_keyboard_firmware())
-        self.keyboard_row.add_suffix(install)
-        keyboard.add(self.keyboard_row)
-        page.add(keyboard)
+        self.add_logging_group(page)
         return page
 
     def action_row(self, group, title, subtitle, button_label, callback, destructive=False):
@@ -761,48 +736,11 @@ class Settings(Adw.Application):
         group.add(row)
         return row
 
-    def keyboard_subtitle(self):
-        keyboard = keyboard_status()
-        if keyboard.get('flash_version'):
-            return 'flash_version=%s app_version=%s' % (
-                keyboard.get('flash_version'), keyboard.get('app_version', '?'))
-        return '未检测到控制器'
-
     def alert(self, heading, body):
         dialog = Adw.AlertDialog(heading=heading, body=body)
         dialog.add_response('close', '关闭')
         dialog.set_default_response('close')
         dialog.present(self.window)
-
-    def text_dialog(self, heading, text):
-        dialog = Adw.AlertDialog(heading=heading)
-        view = Gtk.TextView()
-        view.set_editable(False)
-        view.set_monospace(True)
-        view.get_buffer().set_text(text)
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_child(view)
-        scroller.set_min_content_width(560)
-        scroller.set_min_content_height(300)
-        dialog.set_extra_child(scroller)
-        dialog.add_response('close', '关闭')
-        dialog.present(self.window)
-
-    def check_all_updates(self):
-        def worker():
-            result = run([UPDATE, 'check-all'], timeout=180)
-            GLib.idle_add(show, result)
-
-        def show(result):
-            if result is None or result.returncode != 0:
-                detail = (result.stderr or '').strip() if result else ''
-                self.alert('检查更新失败',
-                           detail or '无法访问 GitHub Releases 或更新工具缺失。')
-            else:
-                self.text_dialog('组件更新检查', result.stdout.strip())
-            return False
-
-        threading.Thread(target=worker, daemon=True).start()
 
     def confirm_simple(self, heading, body, callback):
         dialog = Adw.AlertDialog(heading=heading, body=body)
@@ -851,35 +789,6 @@ class Settings(Adw.Application):
             'ROLLBACK',
             lambda: self.open_terminal(['pkexec', UPDATE, 'rollback']))
 
-    def choose_keyboard_firmware(self):
-        dialog = Gtk.FileDialog(title='选择 stm32_gts9family.bin')
-        dialog.open(self.window, None, self.keyboard_file_chosen)
-
-    def keyboard_file_chosen(self, dialog, result):
-        try:
-            file = dialog.open_finish(result)
-            path = file.get_path()
-        except Exception:
-            return
-        if not path:
-            return
-        try:
-            data = open(path, 'rb').read()
-        except OSError as error:
-            self.alert('无法读取文件', str(error))
-            return
-        if len(data) != KEYBOARD_FW_SIZE or hashlib.sha256(data).hexdigest() != KEYBOARD_FW_SHA256:
-            self.alert('固件不正确',
-                '需要 52132 字节、SHA-256 为 %s 的 V37 stm32_gts9family.bin。' % KEYBOARD_FW_SHA256)
-            return
-        self.confirm_typed(
-            '安装键盘 V37 固件？',
-            '文件会复制到 /lib/firmware/keyboard_stm/。系统会在下次启动时'
-            '写入MCU（如果尚未是V37）；该写入是永久的！！！',
-            'MCU',
-            lambda: self.open_terminal([
-                'pkexec', '/usr/bin/install', '-D', '-m0644', path, KEYBOARD_FW]))
-
     def open_terminal(self, argv):
         command = ' '.join(shlex.quote(arg) for arg in argv)
         script = '%s; rc=$?; echo; read -r -p "按回车关闭…" _; exit $rc' % command
@@ -912,7 +821,7 @@ class Settings(Adw.Application):
             ('esfp', '指纹设备'),
             ('keyboard', '键盘控制器'),
             ('keyboard_fw', '键盘固件'),
-            ('ffmpeg', 'FFmpeg编解码器'),
+            ('vaapi', 'VA-API 驱动'),
             ('vendor', '/vendor分区'),
         ]:
             row = Adw.ActionRow(title=title, subtitle='…')
@@ -939,7 +848,7 @@ class Settings(Adw.Application):
             rows['keyboard'].set_subtitle('未检测到控制器')
         rows['keyboard_fw'].set_subtitle(
             '已安装' if os.path.exists(KEYBOARD_FW) else '未安装（V37 固件）')
-        rows['ffmpeg'].set_subtitle(rpm('libavcodec-free'))
+        rows['vaapi'].set_subtitle(rpm('qcom-va-driver'))
         rows['vendor'].set_subtitle(
             '已只读挂载' if os.path.ismount('/vendor') else '未挂载')
 

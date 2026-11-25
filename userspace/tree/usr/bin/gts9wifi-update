@@ -367,7 +367,7 @@ battery_ok() {
     ac=$(cat /sys/class/power_supply/*/online 2>/dev/null | grep -qx 1 && echo 1 || true)
     [ -n "$cap" ] || { echo "warning: battery capacity not found; cannot check charge" >&2; return 0; }
     echo "battery: ${cap}%${ac:+ (AC online)}"
-    [ "$cap" -ge 60 ] || [ -n "$ac" ] || die "battery below 60%; charge before flashing"
+    [ "$cap" -ge 25 ] || [ -n "$ac" ] || die "battery below 25%; charge before flashing"
 }
 
 part_dev() {
@@ -1078,10 +1078,9 @@ cmd_calib() {
 cmd_all() {
     need_root
     local latest=${tag:-$DEFAULT_TAG}
-    local ffmpeg_tag=$DEFAULT_FFMPEG_TAG
     local lf_tag=${libfprint_tag:-$DEFAULT_LIBFPRINT_TAG}
     local fp_tag=${fingerprint_tag:-$DEFAULT_FINGERPRINT_TAG}
-    local up_userspace=0 up_libcamera=0 up_vaapi=0 up_fprint=0 up_ffmpeg=0
+    local up_userspace=0 up_libcamera=0 up_vaapi=0 up_fprint=0
     local inst avail
 
     inst=$(installed_evr gts9wifi-userspace)
@@ -1106,11 +1105,7 @@ cmd_all() {
     avail=$(asset_evr_for "$fp_tag" '^gts9wifi-fingerprint-[0-9].*\.aarch64\.rpm$' gts9wifi-fingerprint || true)
     if component_update_available "$inst" "$avail"; then up_fprint=1; fi
 
-    inst=$(installed_evr libavcodec-free)
-    avail=$(asset_evr_for "$ffmpeg_tag" '^libavcodec-free-[0-9].*\.aarch64\.rpm$' libavcodec-free || true)
-    if component_update_available "$inst" "$avail"; then up_ffmpeg=1; fi
-
-    if [ "$up_userspace$up_libcamera$up_vaapi$up_fprint$up_ffmpeg" = 00000 ]; then
+    if [ "$up_userspace$up_libcamera$up_vaapi$up_fprint" = 0000 ]; then
         echo "all installed components are up to date"
     elif [ "$dry" -eq 1 ]; then
         echo "would update:"
@@ -1118,7 +1113,6 @@ cmd_all() {
         if [ "$up_libcamera" -eq 1 ]; then echo "  libcamera ($latest)"; fi
         if [ "$up_vaapi" -eq 1 ]; then echo "  vaapi ($latest)"; fi
         if [ "$up_fprint" -eq 1 ]; then echo "  fingerprint/libfprint ($lf_tag, $fp_tag)"; fi
-        if [ "$up_ffmpeg" -eq 1 ]; then echo "  ffmpeg ($ffmpeg_tag)"; fi
     else
         tag=$latest
         if [ "$up_userspace" -eq 1 ]; then
@@ -1137,10 +1131,6 @@ cmd_all() {
         if [ "$up_fprint" -eq 1 ]; then
             echo "== fingerprint =="
             cmd_fingerprint
-        fi
-        if [ "$up_ffmpeg" -eq 1 ]; then
-            echo "== ffmpeg =="
-            cmd_ffmpeg
         fi
         echo "component updates complete"
         echo "reboot or log out for libcamera and the GNOME extension"
