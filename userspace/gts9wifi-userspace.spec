@@ -136,6 +136,7 @@ systemctl enable --now gts9wifi-device-name.service >/dev/null 2>&1 || :
 systemctl enable gts9wifi-rtc-time.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-rtc-anchor.timer >/dev/null 2>&1 || :
 systemctl enable gts9wifi-cover-boot-guard.service >/dev/null 2>&1 || :
+systemctl enable --now irqbalance.service >/dev/null 2>&1 || :
 # Keep the PMIC counter continuous; the anchor stores its own UTC relation.
 if [ -f /etc/chrony.conf ] && \
    grep -qE '^[[:space:]]*rtcsync[[:space:]]*$' /etc/chrony.conf; then
