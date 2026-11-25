@@ -1782,6 +1782,28 @@
 	};
 };
 
+/*
+ * GTS9 uses four I2C/MI2S CS35L45 speaker amps and VA-macro DMICs; it has no
+ * SoundWire codecs (WCD938x/WSA88xx). Disable the unused upstream LPASS
+ * SoundWire macro codecs so they do not hold LPASS_HW_MACRO / LPASS_HW_DCODEC
+ * Q6PRM clock votes across suspend.
+ */
+&lpass_wsa2macro {
+	status = "disabled";
+};
+
+&lpass_wsamacro {
+	status = "disabled";
+};
+
+&lpass_rxmacro {
+	status = "disabled";
+};
+
+&lpass_txmacro {
+	status = "disabled";
+};
+
 &lpass_vamacro {
 	pinctrl-names = "default";
 	pinctrl-0 = <&dmic01_default>, <&dmic23_default>,

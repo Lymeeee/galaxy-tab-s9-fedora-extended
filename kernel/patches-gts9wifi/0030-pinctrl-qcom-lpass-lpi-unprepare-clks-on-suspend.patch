@@ -1,0 +1,110 @@
+From: gts9wifi Fedora port
+Subject: [PATCH] pinctrl: qcom: lpass-lpi: unprepare clocks on runtime/system suspend
+
+The LPASS LPI pinctrl driver on SM8550 consumes Q6PRM hardware core vote
+clocks (LPASS_HW_MACRO_VOTE and LPASS_HW_DCODEC_VOTE) whose actual GPR
+vote/unvote happens in CCF .prepare/.unprepare callbacks rather than
+atomic .enable/.disable.
+
+Using pm_clk (of_pm_clk_add_clks + pm_clk_suspend) prepares the clocks
+once at probe time and only calls clk_disable() on runtime suspend,
+leaving Q6PRM votes permanently active across deep suspend and preventing
+ADSP island / SoC AOSD+CXSD+DDR collapse.
+
+Switch lpi_pinctrl to devm_clk_bulk_get_all() with explicit runtime PM
+callbacks that call clk_bulk_disable_unprepare() / clk_bulk_prepare_enable(),
+and wire SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend, pm_runtime_force_resume)
+on SM8550.
+
+---
+--- a/drivers/pinctrl/qcom/pinctrl-lpass-lpi.h
++++ b/drivers/pinctrl/qcom/pinctrl-lpass-lpi.h
+@@ -11,6 +11,7 @@
+ 
+ #include "../core.h"
+ 
++struct device;
+ struct platform_device;
+ 
+ struct pinctrl_pin_desc;
+@@ -127,5 +128,7 @@
+ 
+ int lpi_pinctrl_probe(struct platform_device *pdev);
+ void lpi_pinctrl_remove(struct platform_device *pdev);
++int lpi_pinctrl_runtime_suspend(struct device *dev);
++int lpi_pinctrl_runtime_resume(struct device *dev);
+ 
+ #endif /*__PINCTRL_LPASS_LPI_H__*/
+--- a/drivers/pinctrl/qcom/pinctrl-lpass-lpi.c
++++ b/drivers/pinctrl/qcom/pinctrl-lpass-lpi.c
+@@ -16,7 +16,6 @@
+ #include <linux/pinctrl/pinconf-generic.h>
+ #include <linux/pinctrl/pinconf.h>
+ #include <linux/pinctrl/pinmux.h>
+-#include <linux/pm_clock.h>
+ #include <linux/pm_runtime.h>
+ 
+ #include "../pinctrl-utils.h"
+@@ -37,6 +36,8 @@
+ 	struct mutex lock;
+ 	DECLARE_BITMAP(ever_gpio, MAX_NR_GPIO);
+ 	const struct lpi_pinctrl_variant_data *data;
++	struct clk_bulk_data *clks;
++	int num_clks;
+ };
+ 
+ static void __iomem *lpi_gpio_reg(struct lpi_pinctrl *state,
+@@ -531,13 +532,10 @@
+ 					     "Slew resource not provided\n");
+ 	}
+ 
+-	ret = devm_pm_clk_create(dev);
+-	if (ret)
+-		return ret;
+-
+-	ret = of_pm_clk_add_clks(dev);
+-	if (ret < 0 && ret != -ENODEV)
+-		return ret;
++	ret = devm_clk_bulk_get_all(dev, &pctrl->clks);
++	if (ret < 0)
++		return dev_err_probe(dev, ret, "failed to get clocks\n");
++	pctrl->num_clks = ret;
+ 
+ 	pm_runtime_set_autosuspend_delay(dev, 100);
+ 	pm_runtime_use_autosuspend(dev);
+@@ -599,5 +597,23 @@
+ }
+ EXPORT_SYMBOL_GPL(lpi_pinctrl_remove);
+ 
++int lpi_pinctrl_runtime_suspend(struct device *dev)
++{
++	struct lpi_pinctrl *pctrl = dev_get_drvdata(dev);
++
++	clk_bulk_disable_unprepare(pctrl->num_clks, pctrl->clks);
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(lpi_pinctrl_runtime_suspend);
++
++int lpi_pinctrl_runtime_resume(struct device *dev)
++{
++	struct lpi_pinctrl *pctrl = dev_get_drvdata(dev);
++
++	return clk_bulk_prepare_enable(pctrl->num_clks, pctrl->clks);
++}
++EXPORT_SYMBOL_GPL(lpi_pinctrl_runtime_resume);
++
+ MODULE_DESCRIPTION("QTI LPI GPIO pin control driver");
+ MODULE_LICENSE("GPL");
+--- a/drivers/pinctrl/qcom/pinctrl-sm8550-lpass-lpi.c
++++ b/drivers/pinctrl/qcom/pinctrl-sm8550-lpass-lpi.c
+@@ -213,7 +213,8 @@
+ MODULE_DEVICE_TABLE(of, lpi_pinctrl_of_match);
+ 
+ static const struct dev_pm_ops lpi_pinctrl_pm_ops = {
+-	RUNTIME_PM_OPS(pm_clk_suspend, pm_clk_resume, NULL)
++	RUNTIME_PM_OPS(lpi_pinctrl_runtime_suspend, lpi_pinctrl_runtime_resume, NULL)
++	SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend, pm_runtime_force_resume)
+ };
+ 
+ static struct platform_driver lpi_pinctrl_driver = {
