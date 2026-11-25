@@ -1,0 +1,44 @@
+Subject: [PATCH] ASoC: cs35l45: program ASP RX TDM slot positions from rx_mask
+
+cs35l45_asp_set_tdm_slot() previously recorded slot_width and slot_count
+but ignored rx_mask, leaving ASP_FRAME_CONTROL5 at its reset default
+(ASP_RX1 on slot 0, ASP_RX2 on slot 1).  On multi-amp 4-channel TDM
+boards such as Galaxy Tab S9 (4x CS35L45), Rear Left and Rear Right
+need to listen to TDM slots 2 and 3.
+
+When rx_mask is non-zero, program ASP_RX1_SLOT and ASP_RX2_SLOT in
+CS35L45_ASP_FRAME_CONTROL5 from the first (and optional second) set bit
+of rx_mask.  When rx_mask is zero (standard 2-channel I2S), leave the
+register untouched.
+
+---
+--- a/sound/soc/codecs/cs35l45.c
++++ b/sound/soc/codecs/cs35l45.c
+@@ -772,12 +772,27 @@
+ 				    int slots, int slot_width)
+ {
+ 	struct cs35l45_private *cs35l45 = snd_soc_component_get_drvdata(dai->component);
++	unsigned int rx1_slot, rx2_slot, rest;
++	int ret;
+ 
+ 	if (slot_width && ((slot_width < 16) || (slot_width > 128)))
+ 		return -EINVAL;
+ 
+ 	cs35l45->slot_width = slot_width;
+ 	cs35l45->slot_count = slots;
++
++	if (rx_mask) {
++		rx1_slot = ffs(rx_mask) - 1;
++		rest = rx_mask & ~BIT(rx1_slot);
++		rx2_slot = rest ? (ffs(rest) - 1) : rx1_slot;
++		ret = regmap_update_bits(cs35l45->regmap,
++					 CS35L45_ASP_FRAME_CONTROL5,
++					 CS35L45_ASP_RX_ALL_SLOTS,
++					 (rx1_slot << CS35L45_ASP_RX1_SLOT_SHIFT) |
++					 (rx2_slot << CS35L45_ASP_RX2_SLOT_SHIFT));
++		if (ret < 0)
++			return ret;
++	}
+ 
+ 	return 0;
+ }

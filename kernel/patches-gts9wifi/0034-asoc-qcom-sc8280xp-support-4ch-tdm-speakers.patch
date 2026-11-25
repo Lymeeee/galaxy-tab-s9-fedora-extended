@@ -1,0 +1,75 @@
+Subject: [PATCH] ASoC: qcom: sc8280xp: support 4-channel PRIMARY_TDM_RX_0 speaker link
+
+Prepare the sc8280xp machine driver for 4-channel discrete quad-speaker
+TDM on Galaxy Tab S9 (4x CS35L45 on PRIMARY_TDM_RX_0):
+- pin PRIMARY_TDM_RX_0 BE hw_params to 4 channels (48 kHz S16_LE);
+- configure CPU DAI as BP_FP and each codec DAI as CBC_CFC | DSP_A | NB_NF;
+- assign per-codec RX TDM slot BIT(i) (slots 0..3 for FL/FR/RL/RR) and
+  lock each CS35L45 PLL to the 4-slot 16-bit BCLK (3.072 MHz).
+
+Existing 2-channel PRIMARY_MI2S_RX links remain completely unchanged.
+
+---
+--- a/sound/soc/qcom/sc8280xp.c
++++ b/sound/soc/qcom/sc8280xp.c
+@@ -15,8 +15,9 @@
+ #include "common.h"
+ #include "sdw.h"
+ 
+-/* 48 kHz, 16 bit, 2 channels - the rate the BE hw_params fixup pins. */
++/* 48 kHz, 16 bit: 2-ch I2S (1.536 MHz) and 4-slot TDM (3.072 MHz). */
+ #define MI2S_BCLK_RATE		1536000
++#define TDM_4CH_BCLK_RATE	3072000
+ 
+ struct sc8280xp_snd_data {
+ 	bool stream_prepared[AFE_PORT_MAX];
+@@ -37,6 +38,7 @@
+ 	switch (cpu_dai->id) {
+ 	case PRIMARY_MI2S_RX...QUATERNARY_MI2S_TX:
+ 	case QUINARY_MI2S_RX...QUINARY_MI2S_TX:
++	case PRIMARY_TDM_RX_0:
+ 		snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_BP_FP);
+ 		break;
+ 	case WSA_CODEC_DMA_RX_0:
+@@ -85,6 +87,10 @@
+ 	channels->min = 2;
+ 	channels->max = 2;
+ 	switch (cpu_dai->id) {
++	case PRIMARY_TDM_RX_0:
++		channels->min = 4;
++		channels->max = 4;
++		break;
+ 	case TX_CODEC_DMA_TX_0:
+ 	case TX_CODEC_DMA_TX_1:
+ 	case TX_CODEC_DMA_TX_2:
+@@ -143,7 +149,29 @@
+ 	struct snd_soc_dai *codec_dai;
+ 	int i, ret;
+ 
+-	if (sc8280xp_is_mi2s(cpu_dai->id)) {
++	if (cpu_dai->id == PRIMARY_TDM_RX_0) {
++		for_each_rtd_codec_dais(rtd, i, codec_dai) {
++			ret = snd_soc_dai_set_fmt(codec_dai,
++						  SND_SOC_DAIFMT_CBC_CFC |
++						  SND_SOC_DAIFMT_DSP_A |
++						  SND_SOC_DAIFMT_NB_NF);
++			if (ret && ret != -ENOTSUPP)
++				return dev_err_probe(rtd->dev, ret,
++						     "failed to set TDM codec fmt\n");
++
++			ret = snd_soc_dai_set_tdm_slot(codec_dai, 0, BIT(i), 4, 16);
++			if (ret && ret != -ENOTSUPP)
++				return dev_err_probe(rtd->dev, ret,
++						     "failed to set TDM slot\n");
++
++			ret = snd_soc_dai_set_sysclk(codec_dai, 0,
++						     TDM_4CH_BCLK_RATE,
++						     SND_SOC_CLOCK_IN);
++			if (ret && ret != -ENOTSUPP)
++				return dev_err_probe(rtd->dev, ret,
++						     "failed to set TDM codec sysclk\n");
++		}
++	} else if (sc8280xp_is_mi2s(cpu_dai->id)) {
+ 		for_each_rtd_codec_dais(rtd, i, codec_dai) {
+ 			ret = snd_soc_dai_set_fmt(codec_dai,
+ 						  SND_SOC_DAIFMT_CBC_CFC |
