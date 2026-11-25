@@ -4,8 +4,7 @@ After=vendor.mount sound.target
 Wants=vendor.mount
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
+Type=simple
 ExecStart=/usr/libexec/gts9wifi-speaker-protection
 
 [Install]

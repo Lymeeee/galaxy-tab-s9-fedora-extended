@@ -85,15 +85,23 @@ find_card() {
 cache_cal_from_secefs
 
 CARD=""
+MAX_WAIT=180
+if [ "$RESUME_MODE" -eq 1 ]; then
+	MAX_WAIT=30
+fi
 i=0
-while [ "$i" -lt 20 ]; do
-	if CARD=$(find_card) && amixer -c "$CARD" info >/dev/null 2>&1; then
+while [ "$i" -lt "$MAX_WAIT" ]; do
+	if CARD=$(find_card) && amixer -c "$CARD" cget name="Front Left DSP1 Preload Switch" >/dev/null 2>&1; then
 		break
 	fi
+	CARD=""
 	sleep 0.5
 	i=$((i + 1))
 done
-[ -n "$CARD" ] || CARD=0
+if [ -z "$CARD" ]; then
+	echo "gts9wifi-speaker-protection: timed out waiting for CS35L45 controls" >&2
+	exit 0
+fi
 
 TEMP=$(read_u24 "$CAL_DIR/temp_cal" 2>/dev/null || true)
 
