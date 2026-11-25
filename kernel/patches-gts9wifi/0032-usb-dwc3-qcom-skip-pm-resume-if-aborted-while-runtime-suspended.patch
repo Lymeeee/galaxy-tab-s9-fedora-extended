@@ -1,0 +1,88 @@
+Subject: [PATCH] usb: dwc3: qcom: skip system resume when aborted while runtime-suspended
+
+When a600000.usb (dwc3-qcom) has runtime PM enabled and is already
+runtime-suspended before system suspend begins, its power domain
+(usb30_prim_gdsc) is powered off.
+
+During a normal suspend/resume cycle, genpd_resume_noirq() powers the
+GDSC back on before dwc3_qcom_pm_resume() runs, so clk_bulk_prepare_enable()
+succeeds and dwc3_pm_resume() transitions the device to runtime-active.
+
+However, if system suspend aborts during dpm_suspend() or dpm_suspend_late()
+(for example due to a GPU suspend timeout, charger hold, or early wakeup
+event) before dpm_suspend_noirq() runs, genpd_resume_noirq() never runs and
+usb30_prim_gdsc remains powered off.  dwc3_qcom_pm_resume() still calls
+dwc3_qcom_resume() -> clk_bulk_prepare_enable(), which fails with -EBUSY
+and triggers:
+
+  gcc_usb30_prim_master_clk status stuck at 'off'
+  dwc3-qcom a600000.usb: PM: failed to resume: error -16
+
+Track whether the device actually reached suspend_noirq().  If
+dwc3_qcom_pm_resume() is invoked while the device is still
+pm_runtime_suspended() and never reached suspend_noirq(), clear
+pm_suspended and leave the controller cleanly runtime-suspended without
+touching its clocks or registers.
+
+---
+--- a/drivers/usb/dwc3/dwc3-qcom.c
++++ b/drivers/usb/dwc3/dwc3-qcom.c
+@@ -81,6 +81,7 @@
+ 	enum usb_dr_mode	mode;
+ 	bool			is_suspended;
+ 	bool			pm_suspended;
++	bool			noirq_suspended;
+ 	struct icc_path		*icc_path_ddr;
+ 	struct icc_path		*icc_path_apps;
+ 
+@@ -760,8 +761,18 @@
+ 	if (ret)
+ 		return ret;
+ 
++	qcom->noirq_suspended = false;
+ 	qcom->pm_suspended = true;
+ 
++	return 0;
++}
++
++static int dwc3_qcom_suspend_noirq(struct device *dev)
++{
++	struct dwc3 *dwc = dev_get_drvdata(dev);
++	struct dwc3_qcom *qcom = to_dwc3_qcom(dwc);
++
++	qcom->noirq_suspended = true;
+ 	return 0;
+ }
+ 
+@@ -772,6 +783,13 @@
+ 	bool wakeup = device_may_wakeup(dev);
+ 	int ret;
+ 
++	if (pm_runtime_suspended(dev) && !qcom->noirq_suspended) {
++		qcom->pm_suspended = false;
++		return 0;
++	}
++
++	qcom->noirq_suspended = false;
++
+ 	ret = dwc3_qcom_resume(qcom, wakeup);
+ 	if (ret)
+ 		return ret;
+@@ -788,6 +806,9 @@
+ static void dwc3_qcom_complete(struct device *dev)
+ {
+ 	struct dwc3 *dwc = dev_get_drvdata(dev);
++
++	if (pm_runtime_suspended(dev))
++		return;
+ 
+ 	dwc3_pm_complete(dwc);
+ }
+@@ -832,6 +853,7 @@
+ 
+ static const struct dev_pm_ops dwc3_qcom_dev_pm_ops = {
+ 	SYSTEM_SLEEP_PM_OPS(dwc3_qcom_pm_suspend, dwc3_qcom_pm_resume)
++	NOIRQ_SYSTEM_SLEEP_PM_OPS(dwc3_qcom_suspend_noirq, NULL)
+ 	RUNTIME_PM_OPS(dwc3_qcom_runtime_suspend, dwc3_qcom_runtime_resume,
+ 			   dwc3_qcom_runtime_idle)
+ 	.complete = pm_sleep_ptr(dwc3_qcom_complete),
