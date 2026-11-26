@@ -119,9 +119,7 @@
  	 * - Detect/HPD are used by DRM to know if a display is _physically_
 --- a/drivers/gpu/drm/msm/dp/dp_display.c
 +++ b/drivers/gpu/drm/msm/dp/dp_display.c
-@@ -895,6 +895,9 @@ enum drm_connector_status msm_dp_bridge_detect(struct drm_bridge *bridge,
- 	u8 dpcd[DP_RECEIVER_CAP_SIZE];
- 	struct drm_dp_desc desc;
+@@ -898,6 +898,9 @@ enum drm_connector_status msm_dp_bridge_detect(struct drm_bridge *bridge,
  	bool phy_deinit;
  	int ret;
  
@@ -129,6 +127,8 @@
 +		return connector_status_disconnected;
 +
  	dp = to_dp_bridge(bridge)->msm_dp_display;
+ 
+ 	priv = container_of(dp, struct msm_dp_display_private, msm_dp_display);
 @@ -1522,6 +1522,21 @@ void msm_dp_bridge_hpd_notify(struct drm_bridge *bridge,
  	struct msm_dp_display_private *dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
  	u32 hpd_link_status = 0;
