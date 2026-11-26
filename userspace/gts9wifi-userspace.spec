@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.103
+Version:        0.17.104
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -351,6 +351,10 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.104-1
+- Set device.form-factor = "speaker" and device.icon-name = "audio-speakers"
+  on the gts9wifi_speaker_eq virtual sink so GNOME displays the speaker icon
+  instead of the generic sound-card icon.
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.103-1
 - Refine gts9wifi-power balanced cluster caps to SM8550 TSMC N4P per-cluster
   efficiency sweet spots: A510 1.34 GHz (1344 MHz), A715+A710 1.92 GHz
