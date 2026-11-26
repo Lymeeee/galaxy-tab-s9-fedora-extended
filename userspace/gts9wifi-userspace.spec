@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.98
+Version:        0.17.99
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -351,6 +351,10 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.99-1
+- Move fingerprint and camera calibration actions into a dedicated "硬件校准"
+  group on the 配置 tab in gts9wifi-settings, keeping 高级 focused on updates,
+  kernel flashing/rollback, and logging.
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.98-1
 - Replace typed-word confirmation (FLASH/ROLLBACK) in gts9wifi-settings with
   direct red destructive confirmation buttons for kernel flash and rollback.

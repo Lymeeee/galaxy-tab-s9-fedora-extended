@@ -440,6 +440,28 @@ class Settings(Adw.Application):
             '安装', self.install_librepods)
         page.add(applications)
 
+        calibration = Adw.PreferencesGroup(
+            title='硬件校准',
+            description='从本机 Android 分区只读导入原厂指纹与相机校准数据。')
+        self.action_row(calibration, '指纹校准',
+            '只读导入本机 sec_efs 的 calib.dat/egoptbds.dat。',
+            '导入', lambda: self.confirm_simple(
+                '导入指纹校准？',
+                '从本机 sec_efs 只读导入 calib.dat 和 egoptbds.dat，'
+                '需要已安装指纹栈。',
+                lambda: self.open_terminal(
+                    ['pkexec', UPDATE, 'calib', '--calib-from-device'])))
+        self.action_row(calibration, '导入相机校准',
+            '解析本机 vendor 里 HI1337 的 Chromatix 调校并写入 libcamera CCM。',
+            '导入', lambda: self.confirm_simple(
+                '导入相机校准？',
+                '只读解析本机 vendor 分区的相机调校文件，并覆盖后摄'
+                '（hi1337-gts9u-rear.yaml）和前摄'
+                '（hi1337-gts9u-front.yaml）的 tuning。'
+                '会先备份现有文件；重新打开相机后生效。',
+                lambda: self.open_terminal(['pkexec', CAMERA_CALIB])))
+        page.add(calibration)
+
         repositories = Adw.PreferencesGroup(title='软件仓库')
         self.action_row(repositories, 'RPM Fusion',
             'free与nonfree', '启用',
@@ -717,7 +739,7 @@ class Settings(Adw.Application):
         page = Adw.PreferencesPage(title='高级', icon_name='dialog-warning-symbolic')
 
         components = Adw.PreferencesGroup(
-            title='组件与校准',
+            title='组件更新',
             description='更新 userspace、dynpart、libcamera、VA-API 和指纹组件；'
                         '内核请在下方单独刷写。')
         self.action_row(components, '一键更新所有组件',
@@ -728,23 +750,6 @@ class Settings(Adw.Application):
                 'libcamera、VA-API 和指纹的更新（不含内核）。'
                 '完成后可能需要重启或重新登录。',
                 lambda: self.open_terminal(['pkexec', UPDATE, 'all'])))
-        self.action_row(components, '指纹校准',
-            '只读导入本机 sec_efs 的 calib.dat/egoptbds.dat。',
-            '导入', lambda: self.confirm_simple(
-                '导入指纹校准？',
-                '从本机 sec_efs 只读导入 calib.dat 和 egoptbds.dat，'
-                '需要已安装指纹栈。',
-                lambda: self.open_terminal(
-                    ['pkexec', UPDATE, 'calib', '--calib-from-device'])))
-        self.action_row(components, '导入相机校准',
-            '解析本机 vendor 里 HI1337 的 Chromatix 调校并写入 libcamera CCM。',
-            '导入', lambda: self.confirm_simple(
-                '导入相机校准？',
-                '只读解析本机 vendor 分区的相机调校文件，并覆盖后摄'
-                '（hi1337-gts9u-rear.yaml）和前摄'
-                '（hi1337-gts9u-front.yaml）的 tuning。'
-                '会先备份现有文件；重新打开相机后生效。',
-                lambda: self.open_terminal(['pkexec', CAMERA_CALIB])))
         page.add(components)
 
         kernel = Adw.PreferencesGroup(
