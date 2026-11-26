@@ -458,12 +458,13 @@ class Settings(Adw.Application):
     def setup_page(self):
         page = Adw.PreferencesPage(title='配置', icon_name='applications-system-symbolic')
 
-        applications = Adw.PreferencesGroup(title='应用')
-        installed = shutil.which('easyeffects') is not None
-        self.action_row(applications, 'EasyEffects',
-            '一个很好用的PipeWire均衡器',
-            '打开' if installed else '安装并打开',
-            self.open_easyeffects)
+        applications = Adw.PreferencesGroup(title='应用与音效')
+        self.action_row(applications, '扬声器内置调音',
+            'PipeWire 原生低音增强与 9 段均衡器（仅作用于内置扬声器，修改后点击重载生效）。',
+            '编辑配置', self.edit_speaker_eq)
+        self.action_row(applications, '重载扬声器调音',
+            '应用对内置调音配置的修改，或恢复默认调音。',
+            '重载', self.reload_speaker_eq)
         self.action_row(applications, 'ONLYOFFICE 办公套件',
             '卸载 LibreOffice（RPM 或 Flatpak，如存在），下载并安装 '
             'ONLYOFFICE 官方 aarch64 RPM（约 270 MB）。',
@@ -603,19 +604,24 @@ class Settings(Adw.Application):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def open_easyeffects(self):
-        if shutil.which('easyeffects'):
-            try:
-                subprocess.Popen(['easyeffects'])
-            except OSError as error:
-                self.alert('无法启动EasyEffects', str(error))
-            return
-        self.confirm_simple(
-            '安装 EasyEffects？',
-            '安装 Fedora 的 EasyEffects 软件包后打开。',
-            lambda: self.open_terminal([
-                'bash', '-lc',
-                'pkexec dnf install -y easyeffects && easyeffects']))
+    def edit_speaker_eq(self):
+        sys_conf = '/usr/share/pipewire/pipewire.conf.d/90-gts9wifi-speaker-eq.conf'
+        user_dir = os.path.expanduser('~/.config/pipewire/pipewire.conf.d')
+        user_conf = os.path.join(user_dir, '90-gts9wifi-speaker-eq.conf')
+        try:
+            os.makedirs(user_dir, exist_ok=True)
+            if not os.path.exists(user_conf) and os.path.exists(sys_conf):
+                shutil.copyfile(sys_conf, user_conf)
+            subprocess.Popen(['xdg-open', user_conf])
+        except OSError as error:
+            self.alert('无法打开调音配置', str(error))
+
+    def reload_speaker_eq(self):
+        result = run(['systemctl', '--user', 'restart', 'pipewire', 'wireplumber'], timeout=15)
+        if result and result.returncode == 0:
+            self.alert('扬声器调音已重载', 'PipeWire 与 WirePlumber 已重新加载调音配置。')
+        else:
+            self.alert('重载失败', '请尝试在终端运行 systemctl --user restart pipewire wireplumber。')
 
     def enable_rpmfusion(self):
         if rpm('rpmfusion-free-release') != '未安装':

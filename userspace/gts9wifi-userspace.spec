@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.92
+Version:        0.17.93
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -43,6 +43,8 @@ Requires:       bluez
 Requires:       python3-dbus
 Requires:       chrony
 Requires:       zram-generator
+Requires:       pipewire-module-filter-chain-lv2
+Requires:       lv2-calf-plugins
 
 %description
 Tab9 Extras GNOME Shell extension (v6), the gts9wifi device-control helper
@@ -312,9 +314,23 @@ fi
 %{_datadir}/pipewire/client.conf.d/90-gts9wifi-upmix.conf
 %dir %{_datadir}/pipewire/pipewire-pulse.conf.d
 %{_datadir}/pipewire/pipewire-pulse.conf.d/90-gts9wifi-upmix.conf
+%dir %{_datadir}/pipewire/pipewire.conf.d
+%{_datadir}/pipewire/pipewire.conf.d/90-gts9wifi-speaker-eq.conf
+%dir %{_datadir}/wireplumber
+%dir %{_datadir}/wireplumber/wireplumber.conf.d
+%{_datadir}/wireplumber/wireplumber.conf.d/90-gts9wifi-alsa-headroom.conf
 %{_prefix}/lib/firmware/qcom/sm8550/Samsung-Galaxy-Tab-S9-tplg.bin
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.93-1
+- Ship built-in PipeWire speaker tuning (Calf Bass Enhancer LV2 + 9-band
+  biquad EQ in 90-gts9wifi-speaker-eq.conf) and q6apm ALSA headroom drop-in
+  (90-gts9wifi-alsa-headroom.conf), auto-loaded for all installs without
+  EasyEffects buffer-underrun crackling.
+- Replace EasyEffects installer in gts9wifi-settings with built-in speaker
+  tuning editor and PipeWire reload actions; require
+  pipewire-module-filter-chain-lv2 and lv2-calf-plugins.
+
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.92-1
 - Revert DACPCM Source back to ASP_RX1/ASP_RX2 bypass: routing through DSP_TX1
   without full CSPL_ENABLE/DSP_RX initialization caused crackling on
