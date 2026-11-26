@@ -11,14 +11,13 @@ index 1387cbdffcf8..7631aca134d1 100644
  	select PCI_PWRCTRL
  
 diff --git a/drivers/soc/qcom/Kconfig b/drivers/soc/qcom/Kconfig
-index 99cb655bd56a..029d3d6d63c4 100644
 --- a/drivers/soc/qcom/Kconfig
 +++ b/drivers/soc/qcom/Kconfig
-@@ -126,6 +126,7 @@ config QCOM_AOSS_QMP
+@@ -305,6 +305,7 @@ config QCOM_PDR_MSG
  
  config QCOM_QMI_HELPERS
  	tristate
 +	default y if ARCH_QCOM
  	depends on NET
  
- config QCOM_RAMP_CTRL
+ config QCOM_UBWC_CONFIG

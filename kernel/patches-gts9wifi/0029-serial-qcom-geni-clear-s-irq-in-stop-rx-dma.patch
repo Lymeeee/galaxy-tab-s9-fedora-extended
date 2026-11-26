@@ -23,7 +23,7 @@ command.
 ---
 --- a/drivers/tty/serial/qcom_geni_serial.c
 +++ b/drivers/tty/serial/qcom_geni_serial.c
-@@ -842,6 +842,7 @@
+@@ -992,6 +992,7 @@
  static void qcom_geni_serial_stop_rx_dma(struct uart_port *uport)
  {
  	struct qcom_geni_serial_port *port = to_dev_port(uport);
@@ -31,13 +31,12 @@ command.
  	bool done;
  
  	if (!qcom_geni_serial_secondary_active(uport))
-@@ -863,6 +864,9 @@ static void qcom_geni_serial_stop_rx_dma(struct uart_port *uport)
+@@ -1013,6 +1014,8 @@
  				uport->membase + SE_DMA_RX_IRQ_CLR);
  	}
  
 +	s_irq_status = readl(uport->membase + SE_GENI_S_IRQ_STATUS);
 +	writel(s_irq_status, uport->membase + SE_GENI_S_IRQ_CLEAR);
-+
- 	if (port->rx_dma_addr) {
- 		geni_se_rx_dma_unprep(&port->se, port->rx_dma_addr,
- 				      DMA_RX_BUF_SIZE);
+ }
+ 
+ static void qcom_geni_serial_start_rx_dma(struct uart_port *uport)

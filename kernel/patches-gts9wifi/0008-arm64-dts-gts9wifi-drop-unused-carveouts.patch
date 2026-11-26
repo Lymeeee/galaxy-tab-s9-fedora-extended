@@ -7,7 +7,7 @@ only the end-of-file context changes.
 
 --- a/arch/arm64/boot/dts/qcom/sm8550-samsung-gts9wifi.dts
 +++ b/arch/arm64/boot/dts/qcom/sm8550-samsung-gts9wifi.dts
-@@ -1896,4 +1896,64 @@
+@@ -1896,4 +1896,68 @@
          pinctrl-0 = <&pogo_control>, <&pogo_irqs>;
          wakeup-source;
      };
@@ -64,11 +64,15 @@ only the end-of-file context changes.
 +	};
  };
 +
-+/* Their only users, both disabled, lose every phandle in the property. */
++/* Their only users, all disabled, lose every phandle in the property. */
 +&{/soc@0/remoteproc@4080000} {
 +	/delete-property/ memory-region;
 +};
 +
 +&{/soc@0/remoteproc@32300000} {
++	/delete-property/ memory-region;
++};
++
++&{/soc@0/ipa@3f40000} {
 +	/delete-property/ memory-region;
 +};

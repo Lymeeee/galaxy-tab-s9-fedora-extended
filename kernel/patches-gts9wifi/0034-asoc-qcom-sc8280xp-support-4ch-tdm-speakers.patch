@@ -3,18 +3,17 @@ Subject: [PATCH] ASoC: qcom: sc8280xp: support 4-channel PRIMARY_TDM_RX_0 speake
 Prepare the sc8280xp machine driver for 4-channel discrete quad-speaker
 TDM on Galaxy Tab S9 (4x CS35L45 on PRIMARY_TDM_RX_0):
 - pin PRIMARY_TDM_RX_0 BE hw_params to 4 channels (48 kHz S16_LE);
-- configure CPU DAI as BP_FP and each codec DAI as CBC_CFC | DSP_A | NB_NF;
+- configure CPU DAI as BP_FP | DSP_A | NB_NF and each codec DAI as
+  CBC_CFC | DSP_A | NB_NF;
 - assign per-codec RX TDM slot BIT(i) (slots 0..3 for FL/FR/RL/RR) and
   lock each CS35L45 PLL to the 4-slot 16-bit BCLK (3.072 MHz).
 
 Existing 2-channel PRIMARY_MI2S_RX links remain completely unchanged.
 
 ---
-diff --git a/sound/soc/qcom/sc8280xp.c b/sound/soc/qcom/sc8280xp.c
-index 77373d0..a8762ce 100644
 --- a/sound/soc/qcom/sc8280xp.c
 +++ b/sound/soc/qcom/sc8280xp.c
-@@ -15,8 +15,9 @@
+@@ -18,8 +18,9 @@
  #include "common.h"
  #include "sdw.h"
  
@@ -23,12 +22,12 @@ index 77373d0..a8762ce 100644
  #define MI2S_BCLK_RATE		1536000
 +#define TDM_4CH_BCLK_RATE	3072000
  
- struct sc8280xp_snd_data {
- 	bool stream_prepared[AFE_PORT_MAX];
-@@ -39,6 +40,11 @@ static int sc8280xp_snd_init(struct snd_soc_pcm_runtime *rtd)
- 	case QUINARY_MI2S_RX...QUINARY_MI2S_TX:
- 		snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_BP_FP);
- 		break;
+ #define I2S_MCLKFS 256
+ 
+@@ -187,6 +188,11 @@ static int sc8280xp_snd_init(struct snd_soc_pcm_runtime *rtd)
+ 	int dp_pcm_id = 0;
+ 
+ 	switch (cpu_dai->id) {
 +	case PRIMARY_TDM_RX_0:
 +		snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_BP_FP |
 +				    SND_SOC_DAIFMT_DSP_A |
@@ -37,7 +36,7 @@ index 77373d0..a8762ce 100644
  	case WSA_CODEC_DMA_RX_0:
  	case WSA_CODEC_DMA_RX_1:
  		/*
-@@ -85,6 +91,10 @@ static int sc8280xp_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+@@ -234,6 +240,10 @@ static int sc8280xp_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
  	channels->min = 2;
  	channels->max = 2;
  	switch (cpu_dai->id) {
@@ -48,7 +47,7 @@ index 77373d0..a8762ce 100644
  	case TX_CODEC_DMA_TX_0:
  	case TX_CODEC_DMA_TX_1:
  	case TX_CODEC_DMA_TX_2:
-@@ -143,7 +153,34 @@ static int sc8280xp_snd_startup(struct snd_pcm_substream *substream)
+@@ -402,7 +412,34 @@ static int sc8280xp_snd_startup(struct snd_pcm_substream *substream)
  	struct snd_soc_dai *codec_dai;
  	int i, ret;
  
