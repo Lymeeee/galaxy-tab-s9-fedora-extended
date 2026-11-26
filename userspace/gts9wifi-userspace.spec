@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.99
+Version:        0.17.100
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -351,6 +351,11 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.100-1
+- Gate the system 90-gts9wifi-speaker-eq.conf filter-chain on
+  `gts9wifi.speaker-eq.custom = !true` and make gts9wifi-settings automatically
+  inject `gts9wifi.speaker-eq.custom = true` into user copies so PipeWire never
+  loads duplicate speaker EQ sinks when editing or reloading tuning.
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.99-1
 - Move fingerprint and camera calibration actions into a dedicated "硬件校准"
   group on the 配置 tab in gts9wifi-settings, keeping 高级 focused on updates,

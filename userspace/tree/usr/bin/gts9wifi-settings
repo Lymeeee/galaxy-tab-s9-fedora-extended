@@ -595,6 +595,28 @@ class Settings(Adw.Application):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _ensure_user_speaker_eq_override(self, path):
+        if not os.path.exists(path):
+            return
+        with open(path, 'r', encoding='utf-8') as f:
+            text = f.read()
+        lines = [
+            line for line in text.splitlines(keepends=True)
+            if 'gts9wifi.speaker-eq.custom = !true' not in line
+        ]
+        cleaned = ''.join(lines)
+        if 'gts9wifi.speaker-eq.custom' not in cleaned:
+            header = (
+                '# Disable the system default EQ instance so PipeWire does not load both.\n'
+                'context.properties = {\n'
+                '    gts9wifi.speaker-eq.custom = true\n'
+                '}\n\n'
+            )
+            cleaned = header + cleaned
+        if cleaned != text:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(cleaned)
+
     def edit_speaker_eq(self):
         sys_conf = '/usr/share/pipewire/pipewire.conf.d/90-gts9wifi-speaker-eq.conf'
         user_dir = os.path.expanduser('~/.config/pipewire/pipewire.conf.d')
@@ -603,11 +625,18 @@ class Settings(Adw.Application):
             os.makedirs(user_dir, exist_ok=True)
             if not os.path.exists(user_conf) and os.path.exists(sys_conf):
                 shutil.copyfile(sys_conf, user_conf)
+            self._ensure_user_speaker_eq_override(user_conf)
             subprocess.Popen(['xdg-open', user_conf])
         except OSError as error:
             self.alert('无法打开调音配置', str(error))
 
     def reload_speaker_eq(self):
+        user_conf = os.path.expanduser(
+            '~/.config/pipewire/pipewire.conf.d/90-gts9wifi-speaker-eq.conf')
+        try:
+            self._ensure_user_speaker_eq_override(user_conf)
+        except OSError:
+            pass
         result = run(['systemctl', '--user', 'restart', 'pipewire', 'wireplumber'], timeout=15)
         if result and result.returncode == 0:
             self.alert('扬声器调音已重载', 'PipeWire 与 WirePlumber 已重新加载调音配置。')
