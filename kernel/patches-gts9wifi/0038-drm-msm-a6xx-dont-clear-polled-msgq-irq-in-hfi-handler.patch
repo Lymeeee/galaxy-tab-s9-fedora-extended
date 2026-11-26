@@ -1,0 +1,33 @@
+From: GTS9 Fedora port <gts9wifi@example.com>
+Subject: [PATCH] drm/msm/a6xx: only clear CM3_FAULT in a6xx_hfi_irq
+
+a6xx_hfi_irq() reads REG_A6XX_GMU_GMU2HOST_INTR_INFO (which reports all
+raw/unmasked status bits, including A6XX_GMU_GMU2HOST_INTR_INFO_MSGQ and
+OOB ack bits) and writes the entire status value back to
+REG_A6XX_GMU_GMU2HOST_INTR_CLR.
+
+On SM8550/Adreno 740, enable_irq(gmu->hfi_irq) in a6xx_gmu_resume() can
+deliver a latched pending HFI interrupt on CPU0 right as the resuming
+CPU runs a6xx_gmu_set_initial_freq() -> HFI_H2F_MSG_GX_BW_PERF_VOTE.
+Clearing all bits in INTR_CLR wipes out A6XX_GMU_GMU2HOST_INTR_INFO_MSGQ
+before a6xx_hfi_wait_for_msg_interrupt() polls it, causing a 1-second
+timeout followed ~0.5 ms later by "Unexpected message id ... on the
+response queue" on the next HFI vote.
+
+Because REG_A6XX_GMU_GMU2HOST_INTR_MASK only unmasks CM3_FAULT, restrict
+the INTR_CLR write in a6xx_hfi_irq() to CM3_FAULT so it never clears
+polled MSGQ or OOB ack bits.
+
+---
+--- a/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_gmu.c
+@@ -64,7 +64,8 @@ static irqreturn_t a6xx_hfi_irq(int irq, void *data)
+ 	u32 status;
+ 
+ 	status = gmu_read(gmu, REG_A6XX_GMU_GMU2HOST_INTR_INFO);
+-	gmu_write(gmu, REG_A6XX_GMU_GMU2HOST_INTR_CLR, status);
++	gmu_write(gmu, REG_A6XX_GMU_GMU2HOST_INTR_CLR,
++		  status & A6XX_GMU_GMU2HOST_INTR_INFO_CM3_FAULT);
+ 
+ 	if (status & A6XX_GMU_GMU2HOST_INTR_INFO_CM3_FAULT) {
+ 		dev_err_ratelimited(gmu->dev, "GMU firmware fault\n");
