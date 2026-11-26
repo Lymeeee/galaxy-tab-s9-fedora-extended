@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.90
+Version:        0.17.91
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -315,6 +315,12 @@ fi
 %{_prefix}/lib/firmware/qcom/sm8550/Samsung-Galaxy-Tab-S9-tplg.bin
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.91-1
+- Enable CS35L45 hardware speaker protection (DACPCM Source = DSP_TX1) across
+  UCM2 and gts9wifi-speaker-routing after live playback verification confirmed
+  per-unit factory Rdc selection (AL_SET_STATUS=2), zero CSPL_ERRORNO, and live
+  voice-coil temperature tracking.
+
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.90-1
 - Build and ship Samsung-Galaxy-Tab-S9-tplg.bin with both 4-channel discrete
   PRIMARY_TDM_RX_0 (MODULE_ID_TDM_SINK 0x0700100E) and backwards-compatible
