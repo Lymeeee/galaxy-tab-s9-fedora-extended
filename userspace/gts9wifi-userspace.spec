@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.89
+Version:        0.17.90
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -312,8 +312,14 @@ fi
 %{_datadir}/pipewire/client.conf.d/90-gts9wifi-upmix.conf
 %dir %{_datadir}/pipewire/pipewire-pulse.conf.d
 %{_datadir}/pipewire/pipewire-pulse.conf.d/90-gts9wifi-upmix.conf
+%{_prefix}/lib/firmware/qcom/sm8550/Samsung-Galaxy-Tab-S9-tplg.bin
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.90-1
+- Build and ship Samsung-Galaxy-Tab-S9-tplg.bin with both 4-channel discrete
+  PRIMARY_TDM_RX_0 (MODULE_ID_TDM_SINK 0x0700100E) and backwards-compatible
+  2-channel PRIMARY_MI2S_RX, plus 2..4ch MultiMedia1/2/5 stream subgraphs.
+
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.89-1
 - Make gts9wifi-speaker-protection.service Type=simple so it does not block
   boot, and wait up to 90s on boot (15s on resume) for CS35L45 DSP1 controls

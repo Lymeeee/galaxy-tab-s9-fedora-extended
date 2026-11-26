@@ -32,7 +32,7 @@ jobs:
             quay.io/fedora/fedora:44 \
             bash -lc '
               set -euxo pipefail
-              dnf -y install rpm-build systemd-rpm-macros glib2 glib2-devel libgtop2-devel gcc findutils tar gzip sed python3 desktop-file-utils python3-gobject gtk4 libadwaita nodejs dtc checkpolicy policycoreutils >/dev/null
+              dnf -y install rpm-build systemd-rpm-macros glib2 glib2-devel libgtop2-devel gcc findutils tar gzip sed python3 desktop-file-utils python3-gobject gtk4 libadwaita nodejs dtc checkpolicy policycoreutils m4 alsa-topology-utils git >/dev/null
               python3 -m py_compile /work/userspace/tree/usr/bin/gts9wifi-settings /work/userspace/tree/usr/libexec/gts9wifi-power-key /work/userspace/tree/usr/libexec/gts9wifi-charge-mode /work/userspace/tree/usr/libexec/gts9wifi-wifi-bdf /work/userspace/tree/usr/libexec/gts9wifi-spen-remote /work/userspace/tree/usr/libexec/gts9wifi-rtc-time /work/userspace/tree/usr/libexec/gts9wifi-zh-translations /work/userspace/tree/usr/libexec/gts9wifi-camera-calib /work/userspace/tree/usr/libexec/gts9wifi-cover-boot-guard
               rm -rf /work/userspace/tree/usr/bin/__pycache__ /work/userspace/tree/usr/libexec/__pycache__
               python3 /work/userspace/tests/settings-smoke.py
@@ -69,6 +69,15 @@ jobs:
               mkdir -p "/tmp/src/gts9wifi-userspace-$VERSION"
               cp -a /work/userspace/tree/. "/tmp/src/gts9wifi-userspace-$VERSION/"
               cp -a /work/userspace/selinux "/tmp/src/gts9wifi-userspace-$VERSION/"
+              rm -rf /tmp/audioreach-topology
+              git clone --depth 1 https://github.com/linux-msm/audioreach-topology.git /tmp/audioreach-topology
+              cp /work/userspace/topology/module_tdm.m4 /tmp/audioreach-topology/audioreach/
+              cp /work/userspace/topology/subgraph-device-tdm-playback.m4 /tmp/audioreach-topology/audioreach/
+              cp /work/userspace/topology/Samsung-Galaxy-Tab-S9.m4 /tmp/audioreach-topology/
+              (cd /tmp/audioreach-topology && m4 -I . Samsung-Galaxy-Tab-S9.m4 > Samsung-Galaxy-Tab-S9.conf && alsatplg -v 1 -c Samsung-Galaxy-Tab-S9.conf -o Samsung-Galaxy-Tab-S9-tplg.bin)
+              install -d "/tmp/src/gts9wifi-userspace-$VERSION/usr/lib/firmware/qcom/sm8550"
+              install -m 0644 /tmp/audioreach-topology/Samsung-Galaxy-Tab-S9-tplg.bin \
+                "/tmp/src/gts9wifi-userspace-$VERSION/usr/lib/firmware/qcom/sm8550/Samsung-Galaxy-Tab-S9-tplg.bin"
               tar -C /tmp/src -czf ~/rpmbuild/SOURCES/gts9wifi-userspace-$VERSION.tar.gz \
                 "gts9wifi-userspace-$VERSION"
               cp /work/userspace/cpuinfo/gts9-cpuinfo.c ~/rpmbuild/SOURCES/
