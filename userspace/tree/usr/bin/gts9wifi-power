@@ -41,6 +41,30 @@ set_cpu_min_freqs() { # set_cpu_min_freqs <reset | p0_khz p3_khz p7_khz>
     done
 }
 
+set_cpu_max_freqs() { # set_cpu_max_freqs <reset | p0_khz p3_khz p7_khz>
+    if [ "$1" = reset ]; then
+        for d in /sys/devices/system/cpu/cpufreq/policy*; do
+            [ -d "$d" ] || continue
+            max=$(cat "$d/cpuinfo_max_freq" 2>/dev/null) || continue
+            printf '%s\n' "$max" >"$d/scaling_max_freq" 2>/dev/null || true
+        done
+        return
+    fi
+    for pair in "policy0:$1" "policy3:$2" "policy7:$3"; do
+        pol="${pair%%:*}"
+        freq="${pair#*:}"
+        d="/sys/devices/system/cpu/cpufreq/$pol"
+        [ -d "$d" ] || continue
+        printf '%s\n' "$freq" >"$d/scaling_max_freq" 2>/dev/null || true
+    done
+}
+
+set_uclamp_max() { # 0..1024: global EAS utilization ceiling
+    if [ -w /proc/sys/kernel/sched_util_clamp_max ]; then
+        printf '%s\n' "$1" >/proc/sys/kernel/sched_util_clamp_max 2>/dev/null || true
+    fi
+}
+
 set_boost() { # 0|1: expose the SM8550-AC boost OPP (CPU7 3.36 GHz)
     printf '%s\n' "$1" >/sys/devices/system/cpu/cpufreq/boost 2>/dev/null ||
         true
@@ -83,29 +107,40 @@ apply_profile() { # apply_profile <name>
     [ "$profile" = sticky ] && profile=balanced
     case "$profile" in
         powersave)
-            # Full EAS on schedutil, cap CPU7 at 2.95 GHz (boost=0), cap GPU
-            # at 475 MHz, Wi-Fi power_save on.
-            set_cpu_schedutil 4000
+            # Ultra-low-power EAS (~1.5-2 W): 12 ms schedutil, uclamp_max=320,
+            # boost off, strict low-freq caps on all clusters, GPU <= 401 MHz,
+            # Wi-Fi power_save on.
+            set_cpu_schedutil 12000
             set_cpu_min_freqs reset
             set_boost 0
-            set_gpu 220000000 475000000 20
+            set_cpu_max_freqs 1228800 1286400 1248000
+            set_uclamp_max 320
+            set_gpu 220000000 401000000 20
             set_wifi on
             ;;
         balanced)
-            # Full EAS on schedutil with fast 2 ms scaling and 3.36 GHz boost
-            # on demand; 10 ms GPU devfreq matches 120 Hz; Wi-Fi power_save off.
-            set_cpu_schedutil 2000
+            # Conservative ~3 W EAS profile: 8 ms schedutil lingers in low OPPs,
+            # uclamp_max=460 keeps tasks below CPU3-6 capacity (578 * 0.8) so
+            # CPU7 (X3) rarely wakes, cap A510/A715+A710/X3 to their high-efficiency
+            # sweet spots (1.56 / 1.65 / 1.59 GHz), GPU <= 550 MHz @ 15 ms,
+            # Wi-Fi power_save off.
+            set_cpu_schedutil 8000
             set_cpu_min_freqs reset
-            set_boost 1
-            set_gpu 220000000 719000000 10
+            set_boost 0
+            set_cpu_max_freqs 1555200 1651200 1593600
+            set_uclamp_max 460
+            set_gpu 220000000 550000000 15
             set_wifi off
             ;;
         performance)
-            # Keep EAS active with elevated floor clocks, 0.5 ms ramp, full
-            # 3.36 GHz boost, GPU floor at 475 MHz, Wi-Fi power_save off.
+            # Full unleashed EAS: 0.5 ms ramp, uclamp_max=1024, full 3.36 GHz
+            # boost and uncapped clusters, elevated floor clocks, GPU 475-719 MHz,
+            # Wi-Fi power_save off.
             set_cpu_schedutil 500
             set_boost 1
+            set_cpu_max_freqs reset
             set_cpu_min_freqs 1017600 1056000 1248000
+            set_uclamp_max 1024
             set_gpu 475000000 719000000 10
             set_wifi off
             ;;
@@ -121,6 +156,7 @@ apply_profile() { # apply_profile <name>
 show_status() {
     echo "saved profile: $(cat "$STATE" 2>/dev/null || echo balanced)"
     echo "cpu boost: $(cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || echo n/a)"
+    echo "uclamp_max: $(cat /proc/sys/kernel/sched_util_clamp_max 2>/dev/null || echo n/a)"
     for d in /sys/devices/system/cpu/cpufreq/policy*; do
         [ -d "$d" ] || continue
         printf 'cpu %s: %s (min=%s max=%s)\n' "$(basename "$d")" \

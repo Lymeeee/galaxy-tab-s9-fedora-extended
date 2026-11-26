@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.101
+Version:        0.17.102
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -351,6 +351,14 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.102-1
+- Make gts9wifi-power balanced profile genuinely conservative (~3 W target) and
+  distinct from performance: disable boost, cap clusters at high-efficiency
+  sweet spots (1.56 / 1.65 / 1.59 GHz), raise schedutil rate_limit_us to 8 ms,
+  lower sched_util_clamp_max to 460 so EAS avoids waking CPU7 (X3) and keeps
+  tasks in low OPPs, and cap GPU at 550 MHz @ 15 ms.
+- Tighten powersave profile (uclamp_max=320, ~1.25 GHz caps, GPU <= 401 MHz)
+  and ensure performance resets scaling_max_freq and uclamp_max back to full.
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.101-1
 - Hide raw CS35L45 Direct sink (media.class = Audio/Sink/Internal) by default
   in WirePlumber to prevent accidentally switching to the 100% hardware sink,
