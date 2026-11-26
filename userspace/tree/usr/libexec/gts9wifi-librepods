@@ -1,0 +1,98 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Download and install the aarch64 LibrePods (Linux Rust) RPM from GitHub Releases
+# and configure BlueZ DeviceID for Apple Accessory Protocol (AirPods).
+set -eu
+
+[ "$(id -u)" -ne 0 ] || { echo "run as your desktop user, not root" >&2; exit 1; }
+
+REPO=${GTS9_REPO:-Lymeeee/galaxy-tab-s9-fedora-extended}
+TAG=${LIBREPODS_TAG:-librepods-latest}
+API_URL="https://api.github.com/repos/${REPO}/releases/tags/${TAG}"
+
+dnf_cmd() {
+    if [ -f /etc/yum.repos.d/tailscale.repo ]; then
+        pkexec dnf --disablerepo=tailscale-stable "$@"
+    else
+        pkexec dnf "$@"
+    fi
+}
+
+echo "querying ${API_URL}"
+META=$(curl -fsSL "$API_URL")
+RPM_URL=$(printf '%s' "$META" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+for a in data.get("assets", []):
+    name = a.get("name", "")
+    if name.startswith("librepods-") and name.endswith(".aarch64.rpm"):
+        print(a["browser_download_url"])
+        break
+')
+SUMS_URL=$(printf '%s' "$META" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+for a in data.get("assets", []):
+    if a.get("name") == "SHA256SUMS":
+        print(a["browser_download_url"])
+        break
+')
+
+if [ -z "$RPM_URL" ]; then
+    echo "no librepods aarch64 RPM found in release ${TAG}" >&2
+    exit 1
+fi
+
+RPM_NAME=$(basename "$RPM_URL")
+OUT_DIR=${LIBREPODS_DIR:-$HOME/Downloads}
+mkdir -p "$OUT_DIR"
+OUT="${OUT_DIR}/${RPM_NAME}"
+
+echo "downloading ${RPM_URL}"
+curl -fL --retry 3 -C - -o "${OUT}.part" "$RPM_URL"
+mv "${OUT}.part" "$OUT"
+
+if [ -n "$SUMS_URL" ]; then
+    echo "verifying SHA256"
+    EXPECTED=$(curl -fsSL "$SUMS_URL" | awk -v f="$RPM_NAME" '$2 == f {print $1; exit}')
+    if [ -n "$EXPECTED" ]; then
+        ACTUAL=$(sha256sum "$OUT" | awk '{print $1}')
+        if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "checksum mismatch: expected ${EXPECTED}, got ${ACTUAL}" >&2
+            exit 1
+        fi
+    fi
+fi
+
+echo "installing ${OUT}"
+dnf_cmd install -y "$OUT"
+
+echo "configuring BlueZ DeviceID for AirPods (004C:0000:0000)"
+pkexec python3 - <<'PYEOF'
+import os, re, shutil, subprocess
+
+conf = '/etc/bluetooth/main.conf'
+target = 'DeviceID = bluetooth:004C:0000:0000'
+text = ''
+if os.path.exists(conf):
+    with open(conf, encoding='utf-8') as f:
+        text = f.read()
+
+if re.search(r'(?m)^\s*DeviceID\s*=\s*bluetooth:004C:', text):
+    print('BlueZ DeviceID already configured.')
+else:
+    if os.path.exists(conf) and not os.path.exists(conf + '.gts9wifi.bak'):
+        shutil.copy2(conf, conf + '.gts9wifi.bak')
+    if re.search(r'(?m)^\s*#?\s*DeviceID\s*=', text):
+        text = re.sub(r'(?m)^\s*#?\s*DeviceID\s*=.*$', target, text, count=1)
+    elif '[General]' in text:
+        text = text.replace('[General]', '[General]\n' + target, 1)
+    else:
+        text = '[General]\n' + target + '\n\n' + text
+    with open(conf, 'w', encoding='utf-8') as f:
+        f.write(text)
+    subprocess.run(['systemctl', 'restart', 'bluetooth.service'], check=False)
+    print('Updated /etc/bluetooth/main.conf and restarted bluetooth.service.')
+PYEOF
+
+echo "LibrePods installed successfully."

@@ -25,6 +25,7 @@ CAMERA_CALIB = '/usr/libexec/gts9wifi-camera-calib'
 IME = '/usr/libexec/gts9wifi-ime'
 ZH_TRANSLATIONS = '/usr/libexec/gts9wifi-zh-translations'
 OFFICE = '/usr/libexec/gts9wifi-office'
+LIBREPODS = '/usr/libexec/gts9wifi-librepods'
 POWERKEY = '/usr/libexec/gts9wifi-powerkey-mode'
 SPEN_BUTTON = '/usr/libexec/gts9wifi-spen-button'
 SPEN_BUTTON_CONF = '/etc/gts9wifi/spen-button'
@@ -427,6 +428,10 @@ class Settings(Adw.Application):
             '卸载 LibreOffice（RPM 或 Flatpak，如存在），下载并安装 '
             'ONLYOFFICE 官方 aarch64 RPM（约 270 MB）。',
             '安装', self.install_onlyoffice)
+        self.action_row(applications, 'LibrePods（AirPods 伴侣）',
+            '从本仓库 GitHub Releases 安装 aarch64 版 LibrePods，并配置 BlueZ Apple DeviceID'
+            '（支持降噪切换、电量显示与入耳检测）。',
+            '安装', self.install_librepods)
         page.add(applications)
 
         repositories = Adw.PreferencesGroup(title='软件仓库')
@@ -617,6 +622,13 @@ class Settings(Adw.Application):
             '将卸载LibreOffice，然后从ONLYOFFICE'
             ' 官方源下载aarch64版RPM包并安装',
             lambda: self.open_terminal([OFFICE]))
+
+    def install_librepods(self):
+        self.confirm_simple(
+            '安装 LibrePods？',
+            '将从 GitHub Releases 下载并安装 aarch64 版 LibrePods（Linux Rust），'
+            '并在 /etc/bluetooth/main.conf 中配置 Apple DeviceID 后重启蓝牙服务。',
+            lambda: self.open_terminal([LIBREPODS]))
 
     def install_rime(self):
         self.confirm_simple(

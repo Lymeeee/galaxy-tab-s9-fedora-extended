@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.94
+Version:        0.17.95
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -256,6 +256,7 @@ fi
 %{_libexecdir}/gts9wifi-camera-calib
 %{_libexecdir}/gts9wifi-mem-sleep
 %{_libexecdir}/gts9wifi-office
+%{_libexecdir}/gts9wifi-librepods
 %{_libexecdir}/gts9wifi-device-name
 %{_libexecdir}/gts9wifi-android-mounts
 %{_libexecdir}/gts9wifi-rtc-time
@@ -350,6 +351,15 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.95-1
+- Switch ALSA UCM2 (HiFi.conf / Samsung-Galaxy-Tab-S9.conf) to 4-channel
+  PRIMARY_TDM_RX_0 (PlaybackChannels 4, ASP_RX1 per-slot routing) and upgrade
+  PipeWire 90-gts9wifi-speaker-eq.conf filter-chain from 2.0 to 4.0
+  ([FL FR RL RR]) so GNOME speaker test and 4-channel playback drive all four
+  speakers independently.
+- Add one-click LibrePods (AirPods companion) installer in gts9wifi-settings
+  (/usr/libexec/gts9wifi-librepods) downloading the aarch64 RPM from GitHub
+  Releases and configuring BlueZ Apple DeviceID.
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.94-1
 - Switch CPU scaling across all profiles to EAS-preserving schedutil (with
   fast 2 ms rate_limit_us and 3.36 GHz boost on demand in balanced, 2.95 GHz
