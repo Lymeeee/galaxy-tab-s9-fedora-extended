@@ -749,7 +749,7 @@ class Settings(Adw.Application):
 
         kernel = Adw.PreferencesGroup(
             title='内核与启动',
-            description='只有在下方的输入确认后才会写入 boot 分区。')
+            description='点击确认后才会写入 boot 分区；工具会自动校验并保留备份。')
         self.kernel_tag = Adw.EntryRow(title='内核 release 标签')
         self.kernel_tag.set_text(DEFAULT_KERNEL_TAG)
         kernel.add(self.kernel_tag)
@@ -793,16 +793,14 @@ class Settings(Adw.Application):
         dialog.connect('response', response)
         dialog.present(self.window)
 
-    def confirm_typed(self, heading, body, word, callback):
+    def confirm_destructive(self, heading, body, ok_label, callback):
         dialog = Adw.AlertDialog(heading=heading, body=body)
-        entry = Gtk.Entry(placeholder_text='输入 %s 以确认' % word)
-        dialog.set_extra_child(entry)
         dialog.add_response('cancel', '取消')
-        dialog.add_response('ok', '继续')
+        dialog.add_response('ok', ok_label)
         dialog.set_response_appearance('ok', Adw.ResponseAppearance.DESTRUCTIVE)
 
         def response(_dialog, answer):
-            if answer == 'ok' and entry.get_text().strip() == word:
+            if answer == 'ok':
                 callback()
 
         dialog.connect('response', response)
@@ -813,18 +811,18 @@ class Settings(Adw.Application):
         if not tag or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-' for c in tag):
             self.alert('标签无效', '请使用 latest 或形如 kernel-7.2.0-20261109.67 的日期标签。')
             return
-        self.confirm_typed(
+        self.confirm_destructive(
             '刷写内核和系统分区？',
             '这会写入boot、init_boot、vendor_boot和dtbo，然后安装匹配的内核RPM。'
             '工具会校验下载并保留备份。标签：%s' % tag,
-            'FLASH',
+            '刷写内核',
             lambda: self.open_terminal(['pkexec', UPDATE, 'kernel', '--tag', tag, '--flash']))
 
     def rollback_boot(self):
-        self.confirm_typed(
+        self.confirm_destructive(
             '回滚分区？',
             '恢复最近的分区备份和内核模块，然后重启。',
-            'ROLLBACK',
+            '立即回滚',
             lambda: self.open_terminal(['pkexec', UPDATE, 'rollback']))
 
     def open_terminal(self, argv):
