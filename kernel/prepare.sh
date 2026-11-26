@@ -225,19 +225,22 @@ config QCOM_GLINK_SPSS\
 grep -q 'qcom_glink_spss.o' drivers/rpmsg/Makefile || \
     printf 'obj-$(CONFIG_QCOM_GLINK_SPSS)\t+= qcom_glink_spss.o\n' >> drivers/rpmsg/Makefile
 
-grep -q 'QCOM_SPCOM' drivers/soc/qcom/Kconfig || sed -i '/^endmenu$/i \
-config QCOM_SPCOM\
-\ttristate "Qualcomm Shared Processor Communication (SPCOM)"\
-\tdepends on ARCH_QCOM\
-\
-config QCOM_SPSS_UTILS\
-\ttristate "Qualcomm SPSS provisioning and event interface"\
-\tdepends on ARCH_QCOM\
-\
-config QCOM_SPSS_IRQ\
-\ttristate "Qualcomm SPSS secure-processor IRQ notification"\
-\tdepends on ARCH_QCOM\
-' drivers/soc/qcom/Kconfig
+# Linux 7.3 switched drivers/soc/qcom/Kconfig from menu/endmenu to
+# menuconfig + if/endif, so append instead of anchoring on ^endmenu$.
+grep -q 'QCOM_SPCOM' drivers/soc/qcom/Kconfig || cat >> drivers/soc/qcom/Kconfig <<'SPU_QCOM_KCONFIG'
+
+config QCOM_SPCOM
+	tristate "Qualcomm Shared Processor Communication (SPCOM)"
+	depends on ARCH_QCOM
+
+config QCOM_SPSS_UTILS
+	tristate "Qualcomm SPSS provisioning and event interface"
+	depends on ARCH_QCOM
+
+config QCOM_SPSS_IRQ
+	tristate "Qualcomm SPSS secure-processor IRQ notification"
+	depends on ARCH_QCOM
+SPU_QCOM_KCONFIG
 grep -q 'spcom.o' drivers/soc/qcom/Makefile || \
     printf 'obj-$(CONFIG_QCOM_SPCOM)\t+= spcom.o\n' >> drivers/soc/qcom/Makefile
 grep -q 'spss_utils.o' drivers/soc/qcom/Makefile || \
@@ -281,5 +284,13 @@ cp "$here/files/config-mainline.aarch64" .config
 scripts/kconfig/merge_config.sh -m .config "$here/files/config-gts9wifi.fragment"
 unset LDFLAGS
 make ARCH=arm64 LLVM=1 olddefconfig
+
+for sym in CONFIG_QCOM_SPSS CONFIG_QCOM_GLINK_SPSS CONFIG_QCOM_SPCOM \
+           CONFIG_QCOM_SPSS_UTILS CONFIG_QCOM_SPSS_IRQ CONFIG_DMABUF_HEAPS_SP_HLOS; do
+    grep -q "^${sym}=m$" .config || {
+        echo "ERROR: ${sym}=m missing from .config after olddefconfig" >&2
+        exit 1
+    }
+done
 
 echo ">>> kernel tree prepared: $(make ARCH=arm64 kernelrelease 2>/dev/null || true)"
