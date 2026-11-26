@@ -1,6 +1,6 @@
---- a/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c	2026-07-21 12:13:19.774867761 +0200
-+++ b/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c	2026-07-21 12:13:19.774867761 +0200
-@@ -4981,6 +4981,17 @@
+--- a/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
++++ b/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
+@@ -5805,6 +5805,17 @@ skip_tbls_init:
  	if (ret)
  		return ret;
  
@@ -15,6 +15,6 @@
 +	 */
 +	clk_set_rate(qmp->pipe_clks[0].clk, ULONG_MAX);
 +
- 	ret = reset_control_deassert(qmp->nocsr_reset);
- 	if (ret) {
- 		dev_err(qmp->dev, "no-csr reset deassert failed\n");
+ 	if (!skip_reset) {
+ 		ret = reset_control_deassert(qmp->nocsr_reset);
+ 		if (ret) {

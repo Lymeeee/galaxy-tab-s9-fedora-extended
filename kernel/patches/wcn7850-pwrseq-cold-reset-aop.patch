@@ -1,5 +1,5 @@
---- a/drivers/power/sequencing/pwrseq-qcom-wcn.c	2026-07-21 12:13:19.806867761 +0200
-+++ b/drivers/power/sequencing/pwrseq-qcom-wcn.c	2026-07-21 12:13:19.806867761 +0200
+--- a/drivers/power/sequencing/pwrseq-qcom-wcn.c
++++ b/drivers/power/sequencing/pwrseq-qcom-wcn.c
 @@ -14,6 +14,7 @@
  #include <linux/property.h>
  #include <linux/regulator/consumer.h>
@@ -8,7 +8,7 @@
  #include <linux/string.h>
  #include <linux/types.h>
  
-@@ -24,6 +25,7 @@
+@@ -24,6 +25,7 @@ struct pwrseq_qcom_wcn_pdata {
  	unsigned int gpio_enable_delay_ms;
  	const struct pwrseq_target_data **targets;
  	bool has_vddio; /* separate VDD IO regulator */
@@ -16,15 +16,15 @@
  	int (*match)(struct pwrseq_device *pwrseq, struct device *dev);
  };
  
-@@ -381,6 +383,7 @@
- 	.num_vregs = ARRAY_SIZE(pwrseq_wcn6855_vregs),
+@@ -382,6 +384,7 @@ static const struct pwrseq_qcom_wcn_pdata pwrseq_wcn6855_of_data = {
  	.pwup_delay_ms = 50,
  	.gpio_enable_delay_ms = 5,
  	.targets = pwrseq_qcom_wcn6855_targets,
 +	.cold_reset_wlan = true,
  };
  
-@@ -399,6 +402,7 @@
+ static const char *const pwrseq_wcn7850_vregs[] = {
+@@ -399,6 +402,7 @@ static const struct pwrseq_qcom_wcn_pdata pwrseq_wcn7850_of_data = {
  	.num_vregs = ARRAY_SIZE(pwrseq_wcn7850_vregs),
  	.pwup_delay_ms = 50,
  	.targets = pwrseq_qcom_wcn_targets,
@@ -32,7 +32,7 @@
  };
  
  static int pwrseq_qcom_wcn_match_regulator(struct pwrseq_device *pwrseq,
-@@ -454,6 +458,37 @@
+@@ -454,6 +458,37 @@ static int pwrseq_qcom_wcn3990_match(struct pwrseq_device *pwrseq,
  	return pwrseq_qcom_wcn_match_regulator(pwrseq, dev, "vdd-1.8-xo-supply");
  }
  
@@ -70,36 +70,23 @@
  static int pwrseq_qcom_wcn_probe(struct platform_device *pdev)
  {
  	struct device *dev = &pdev->dev;
-@@ -504,7 +539,8 @@
- 	 * the link down handling is implemented in the controller driver.
- 	 */
- 	ctx->wlan_gpio = devm_gpiod_get_optional(dev, "wlan-enable",
--						 GPIOD_ASIS);
-+						 ctx->pdata->cold_reset_wlan ?
-+						 GPIOD_OUT_LOW : GPIOD_ASIS);
- 	if (IS_ERR(ctx->wlan_gpio))
+@@ -504,6 +539,15 @@ static int pwrseq_qcom_wcn_probe(struct platform_device *pdev)
  		return dev_err_probe(dev, PTR_ERR(ctx->wlan_gpio),
  				     "Failed to get the WLAN enable GPIO\n");
-@@ -519,14 +555,27 @@
- 	 * Set direction to output but keep the current value in order to not
- 	 * disable the WLAN module accidentally if it's already powered on.
- 	 */
--	gpiod_direction_output(ctx->wlan_gpio,
--			       gpiod_get_value_cansleep(ctx->wlan_gpio));
+ 
 +	/*
 +	 * Samsung's WCN sleep state drives WLAN_EN low, but ABL/recovery can
-+	 * hand Linux an already-high pin while the PMU rails are unsequenced.  For
-+	 * this part the GPIO was requested as OUT_LOW above; settle briefly so the
-+	 * normal regulator -> clock -> WLAN_EN sequence starts from a known state.
++	 * hand Linux an already-high pin while the PMU rails are unsequenced.
++	 * Settle briefly after driving OUT_LOW so regulator -> clock -> WLAN_EN
++	 * starts from a known state.
 +	 */
 +	if (ctx->pdata->cold_reset_wlan)
 +		usleep_range(5000, 10000);
-+	else
-+		gpiod_direction_output(ctx->wlan_gpio,
-+				       gpiod_get_value_cansleep(ctx->wlan_gpio));
- 
- 	ctx->clk = devm_clk_get_optional(dev, NULL);
- 	if (IS_ERR(ctx->clk))
++
+ 	ctx->xo_clk_gpio = devm_gpiod_get_optional(dev, "xo-clk",
+ 						   GPIOD_OUT_LOW);
+ 	if (IS_ERR(ctx->xo_clk_gpio))
+@@ -515,6 +558,10 @@ static int pwrseq_qcom_wcn_probe(struct platform_device *pdev)
  		return dev_err_probe(dev, PTR_ERR(ctx->clk),
  				     "Failed to get the reference clock\n");
  

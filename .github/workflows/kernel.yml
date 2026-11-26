@@ -12,12 +12,12 @@ on:
         default: "30cace40556fdaf1577c76bedc1b1a6236f4acc23e9300253b3834fa7ed4bab5"
         type: string
       release_tag:
-        description: "Immutable release tag (empty = kernel-7.2.0-<YYYYMMDD>.<run>); the same assets are mirrored to the rolling 'latest' release"
+        description: "Immutable release tag (empty = kernel-7.3.6-<YYYYMMDD>.<run>); mirrored to 'latest' on main"
         default: ""
         type: string
 
 env:
-  KVER: 7.2.0-gts9wifi
+  KVER: 7.3.6-gts9wifi
 
 permissions:
   contents: write
@@ -37,7 +37,7 @@ jobs:
         run: |
           build_id="$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}"
           rel="${{ inputs.release_tag }}"
-          [ -n "$rel" ] || rel="kernel-7.2.0-$build_id"
+          [ -n "$rel" ] || rel="kernel-7.3.6-$build_id"
           {
             echo "build_id=$build_id"
             echo "rel=$rel"
@@ -85,22 +85,22 @@ jobs:
 
               # --- kernel ---
               mkdir -p /tmp/kcache
-              if [ ! -f /tmp/kcache/linux-7.2.tar.gz ]; then
-                curl -sfL https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.2.tar.gz \
-                  -o /tmp/kcache/linux-7.2.tar.gz
+              if [ ! -f /tmp/kcache/linux-7.3.6.tar.xz ]; then
+                curl -sfL https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.3.6.tar.xz \
+                  -o /tmp/kcache/linux-7.3.6.tar.xz
               fi
-              tar xf /tmp/kcache/linux-7.2.tar.gz
-              cd linux-7.2
+              tar xf /tmp/kcache/linux-7.3.6.tar.xz
+              cd linux-7.3.6
               bash /work/kernel/prepare.sh .
               echo "-gts9wifi" > localversion-gts9wifi
               cd ..
-              mv linux-7.2 linux-prepared
+              mv linux-7.3.6 linux-prepared
               tar czf linux-prepared.tar.gz linux-prepared
               rm -rf linux-prepared
 
               mkdir -p ~/rpmbuild/SOURCES out-kernel out-bundle out-twrp
               cp linux-prepared.tar.gz ~/rpmbuild/SOURCES/
-              rpmbuild -bb --define "kversion 7.2.0" --define "buildid $BUILD_ID" \
+              rpmbuild -bb --define "kversion 7.3.6" --define "buildid $BUILD_ID" \
                   /work/kernel/kernel.spec
               cp ~/rpmbuild/RPMS/aarch64/*.rpm out-kernel/
 
@@ -129,7 +129,7 @@ jobs:
               # --- boot bundle ---
               bash /work/boot/build-bundle.sh \
                 --vmlinuz /boot/vmlinuz-"$KVER" \
-                --dtb "/boot/dtbs-7.2.0-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb" \
+                --dtb "/boot/dtbs-7.3.6-gts9wifi/qcom/sm8550-samsung-gts9wifi.dtb" \
                 --initramfs /tmp/initramfs.img \
                 --cmdline /work/boot/cmdline.txt \
                 --bootconfig /work/boot/bootconfig.txt \
@@ -143,7 +143,7 @@ jobs:
 
               # --- TWRP zip ---
               python3 /work/tools/make-twrp-zip.py out-bundle \
-                out-twrp/gts9wifi-fedora-7.2.0-"$BUILD_ID".zip --project /work
+                out-twrp/gts9wifi-fedora-7.3.6-"$BUILD_ID".zip --project /work
             '
 
       - name: Fix ownership
@@ -230,21 +230,23 @@ jobs:
           }
 
           ensure_release "$REL" "--prerelease --latest=false" \
-            "Kernel 7.2.0 build $BUILD_ID" \
-            "Kernel 7.2.0, boot bundle and TWRP zip. Build $BUILD_ID, commit $GITHUB_SHA."
+            "Kernel 7.3.6 build $BUILD_ID" \
+            "Kernel 7.3.6, boot bundle and TWRP zip. Build $BUILD_ID, commit $GITHUB_SHA."
           upload_assets "$REL"
 
-          # The rolling release is what gts9wifi-update uses by default.  Keep
-          # exactly one kernel pair there; the immutable release above is the
-          # pin/rollback anchor.
-          ensure_release latest "--latest" \
-            "GTS9 Latest" \
-            "Rolling channel: newest userspace/dynpart RPMs and kernel bundle."
-          upload_assets latest
+          # The rolling release is what gts9wifi-update uses by default.  Only
+          # mirror builds from main so experimental branches never overwrite
+          # the known-good 'latest' kernel.
+          if [ "${GITHUB_REF_NAME:-}" = "main" ]; then
+            ensure_release latest "--latest" \
+              "GTS9 Latest" \
+              "Rolling channel: newest userspace/dynpart RPMs and kernel bundle."
+            upload_assets latest
 
-          new_rpm=$(basename "$(echo out-kernel/*.rpm)")
-          new_zip=$(basename "$(echo out-twrp/*.zip)")
-          gh release view latest --json assets --jq '.assets[].name' \
-            | grep -E '^linux-gts9wifi-.*\.rpm$|^gts9wifi-fedora-.*\.zip$' \
-            | grep -vxF -e "$new_rpm" -e "$new_zip" \
-            | while read -r old; do gh release delete-asset latest "$old" --yes; done || true
+            new_rpm=$(basename "$(echo out-kernel/*.rpm)")
+            new_zip=$(basename "$(echo out-twrp/*.zip)")
+            gh release view latest --json assets --jq '.assets[].name' \
+              | grep -E '^linux-gts9wifi-.*\.rpm$|^gts9wifi-fedora-.*\.zip$' \
+              | grep -vxF -e "$new_rpm" -e "$new_zip" \
+              | while read -r old; do gh release delete-asset latest "$old" --yes; done || true
+          fi

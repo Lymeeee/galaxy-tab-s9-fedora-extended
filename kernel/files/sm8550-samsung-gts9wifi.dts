@@ -455,6 +455,15 @@
 	status = "disabled";
 };
 
+/*
+ * Linux 7.3 marks CRYPTO_DEV_QCE BROKEN, leaving 1dfa000.crypto without a
+ * driver.  Disable it so aggre2_noc and mc_virt complete sync_state() and
+ * release boot DDR votes (otherwise AOSD/CXSD/DDR collapse is blocked).
+ */
+&crypto {
+	status = "disabled";
+};
+
 &scm {
 	interrupts = <GIC_SPI 930 IRQ_TYPE_EDGE_RISING>;
 };

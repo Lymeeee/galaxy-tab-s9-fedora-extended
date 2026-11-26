@@ -1,16 +1,16 @@
 --- a/sound/soc/qcom/sc8280xp.c
 +++ b/sound/soc/qcom/sc8280xp.c
-@@ -15,6 +15,9 @@
+@@ -18,6 +18,9 @@
  #include "common.h"
  #include "sdw.h"
  
 +/* 48 kHz, 16 bit, 2 channels - the rate the BE hw_params fixup pins. */
 +#define MI2S_BCLK_RATE		1536000
 +
- struct sc8280xp_snd_data {
- 	bool stream_prepared[AFE_PORT_MAX];
- 	struct snd_soc_card *card;
-@@ -114,8 +117,56 @@
+ #define I2S_MCLKFS 256
+ 
+ #define I2S_MCLK_RATE(rate) \
+@@ -370,8 +373,56 @@ static int sc8280xp_snd_hw_free(struct snd_pcm_substream *substream)
  	return qcom_snd_sdw_hw_free(substream, &data->stream_prepared[cpu_dai->id]);
  }
  
@@ -66,5 +66,5 @@
 -	.startup = qcom_snd_sdw_startup,
 +	.startup = sc8280xp_snd_startup,
  	.shutdown = qcom_snd_sdw_shutdown,
+ 	.hw_params = sc8280xp_snd_hw_params,
  	.hw_free = sc8280xp_snd_hw_free,
- 	.prepare = sc8280xp_snd_prepare,

@@ -9,21 +9,19 @@ instead of failing the transfer immediately.
 --- a/drivers/i2c/busses/i2c-qcom-geni.c
 +++ b/drivers/i2c/busses/i2c-qcom-geni.c
 @@ -3,6 +3,7 @@
-
+ 
  #include <linux/acpi.h>
  #include <linux/clk.h>
 +#include <linux/delay.h>
  #include <linux/dmaengine.h>
  #include <linux/dma-mapping.h>
  #include <linux/dma/qcom-gpi-dma.h>
-@@ -909,15 +910,29 @@
+@@ -994,13 +995,27 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
  {
  	struct geni_i2c_dev *gi2c = i2c_get_adapdata(adap);
  	int ret;
 +	int retry;
-
- 	gi2c->err = 0;
- 	reinit_completion(&gi2c->done);
+ 
 -	ret = pm_runtime_get_sync(gi2c->se.dev);
 -	if (ret < 0) {
 -		dev_err(gi2c->se.dev, "error turning SE resources:%d\n", ret);
@@ -48,4 +46,4 @@ instead of failing the transfer immediately.
 +		dev_err(gi2c->se.dev, "error turning SE resources:%d\n", ret);
  		return ret;
  	}
-
+ 

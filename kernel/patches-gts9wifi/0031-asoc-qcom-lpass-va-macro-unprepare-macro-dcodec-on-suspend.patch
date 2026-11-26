@@ -1,63 +1,15 @@
 From: gts9wifi Fedora port
-Subject: [PATCH] ASoC: codecs: lpass-va-macro: unprepare macro and dcodec clocks on suspend
+Subject: [PATCH] ASoC: codecs: lpass-va-macro: wire SYSTEM_SLEEP_PM_OPS
 
-va_macro_probe() calls clk_prepare_enable() on va->macro and va->dcodec
-(which map to Q6PRM LPASS_HW_MACRO_VOTE and LPASS_HW_DCODEC_VOTE on
-SM8550), but va_macro_runtime_suspend() only disables va->mclk and
-va->npl.  As a result, the Q6PRM hardware core votes remain permanently
-asserted even when the VA macro is runtime-suspended or during deep
-system suspend, blocking ADSP island entry and SoC AOSD/CXSD/DDR collapse.
-
-Disable/unprepare va->dcodec and va->macro in va_macro_runtime_suspend(),
-re-enable them in va_macro_runtime_resume(), and wire SYSTEM_SLEEP_PM_OPS
-via pm_runtime_force_suspend/resume.
+In Linux 7.3 lpass-va-macro uses pm_clk_suspend()/pm_clk_resume() for
+runtime PM (releasing macro/dcodec Q6PRM votes), but still lacks
+SYSTEM_SLEEP_PM_OPS so forced system suspend can leave the clocks
+enabled.  Wire pm_runtime_force_suspend/resume as SYSTEM_SLEEP_PM_OPS.
 
 ---
 --- a/sound/soc/codecs/lpass-va-macro.c
 +++ b/sound/soc/codecs/lpass-va-macro.c
-@@ -1724,6 +1724,8 @@
- 		clk_disable_unprepare(va->npl);
- 
- 	clk_disable_unprepare(va->mclk);
-+	clk_disable_unprepare(va->dcodec);
-+	clk_disable_unprepare(va->macro);
- 
- 	return 0;
- }
-@@ -1733,8 +1735,23 @@
- 	struct va_macro *va = dev_get_drvdata(dev);
- 	int ret;
- 
-+	ret = clk_prepare_enable(va->macro);
-+	if (ret) {
-+		dev_err(va->dev, "unable to prepare macro\n");
-+		return ret;
-+	}
-+
-+	ret = clk_prepare_enable(va->dcodec);
-+	if (ret) {
-+		clk_disable_unprepare(va->macro);
-+		dev_err(va->dev, "unable to prepare dcodec\n");
-+		return ret;
-+	}
-+
- 	ret = clk_prepare_enable(va->mclk);
- 	if (ret) {
-+		clk_disable_unprepare(va->dcodec);
-+		clk_disable_unprepare(va->macro);
- 		dev_err(va->dev, "unable to prepare mclk\n");
- 		return ret;
- 	}
-@@ -1743,6 +1760,8 @@
- 		ret = clk_prepare_enable(va->npl);
- 		if (ret) {
- 			clk_disable_unprepare(va->mclk);
-+			clk_disable_unprepare(va->dcodec);
-+			clk_disable_unprepare(va->macro);
- 			dev_err(va->dev, "unable to prepare npl\n");
- 			return ret;
- 		}
-@@ -1757,6 +1776,7 @@
+@@ -1755,6 +1755,7 @@ static int va_macro_runtime_resume(struct device *dev)
  
  static const struct dev_pm_ops va_macro_pm_ops = {
  	RUNTIME_PM_OPS(va_macro_runtime_suspend, va_macro_runtime_resume, NULL)

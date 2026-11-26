@@ -29,11 +29,12 @@ PCI_EXP_SLTCAP_NCCS in qcom_pcie_set_slot_nccs().
 ---
 --- a/drivers/pci/controller/dwc/pcie-qcom.c
 +++ b/drivers/pci/controller/dwc/pcie-qcom.c
-@@ -371,6 +371,7 @@ static void qcom_pcie_set_slot_nccs(struct dw_pcie *pci)
+@@ -395,7 +395,7 @@ static void qcom_pcie_set_slot_cap(struct dw_pcie *pci)
+ 	 * Qcom PCIe Root Ports do not support Attention Button, so clear
+ 	 * Attention Button Present in Slot Capabilities.
  	 */
- 	val = readl(pci->dbi_base + offset + PCI_EXP_SLTCAP);
- 	val |= PCI_EXP_SLTCAP_NCCS;
-+	val &= ~(PCI_EXP_SLTCAP_HPC | PCI_EXP_SLTCAP_HPS);
+-	val &= ~PCI_EXP_SLTCAP_ABP;
++	val &= ~(PCI_EXP_SLTCAP_ABP | PCI_EXP_SLTCAP_HPC | PCI_EXP_SLTCAP_HPS);
  	writel(val, pci->dbi_base + offset + PCI_EXP_SLTCAP);
  
  	dw_pcie_dbi_ro_wr_dis(pci);
