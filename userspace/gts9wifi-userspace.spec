@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.96
+Version:        0.17.97
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -351,6 +351,8 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.97-1
+- Rename default PipeWire tuned speaker sink from "平板内置扬声器" to "内置扬声器".
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.96-1
 - Disable unused ALSA Compress-Offload virtual card (alsa_card.comprC*) in
   WirePlumber, shorten default tuned speaker sink name to "平板内置扬声器"

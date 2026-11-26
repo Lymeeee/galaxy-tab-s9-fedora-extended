@@ -426,7 +426,7 @@ class Settings(Adw.Application):
             '重载', self.reload_speaker_eq)
         self.hide_direct_row = Adw.SwitchRow(
             title='隐藏 CS35L45 Direct 输出源',
-            subtitle='在声音设置中隐藏底层直通扬声器，仅保留“平板内置扬声器”（不影响调音输出）。',
+            subtitle='在声音设置中隐藏底层直通扬声器，仅保留“内置扬声器”（不影响调音输出）。',
             active=self.hide_direct_speaker_enabled())
         self.hide_direct_row.connect('notify::active', self.hide_direct_speaker_toggled)
         applications.add(self.hide_direct_row)
