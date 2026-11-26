@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.105
+Version:        0.17.106
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -353,6 +353,12 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.106-1
+- Revert UCM2 speaker routing and PipeWire speaker EQ back to stable 2-ch
+  PRIMARY_MI2S_RX stereo (all 4 CS35L45 amps: L=ASP_RX1, R=ASP_RX2) after
+  4-ch TDM triggered slot-0-only output and CS35L45 5-0033 AMP_SHORT_ERR.
+- Keep speaker icon, 30% default volume, hidden direct sink, and WirePlumber
+  volume guard intact.
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.105-1
 - Add WirePlumber 0.5 Lua guard script (gts9wifi-speaker-volume-guard.lua)
   that automatically sets the raw CS35L45 Direct sink to 100% (unmuted) when
