@@ -424,6 +424,12 @@ class Settings(Adw.Application):
         self.action_row(applications, '重载扬声器调音',
             '应用对内置调音配置的修改，或恢复默认调音。',
             '重载', self.reload_speaker_eq)
+        self.hide_direct_row = Adw.SwitchRow(
+            title='隐藏 CS35L45 Direct 输出源',
+            subtitle='在声音设置中隐藏底层直通扬声器，仅保留“平板内置扬声器”（不影响调音输出）。',
+            active=self.hide_direct_speaker_enabled())
+        self.hide_direct_row.connect('notify::active', self.hide_direct_speaker_toggled)
+        applications.add(self.hide_direct_row)
         self.action_row(applications, 'ONLYOFFICE 办公套件',
             '卸载 LibreOffice（RPM 或 Flatpak，如存在），下载并安装 '
             'ONLYOFFICE 官方 aarch64 RPM（约 270 MB）。',
@@ -585,6 +591,62 @@ class Settings(Adw.Application):
             self.alert('扬声器调音已重载', 'PipeWire 与 WirePlumber 已重新加载调音配置。')
         else:
             self.alert('重载失败', '请尝试在终端运行 systemctl --user restart pipewire wireplumber。')
+
+    def _hide_direct_conf_path(self):
+        return os.path.expanduser(
+            '~/.config/wireplumber/wireplumber.conf.d/91-gts9wifi-hide-direct-speaker.conf')
+
+    def hide_direct_speaker_enabled(self):
+        return os.path.exists(self._hide_direct_conf_path())
+
+    def hide_direct_speaker_toggled(self, row, _pspec):
+        if getattr(self, '_hide_direct_busy', False):
+            return
+        hide = row.get_active()
+        self._hide_direct_busy = True
+        row.set_sensitive(False)
+        conf_path = self._hide_direct_conf_path()
+
+        def worker():
+            ok = True
+            try:
+                if hide:
+                    os.makedirs(os.path.dirname(conf_path), exist_ok=True)
+                    with open(conf_path, 'w', encoding='utf-8') as f:
+                        f.write(
+                            '# Managed by gts9wifi-settings: hide raw CS35L45 Direct sink from PulseAudio/GNOME UI\n'
+                            'monitor.alsa.rules = [\n'
+                            '  {\n'
+                            '    matches = [\n'
+                            '      {\n'
+                            '        node.name = "alsa_output.platform-sound.HiFi__Speaker__sink"\n'
+                            '      }\n'
+                            '    ]\n'
+                            '    actions = {\n'
+                            '      update-props = {\n'
+                            '        media.class = "Audio/Sink/Internal"\n'
+                            '      }\n'
+                            '    }\n'
+                            '  }\n'
+                            ']\n'
+                        )
+                elif os.path.exists(conf_path):
+                    os.remove(conf_path)
+                result = run(['systemctl', '--user', 'restart', 'pipewire', 'wireplumber'], timeout=15)
+                ok = result is not None and result.returncode == 0
+            except OSError:
+                ok = False
+            GLib.idle_add(finish, ok)
+
+        def finish(ok):
+            row.set_sensitive(True)
+            if not ok:
+                row.set_active(self.hide_direct_speaker_enabled())
+                self.alert('切换失败', '无法更新 WirePlumber 配置或重启音频服务。')
+            self._hide_direct_busy = False
+            return False
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def enable_rpmfusion(self):
         if rpm('rpmfusion-free-release') != '未安装':

@@ -1,12 +1,27 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
 #
-# The pogo driver is built in and probes before the root filesystem is up, so
-# its own request_firmware() for the V37 keyboard blob runs too early and
-# returns -ENOENT.  Retry through the driver's firmware_update attribute once
-# local-fs.target is reached.  If the controller is already V37, the driver
-# reports "already current"; if no keyboard is attached, it returns -ENODEV.
+# Ensure the V37 keyboard firmware is present in /lib/firmware/keyboard_stm/
+# (auto-importing it from the mounted Android /vendor partition on fresh
+# installs), then retry the built-in pogo driver's firmware_update attribute
+# once local-fs.target and /vendor are up.  If the controller is already V37,
+# the driver reports "already current"; if no keyboard is attached, it returns
+# -ENODEV.
 set -u
+
+FW_DST=/lib/firmware/keyboard_stm/stm32_gts9family.bin
+FW_SRC=/vendor/firmware/keyboard_stm/stm32_gts9family.bin
+
+if [ ! -f "$FW_DST" ] && [ -f "$FW_SRC" ]; then
+	if install -Dm0644 "$FW_SRC" "$FW_DST"; then
+		command -v restorecon >/dev/null 2>&1 && restorecon -F "$FW_DST" >/dev/null 2>&1 || true
+		echo "gts9wifi-keyboard-fw: imported $FW_SRC -> $FW_DST"
+	else
+		echo "gts9wifi-keyboard-fw: failed to import $FW_SRC" >&2
+	fi
+fi
+
+[ -f "$FW_DST" ] || exit 0
 
 found=0
 for f in /sys/bus/i2c/devices/*-002a/firmware_update; do

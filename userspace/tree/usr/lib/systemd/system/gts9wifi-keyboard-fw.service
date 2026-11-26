@@ -1,7 +1,6 @@
 [Unit]
-Description=Apply the GTS9 keyboard V37 firmware after the root filesystem is up
-After=local-fs.target
-ConditionPathExists=/lib/firmware/keyboard_stm/stm32_gts9family.bin
+Description=Auto-import and apply the GTS9 keyboard V37 firmware after /vendor is mounted
+After=local-fs.target gts9wifi-android-parts.service
 
 [Service]
 Type=oneshot

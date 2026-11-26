@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.95
+Version:        0.17.96
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -351,6 +351,14 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.96-1
+- Disable unused ALSA Compress-Offload virtual card (alsa_card.comprC*) in
+  WirePlumber, shorten default tuned speaker sink name to "平板内置扬声器"
+  and raw hardware sink name to "CS35L45 Direct", and add a toggle in
+  gts9wifi-settings to hide/show "CS35L45 Direct" via Audio/Sink/Internal.
+- Auto-import the Pogo keyboard V37 firmware (stm32_gts9family.bin) from
+  /vendor/firmware/keyboard_stm/ on boot in gts9wifi-keyboard-fw so fresh
+  installs require zero manual firmware copying.
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.95-1
 - Switch ALSA UCM2 (HiFi.conf / Samsung-Galaxy-Tab-S9.conf) to 4-channel
   PRIMARY_TDM_RX_0 (PlaybackChannels 4, ASP_RX1 per-slot routing) and upgrade
