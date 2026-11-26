@@ -439,18 +439,14 @@
 };
 
 /*
- * Keep all three LPASS NoC providers quiescent.
- *
- * Enabling lpass_lpiaon_noc registers bcm_lp0 ("LP0") with apps_bcm_voter,
- * and because Linux has no interconnect consumer voting on it, sync_state()
- * flushes both active and sleep votes to 0 ~15-30s after boot, crashing the
- * running LPASS/ADSP and triggering an immediate hard SoC reset.
+ * Keep lpass_ag_noc and lpass_lpicx_noc quiescent (neither owns any BCM),
+ * while allowing lpass_lpiaon_noc to probe: sm8550_lpass_lpiaon_noc has no
+ * QoS regmap (desc->config == NULL, zero MMIO access) and is the sole owner
+ * of bcm_lp0 ("LP0").  With 0035 marking bcm_lp0 keepalive = true,
+ * sync_state() keeps AMC/WAKE at the minimum floor (1) so LPASS/ADSP stays
+ * alive while awake, and flushes LP0 = 0 in the RPMh [sleep] TCS on suspend.
  */
 &lpass_ag_noc {
-	status = "disabled";
-};
-
-&lpass_lpiaon_noc {
 	status = "disabled";
 };
 
@@ -1464,7 +1460,7 @@
 	qcom,drv-l1ss-timeout-us = <5000>;
 	qcom,l1-2-th-scale = <2>;
 	qcom,l1-2-th-value = <150>;
-	qcom,no-l0s-supported;
+	aspm-no-l0s;
 	status = "okay";
 };
 

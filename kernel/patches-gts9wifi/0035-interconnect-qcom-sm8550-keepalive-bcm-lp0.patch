@@ -1,0 +1,27 @@
+Subject: [PATCH] interconnect: qcom: sm8550: mark bcm_lp0 keepalive
+
+On Samsung Galaxy Tab S9 (gts9wifi), the bootloader leaves a non-zero
+APPS RSC vote on LP0 (bcm_lp0, owned exclusively by lpass_lpiaon_noc).
+Because Linux currently has no interconnect consumer voting on bcm_lp0,
+enabling lpass_lpiaon_noc with keepalive=false causes sync_state() to
+flush LP0 to 0 in ACTIVE (AMC), WAKE and SLEEP ~15-30s after boot,
+crashing the running LPASS/ADSP and triggering an immediate hard SoC
+reset.  Conversely, keeping lpass_lpiaon_noc disabled leaves LP0 out of
+the RPMh [sleep] TCS permanently, keeping the bootloader's LP0 vote
+active across suspend.
+
+Mark bcm_lp0 keepalive = true (matching bcm_mc0 / bcm_cn0 / bcm_sh0) so
+bcm-voter maintains a minimum floor vote (1) in AMC and WAKE while
+flushing LP0 to 0 in the SLEEP TCS during system suspend.
+
+---
+--- a/drivers/interconnect/qcom/sm8550.c
++++ b/drivers/interconnect/qcom/sm8550.c
+@@ -1123,6 +1123,7 @@
+ 
+ static struct qcom_icc_bcm bcm_lp0 = {
+ 	.name = "LP0",
++	.keepalive = true,
+ 	.num_nodes = 2,
+ 	.nodes = { &qnm_lpass_lpinoc, &qns_lpass_aggnoc },
+ };
