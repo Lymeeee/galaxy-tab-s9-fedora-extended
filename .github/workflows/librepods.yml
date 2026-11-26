@@ -1,0 +1,58 @@
+name: LibrePods aarch64 RPM
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish the LibrePods RPM to"
+        required: false
+        default: "librepods-latest"
+        type: string
+      branch:
+        description: "Upstream librepods branch to build"
+        required: false
+        default: "linux/rust"
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'librepods/**'
+      - '.github/workflows/librepods.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-librepods:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build LibrePods Fedora 44 aarch64 RPM
+        env:
+          LIBREPODS_BRANCH: ${{ inputs.branch || 'linux/rust' }}
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/work" -w /work \
+            -e LIBREPODS_BRANCH \
+            quay.io/fedora/fedora:44 \
+            bash /work/librepods/build-librepods-rpm.sh
+
+      - name: Publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          REL: ${{ inputs.release_tag || 'librepods-latest' }}
+        run: |
+          [ -n "$REL" ] || { echo "release tag is empty" >&2; exit 1; }
+          gh release view "$REL" >/dev/null 2>&1 || \
+            gh release create "$REL" --target "$GITHUB_SHA" \
+              --title "LibrePods (Linux Rust, aarch64)" \
+              --prerelease --latest=false \
+              --notes "Fedora 44 aarch64 RPM built from librepods-org/librepods (linux/rust)."
+          gh release view "$REL" --json assets --jq '.assets[].name' \
+            | grep -E '^librepods-.*\.rpm$' \
+            | while read -r old; do gh release delete-asset "$REL" "$old" --yes; done || true
+          gh release upload "$REL" --clobber \
+            out-librepods/*.rpm out-librepods/SHA256SUMS out-librepods/BUILD-METADATA.txt
