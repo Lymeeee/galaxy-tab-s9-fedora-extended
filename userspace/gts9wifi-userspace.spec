@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.91
+Version:        0.17.92
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -315,6 +315,11 @@ fi
 %{_prefix}/lib/firmware/qcom/sm8550/Samsung-Galaxy-Tab-S9-tplg.bin
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.92-1
+- Revert DACPCM Source back to ASP_RX1/ASP_RX2 bypass: routing through DSP_TX1
+  without full CSPL_ENABLE/DSP_RX initialization caused crackling on
+  volume/seek/play-pause transients and eventually tripped DSP mute.
+
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.91-1
 - Enable CS35L45 hardware speaker protection (DACPCM Source = DSP_TX1) across
   UCM2 and gts9wifi-speaker-routing after live playback verification confirmed
