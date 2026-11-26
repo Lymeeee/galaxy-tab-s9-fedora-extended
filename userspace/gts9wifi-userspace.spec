@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.102
+Version:        0.17.103
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -351,6 +351,12 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.103-1
+- Refine gts9wifi-power balanced cluster caps to SM8550 TSMC N4P per-cluster
+  efficiency sweet spots: A510 1.34 GHz (1344 MHz), A715+A710 1.92 GHz
+  (1920 MHz, under the ~2.05 GHz knee), and X3 1.98 GHz (1977.6 MHz, under
+  the ~2.0 GHz voltage cliff), keeping uclamp_max=460 and 8 ms schedutil.
+- Lower powersave A510 cap to 1.11 GHz (1113.6 MHz).
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.102-1
 - Make gts9wifi-power balanced profile genuinely conservative (~3 W target) and
   distinct from performance: disable boost, cap clusters at high-efficiency

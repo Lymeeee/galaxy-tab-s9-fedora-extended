@@ -113,21 +113,22 @@ apply_profile() { # apply_profile <name>
             set_cpu_schedutil 12000
             set_cpu_min_freqs reset
             set_boost 0
-            set_cpu_max_freqs 1228800 1286400 1248000
+            set_cpu_max_freqs 1113600 1286400 1248000
             set_uclamp_max 320
             set_gpu 220000000 401000000 20
             set_wifi on
             ;;
         balanced)
-            # Conservative ~3 W EAS profile: 8 ms schedutil lingers in low OPPs,
-            # uclamp_max=460 keeps tasks below CPU3-6 capacity (578 * 0.8) so
-            # CPU7 (X3) rarely wakes, cap A510/A715+A710/X3 to their high-efficiency
-            # sweet spots (1.56 / 1.65 / 1.59 GHz), GPU <= 550 MHz @ 15 ms,
-            # Wi-Fi power_save off.
+            # SM8550 TSMC N4P sweet-spot EAS (~3 W target): 8 ms schedutil
+            # lingers in low OPPs, uclamp_max=460 stays under mid-core capacity
+            # (578 * 0.8) so CPU7 (X3) rarely wakes; cap each cluster right at
+            # its efficiency knee: A510 1.34 GHz, A715+A710 1.92 GHz (just under
+            # 2.05 GHz knee), X3 1.98 GHz (just under 2.0 GHz voltage cliff),
+            # GPU <= 550 MHz @ 15 ms, Wi-Fi power_save off.
             set_cpu_schedutil 8000
             set_cpu_min_freqs reset
             set_boost 0
-            set_cpu_max_freqs 1555200 1651200 1593600
+            set_cpu_max_freqs 1344000 1920000 1977600
             set_uclamp_max 460
             set_gpu 220000000 550000000 15
             set_wifi off
