@@ -377,9 +377,10 @@
 
 	/*
 	 * Unlike the SM8550 QRD, the X710 has no WSA884x speaker path and no
-	 * WCD938x. Its four CS35L45 amplifiers consume PRIMARY_MI2S_RX over
-	 * TLMM126..129. Keep the first card deliberately small: one playback
-	 * backend plus the native VA-macro DMIC capture backend.
+	 * WCD938x. Its four CS35L45 amplifiers consume 4-slot PRIMARY_TDM_RX_0
+	 * over TLMM126..129 (slots 0..3 = FL/FR/RL/RR, 48 kHz S16_LE, 3.072 MHz
+	 * BCLK). Keep the card deliberately small: one playback backend plus
+	 * the native VA-macro DMIC capture backend.
 	 */
 	sound {
 		compatible = "qcom,sm8550-sndcard", "qcom,sm8450-sndcard";
@@ -392,7 +393,7 @@
 			link-name = "CS35L45 Speaker Playback";
 
 			cpu {
-				sound-dai = <&q6apmbedai PRIMARY_MI2S_RX>;
+				sound-dai = <&q6apmbedai PRIMARY_TDM_RX_0>;
 			};
 
 			codec {
