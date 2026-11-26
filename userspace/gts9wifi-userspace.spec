@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.93
+Version:        0.17.94
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -45,6 +45,7 @@ Requires:       chrony
 Requires:       zram-generator
 Requires:       pipewire-module-filter-chain-lv2
 Requires:       lv2-calf-plugins
+Requires:       tuned-ppd
 
 %description
 Tab9 Extras GNOME Shell extension (v6), the gts9wifi device-control helper
@@ -139,6 +140,24 @@ systemctl enable gts9wifi-rtc-time.service >/dev/null 2>&1 || :
 systemctl enable --now gts9wifi-rtc-anchor.timer >/dev/null 2>&1 || :
 systemctl enable gts9wifi-cover-boot-guard.service >/dev/null 2>&1 || :
 systemctl enable --now irqbalance.service >/dev/null 2>&1 || :
+# Wire GNOME's native power-profile switcher (tuned-ppd) to the GTS9
+# SM8550-AC profiles and retire the standalone boot-time power service.
+if [ -d /etc/tuned ]; then
+    cat > /etc/tuned/ppd.conf <<'EOF'
+[main]
+default=balanced
+battery_detection=false
+sysfs_acpi_monitor=false
+
+[profiles]
+power-saver=gts9wifi-powersave
+balanced=gts9wifi-balanced
+performance=gts9wifi-performance
+EOF
+fi
+systemctl disable gts9wifi-power.service >/dev/null 2>&1 || :
+systemctl enable --now tuned.service tuned-ppd.service >/dev/null 2>&1 || :
+systemctl try-restart tuned-ppd.service >/dev/null 2>&1 || :
 # Keep the PMIC counter continuous; the anchor stores its own UTC relation.
 if [ -f /etc/chrony.conf ] && \
    grep -qE '^[[:space:]]*rtcsync[[:space:]]*$' /etc/chrony.conf; then
@@ -320,8 +339,29 @@ fi
 %dir %{_datadir}/wireplumber/wireplumber.conf.d
 %{_datadir}/wireplumber/wireplumber.conf.d/90-gts9wifi-alsa-headroom.conf
 %{_prefix}/lib/firmware/qcom/sm8550/Samsung-Galaxy-Tab-S9-tplg.bin
+%dir %{_prefix}/lib/tuned/profiles/gts9wifi-powersave
+%{_prefix}/lib/tuned/profiles/gts9wifi-powersave/tuned.conf
+%attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-powersave/script.sh
+%dir %{_prefix}/lib/tuned/profiles/gts9wifi-balanced
+%{_prefix}/lib/tuned/profiles/gts9wifi-balanced/tuned.conf
+%attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-balanced/script.sh
+%dir %{_prefix}/lib/tuned/profiles/gts9wifi-performance
+%{_prefix}/lib/tuned/profiles/gts9wifi-performance/tuned.conf
+%attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.94-1
+- Switch CPU scaling across all profiles to EAS-preserving schedutil (with
+  fast 2 ms rate_limit_us and 3.36 GHz boost on demand in balanced, 2.95 GHz
+  cap in powersave, and elevated floor clocks in performance) and real GPU
+  devfreq min/max/polling tuning (10 ms for 120 Hz in balanced/performance,
+  475 MHz cap in powersave).
+- Keep Wi-Fi power_save off in both balanced and performance (and on only in
+  powersave), setting NetworkManager wifi.powersave=1 (ignore) so it does not
+  override profile selection on reconnect.
+- Integrate with GNOME's native power-profile switcher via tuned-ppd
+  (gts9wifi-{powersave,balanced,performance} profiles) and remove the
+  redundant performance-mode dropdown from gts9wifi-settings.
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.93-1
 - Ship built-in PipeWire speaker tuning (Calf Bass Enhancer LV2 + 9-band
   biquad EQ in 90-gts9wifi-speaker-eq.conf) and q6apm ALSA headroom drop-in

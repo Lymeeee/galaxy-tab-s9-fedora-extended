@@ -18,7 +18,6 @@ from gi.repository import Adw, Gio, GLib, Gtk
 APP_ID = 'io.github.lymeeee.Gts9wifiSettings'
 DEVICE_CONTROL = '/usr/libexec/gts9wifi-device-control'
 PRIVILEGED = '/usr/libexec/gts9wifi-privileged'
-POWER_PROFILE = '/var/lib/gts9wifi/power-profile'
 KEYBOARD_FW = '/lib/firmware/keyboard_stm/stm32_gts9family.bin'
 UPDATE = '/usr/bin/gts9wifi-update'
 PROTECT = '/usr/libexec/gts9wifi-protect'
@@ -45,7 +44,6 @@ SPEN_BUTTON_PRESETS = [
     ('自定义…', None),
 ]
 DEFAULT_KERNEL_TAG = 'latest'
-POWER_IDS = ['powersave', 'sticky', 'balanced', 'performance']
 MIRROR_IDS = ['ustc', 'tuna']
 MIRROR_HOSTS = {
     'ustc': 'mirrors.ustc.edu.cn',
@@ -258,46 +256,6 @@ class Settings(Adw.Application):
 
     def power_page(self):
         page = Adw.PreferencesPage(title='电源', icon_name='battery-symbolic')
-        group = Adw.PreferencesGroup(
-            title='性能模式',
-            description='CPU与GPU性能选项'
-                        '修改时需要root密码')
-        labels = Gtk.StringList.new(
-            ['省电', '敏感', '均衡', '性能'])
-        current = read(POWER_PROFILE) or 'balanced'
-        if current not in POWER_IDS:
-            current = 'balanced'
-        row = Adw.ComboRow(
-            title='性能模式', model=labels,
-            selected=POWER_IDS.index(current))
-        guard = {'busy': False}
-
-        def changed(row, _pspec, guard=guard):
-            if guard['busy']:
-                return
-            profile = POWER_IDS[row.get_selected()]
-            guard['busy'] = True
-            row.set_sensitive(False)
-
-            def worker():
-                result = run(['pkexec', PRIVILEGED, 'power', profile], timeout=60)
-                GLib.idle_add(finish, result)
-
-            def finish(result):
-                row.set_sensitive(True)
-                if result is None or result.returncode != 0:
-                    saved = read(POWER_PROFILE) or 'balanced'
-                    if saved not in POWER_IDS:
-                        saved = 'balanced'
-                    row.set_selected(POWER_IDS.index(saved))
-                guard['busy'] = False
-                return False
-
-            threading.Thread(target=worker, daemon=True).start()
-
-        row.connect('notify::selected', changed)
-        group.add(row)
-        page.add(group)
         self.add_device_controls(page)
         self.add_battery_group(page)
         return page

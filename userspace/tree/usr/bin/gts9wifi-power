@@ -1,30 +1,52 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
-# Power profiles for the gts9wifi port.  Run as root (the boot service does).
+# Power profiles for the gts9wifi port (SM8550-AC).  Run as root (invoked by
+# tuned-ppd profiles or directly from the CLI).
 set -u
 
 STATE=/var/lib/gts9wifi/power-profile
 
 usage() {
-    echo "usage: gts9wifi-power [powersave|sticky|balanced|performance|apply|status]" >&2
+    echo "usage: gts9wifi-power [powersave|balanced|performance|apply|status]" >&2
     exit 2
 }
 
-set_cpu() { # set_cpu <governor> [energy_performance_preference]
+set_cpu_schedutil() { # set_cpu_schedutil <rate_limit_us>
     for d in /sys/devices/system/cpu/cpufreq/policy*; do
         [ -d "$d" ] || continue
         case " $(cat "$d/scaling_available_governors" 2>/dev/null) " in
-            *" $1 "*) printf '%s\n' "$1" >"$d/scaling_governor" 2>/dev/null || true ;;
+            *" schedutil "*) printf 'schedutil\n' >"$d/scaling_governor" 2>/dev/null || true ;;
         esac
-        if [ -n "${2:-}" ]; then
-            case " $(cat "$d/energy_performance_available_preferences" 2>/dev/null) " in
-                *" $2 "*) printf '%s\n' "$2" >"$d/energy_performance_preference" 2>/dev/null || true ;;
-            esac
+        if [ -w "$d/schedutil/rate_limit_us" ]; then
+            printf '%s\n' "$1" >"$d/schedutil/rate_limit_us" 2>/dev/null || true
         fi
     done
 }
 
-set_gpu() { # set_gpu <governor>
+set_cpu_min_freqs() { # set_cpu_min_freqs <reset | p0_khz p3_khz p7_khz>
+    if [ "$1" = reset ]; then
+        for d in /sys/devices/system/cpu/cpufreq/policy*; do
+            [ -d "$d" ] || continue
+            min=$(cat "$d/cpuinfo_min_freq" 2>/dev/null) || continue
+            printf '%s\n' "$min" >"$d/scaling_min_freq" 2>/dev/null || true
+        done
+        return
+    fi
+    for pair in "policy0:$1" "policy3:$2" "policy7:$3"; do
+        pol="${pair%%:*}"
+        freq="${pair#*:}"
+        d="/sys/devices/system/cpu/cpufreq/$pol"
+        [ -d "$d" ] || continue
+        printf '%s\n' "$freq" >"$d/scaling_min_freq" 2>/dev/null || true
+    done
+}
+
+set_boost() { # 0|1: expose the SM8550-AC boost OPP (CPU7 3.36 GHz)
+    printf '%s\n' "$1" >/sys/devices/system/cpu/cpufreq/boost 2>/dev/null ||
+        true
+}
+
+set_gpu() { # set_gpu <min_hz> <max_hz> <polling_interval_ms>
     for d in /sys/class/devfreq/*; do
         [ -d "$d" ] || continue
         case "$(basename "$d")" in
@@ -32,36 +54,20 @@ set_gpu() { # set_gpu <governor>
             *) continue ;;
         esac
         case " $(cat "$d/available_governors" 2>/dev/null) " in
-            *" $1 "*) printf '%s\n' "$1" >"$d/governor" 2>/dev/null || true ;;
+            *" simple_ondemand "*) printf 'simple_ondemand\n' >"$d/governor" 2>/dev/null || true ;;
         esac
-    done
-}
-
-set_ondemand() { # up_threshold sampling_rate_us sampling_down_factor
-    for d in /sys/devices/system/cpu/cpufreq/policy*; do
-        [ -d "$d/ondemand" ] || continue
-        printf '%s\n' "$1" >"$d/ondemand/up_threshold" 2>/dev/null || true
-        printf '%s\n' "$2" >"$d/ondemand/sampling_rate" 2>/dev/null || true
-        printf '%s\n' "$3" >"$d/ondemand/sampling_down_factor" 2>/dev/null || true
-        printf '0\n' >"$d/ondemand/ignore_nice_load" 2>/dev/null || true
-        printf '0\n' >"$d/ondemand/powersave_bias" 2>/dev/null || true
-    done
-}
-
-set_boost() { # 0|1: expose the firmware boost OPPs (CPU7 3.36 GHz)
-    printf '%s\n' "$1" >/sys/devices/system/cpu/cpufreq/boost 2>/dev/null ||
-        true
-}
-
-set_gpu_poll() { # polling_interval_ms
-    for d in /sys/class/devfreq/*; do
-        [ -d "$d" ] || continue
-        case "$(basename "$d")" in
-            *gpu*|*gfx*|*3d*)
-                printf '%s\n' "$1" >"$d/polling_interval" 2>/dev/null ||
-                    true
-                ;;
-        esac
+        # Widen bounds first so raising min_freq or lowering max_freq never
+        # trips min > max validation.
+        avail=$(cat "$d/available_frequencies" 2>/dev/null || true)
+        if [ -n "$avail" ]; then
+            first=$(printf '%s\n' $avail | head -n 1)
+            last=$(printf '%s\n' $avail | tail -n 1)
+            printf '%s\n' "$first" >"$d/min_freq" 2>/dev/null || true
+            printf '%s\n' "$last" >"$d/max_freq" 2>/dev/null || true
+        fi
+        printf '%s\n' "$2" >"$d/max_freq" 2>/dev/null || true
+        printf '%s\n' "$1" >"$d/min_freq" 2>/dev/null || true
+        printf '%s\n' "$3" >"$d/polling_interval" 2>/dev/null || true
     done
 }
 
@@ -73,33 +79,34 @@ set_wifi() { # set_wifi on|off
 }
 
 apply_profile() { # apply_profile <name>
-    case "$1" in
+    profile="$1"
+    [ "$profile" = sticky ] && profile=balanced
+    case "$profile" in
         powersave)
-            set_cpu schedutil power
+            # Full EAS on schedutil, cap CPU7 at 2.95 GHz (boost=0), cap GPU
+            # at 475 MHz, Wi-Fi power_save on.
+            set_cpu_schedutil 4000
+            set_cpu_min_freqs reset
             set_boost 0
-            set_gpu simple_ondemand
+            set_gpu 220000000 475000000 20
             set_wifi on
             ;;
         balanced)
-            set_cpu schedutil balance_power
+            # Full EAS on schedutil with fast 2 ms scaling and 3.36 GHz boost
+            # on demand; 10 ms GPU devfreq matches 120 Hz; Wi-Fi power_save off.
+            set_cpu_schedutil 2000
+            set_cpu_min_freqs reset
             set_boost 1
-            set_gpu msm-adreno-tz
-            set_wifi on
-            ;;
-        sticky)
-            # High ramp threshold for browser-class load, fast downscale,
-            # full clocks available for a real burst.
-            set_cpu ondemand
-            set_ondemand 90 10000 1
-            set_boost 1
-            set_gpu simple_ondemand
-            set_gpu_poll 20
-            set_wifi on
+            set_gpu 220000000 719000000 10
+            set_wifi off
             ;;
         performance)
-            set_cpu performance performance
+            # Keep EAS active with elevated floor clocks, 0.5 ms ramp, full
+            # 3.36 GHz boost, GPU floor at 475 MHz, Wi-Fi power_save off.
+            set_cpu_schedutil 500
             set_boost 1
-            set_gpu performance
+            set_cpu_min_freqs 1017600 1056000 1248000
+            set_gpu 475000000 719000000 10
             set_wifi off
             ;;
         *)
@@ -107,8 +114,8 @@ apply_profile() { # apply_profile <name>
             ;;
     esac
     mkdir -p /var/lib/gts9wifi 2>/dev/null || true
-    printf '%s\n' "$1" >"$STATE" 2>/dev/null || true
-    echo "power profile: $1"
+    printf '%s\n' "$profile" >"$STATE" 2>/dev/null || true
+    echo "power profile: $profile"
 }
 
 show_status() {
@@ -116,21 +123,25 @@ show_status() {
     echo "cpu boost: $(cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || echo n/a)"
     for d in /sys/devices/system/cpu/cpufreq/policy*; do
         [ -d "$d" ] || continue
-        printf 'cpu %s: %s' "$(basename "$d")" \
-            "$(cat "$d/scaling_governor" 2>/dev/null || echo unknown)"
-        if [ -r "$d/energy_performance_preference" ]; then
-            printf ' / %s' "$(cat "$d/energy_performance_preference" 2>/dev/null)"
-        fi
-        echo
+        printf 'cpu %s: %s (min=%s max=%s)\n' "$(basename "$d")" \
+            "$(cat "$d/scaling_governor" 2>/dev/null || echo unknown)" \
+            "$(cat "$d/scaling_min_freq" 2>/dev/null || echo ?)" \
+            "$(cat "$d/scaling_max_freq" 2>/dev/null || echo ?)"
     done
     for d in /sys/class/devfreq/*; do
         [ -d "$d" ] || continue
         case "$(basename "$d")" in
-            *gpu*|*gfx*|*3d*) printf 'gpu %s: %s\n' "$(basename "$d")" \
-                "$(cat "$d/governor" 2>/dev/null || echo unknown)" ;;
+            *gpu*|*gfx*|*3d*) printf 'gpu %s: %s (min=%s max=%s poll=%sms)\n' \
+                "$(basename "$d")" \
+                "$(cat "$d/governor" 2>/dev/null || echo unknown)" \
+                "$(cat "$d/min_freq" 2>/dev/null || echo ?)" \
+                "$(cat "$d/max_freq" 2>/dev/null || echo ?)" \
+                "$(cat "$d/polling_interval" 2>/dev/null || echo ?)" ;;
         esac
     done
-    command -v iw >/dev/null 2>&1 && iw dev 2>/dev/null | awk '/Interface/ {print "wifi " $2}'
+    command -v iw >/dev/null 2>&1 && iw dev 2>/dev/null | awk '/Interface/ {print $2}' | while read -r iface; do
+        printf 'wifi %s: %s\n' "$iface" "$(iw dev "$iface" get power_save 2>/dev/null | awk '{print $NF}')"
+    done
 }
 
 [ "$(id -u)" -eq 0 ] || { echo "gts9wifi-power: run as root" >&2; exit 1; }
