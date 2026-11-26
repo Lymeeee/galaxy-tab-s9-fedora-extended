@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.104
+Version:        0.17.105
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -337,6 +337,8 @@ fi
 %dir %{_datadir}/pipewire/pipewire.conf.d
 %{_datadir}/pipewire/pipewire.conf.d/90-gts9wifi-speaker-eq.conf
 %dir %{_datadir}/wireplumber
+%dir %{_datadir}/wireplumber/scripts
+%{_datadir}/wireplumber/scripts/gts9wifi-speaker-volume-guard.lua
 %dir %{_datadir}/wireplumber/wireplumber.conf.d
 %{_datadir}/wireplumber/wireplumber.conf.d/90-gts9wifi-alsa-headroom.conf
 %{_prefix}/lib/firmware/qcom/sm8550/Samsung-Galaxy-Tab-S9-tplg.bin
@@ -351,6 +353,11 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.105-1
+- Add WirePlumber 0.5 Lua guard script (gts9wifi-speaker-volume-guard.lua)
+  that automatically sets the raw CS35L45 Direct sink to 100% (unmuted) when
+  gts9wifi_speaker_eq is the default sink, and clamps/locks it to <= 20%
+  volume if anything directly selects the raw sink as default output.
 * Thu Nov 26 2026 Lymeeee <mr_xunyu@163.com> - 0.17.104-1
 - Set device.form-factor = "speaker" and device.icon-name = "audio-speakers"
   on the gts9wifi_speaker_eq virtual sink so GNOME displays the speaker icon
