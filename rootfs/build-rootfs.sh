@@ -67,7 +67,7 @@ dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
     libqmi libqrtr-glib protobuf-c libmbim \
     systemd-pam \
     atheros-firmware qcom-firmware \
-    e2fsprogs kmod libcap irqbalance
+    e2fsprogs kmod libcap irqbalance tuned tuned-ppd
 
 if [ "$desktop" = "gnome" ]; then
     echo ">>> Installing the GNOME Workstation environment"
@@ -403,7 +403,7 @@ if [ "$desktop" = "gnome" ]; then
         abrt-dump-journal-core.service abrt-dump-oops.service >/dev/null 2>&1 || true
 fi
 for unit in \
-    sshd NetworkManager irqbalance \
+    sshd NetworkManager irqbalance tuned tuned-ppd \
     hexagonrpcd-adsp-rootpd \
     pd-mapper \
     gts9wifi-wait-sensor-proxy \
