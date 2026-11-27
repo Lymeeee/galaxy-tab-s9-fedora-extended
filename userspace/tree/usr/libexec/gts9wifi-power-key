@@ -138,7 +138,33 @@ class PowerKey:
         self.sleeping = args.unpack()[0]
         if not self.sleeping:
             self.resumed = time.monotonic()
+            if self.is_display_dark() and not self.lid_closed():
+                self.wake_display()
         self.sync_idle_suspend()
+
+    def is_display_dark(self):
+        return self.display_off or \
+            read('/sys/class/drm/card0-DSI-1/dpms') in ('Off', 'off')
+
+    def lid_closed(self):
+        try:
+            return bool(self.system.call_sync(
+                'org.freedesktop.login1', '/org/freedesktop/login1',
+                'org.freedesktop.DBus.Properties', 'Get',
+                GLib.Variant('(ss)', ('org.freedesktop.login1.Manager', 'LidClosed')),
+                None, Gio.DBusCallFlags.NONE, 1000, None).unpack()[0])
+        except GLib.Error:
+            return False
+
+    def wake_display(self):
+        self.call(
+            self.session,
+            'org.gnome.Mutter.DisplayConfig',
+            '/org/gnome/Mutter/DisplayConfig',
+            'org.freedesktop.DBus.Properties', 'Set',
+            GLib.Variant('(ssv)', ('org.gnome.Mutter.DisplayConfig',
+                                   'PowerSaveMode',
+                                   GLib.Variant('i', 0))))
 
     def cancel_idle_suspend(self):
         if self.idle_suspend_timer:
@@ -239,6 +265,8 @@ class PowerKey:
         if self.woke_by_this_key():
             print('wake press dropped', file=sys.stderr, flush=True)
             self.mark_wake()
+            if self.is_display_dark():
+                self.wake_display()
             self.ignore_release = True
             return
         self.cancel()

@@ -1,0 +1,30 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Asynchronous post-resume Bluetooth power-on helper launched by
+# /usr/lib/systemd/system-sleep/gts9wifi-bt-sleep.
+
+set -u
+
+attempts=15
+
+bt_powered() {
+	bluetoothctl show 2>/dev/null | grep -q 'Powered: yes'
+}
+
+command -v bluetoothctl >/dev/null 2>&1 || exit 0
+
+attempt=1
+while [ "$attempt" -le "$attempts" ]; do
+	if bt_powered; then
+		logger -t gts9wifi-bt-sleep "restored Bluetooth after suspend"
+		exit 0
+	fi
+	bluetoothctl power on >/dev/null 2>&1 || true
+	attempt=$((attempt + 1))
+	sleep 1
+done
+
+logger -t gts9wifi-bt-sleep \
+	"Bluetooth not powered after $attempts attempts; left unblocked"
+exit 1

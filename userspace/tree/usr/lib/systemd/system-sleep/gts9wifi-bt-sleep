@@ -1,0 +1,63 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Bluetooth is not a system wake source on this tablet, but the WCN6855
+# keeps BLE links to the S Pen and mouse alive across deep suspend.
+# Soft-block the radio for the sleep window (skipped on AC or when already
+# blocked), and restore it asynchronously on resume so systemd-sleep can thaw
+# user.slice and light the display immediately.
+
+set -u
+
+state=/run/gts9wifi-bt-sleep.state
+pre_attempts=15
+
+bt_soft_blocked() {
+	rfkill list bluetooth 2>/dev/null | grep -q 'Soft blocked: yes'
+}
+
+bt_powered() {
+	bluetoothctl show 2>/dev/null | grep -q 'Powered: yes'
+}
+
+case "${1:-}" in
+pre)
+	systemctl stop gts9wifi-bt-resume.service 2>/dev/null || true
+	command -v rfkill >/dev/null 2>&1 || exit 0
+	if bt_soft_blocked; then
+		printf 'already-blocked\n' > "$state"
+		exit 0
+	fi
+	if [ "$(cat /sys/class/power_supply/sm5714-usb/online 2>/dev/null)" = 1 ]; then
+		printf 'ac-online\n' > "$state"
+		logger -t gts9wifi-bt-sleep "AC online: leaving Bluetooth running"
+		exit 0
+	fi
+	printf 'was-enabled\n' > "$state"
+	rfkill block bluetooth
+	# Give BlueZ up to ~3 s (0.2 s polling) to release the UART / WCN pwrseq
+	# reference without stalling suspend entry for 15 s.
+	attempt=1
+	while [ "$attempt" -le "$pre_attempts" ]; do
+		bt_powered || break
+		attempt=$((attempt + 1))
+		sleep 0.2
+	done
+	logger -t gts9wifi-bt-sleep "blocked Bluetooth for suspend"
+	;;
+post)
+	[ -f "$state" ] || exit 0
+	IFS= read -r previous < "$state"
+	rm -f "$state"
+	[ "$previous" = 'was-enabled' ] || exit 0
+	command -v rfkill >/dev/null 2>&1 || exit 0
+	# Unblock immediately, then hand off firmware reload + power-on to a
+	# background unit so display resume is never blocked by BlueZ.
+	rfkill unblock bluetooth
+	systemctl reset-failed gts9wifi-bt-resume >/dev/null 2>&1 || true
+	/usr/bin/systemd-run --unit=gts9wifi-bt-resume --collect \
+		--no-block /usr/libexec/gts9wifi-bt-resume || true
+	;;
+esac
+
+exit 0

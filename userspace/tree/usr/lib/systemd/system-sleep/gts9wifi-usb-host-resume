@@ -1,0 +1,17 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# Run USB host role recovery asynchronously so its 1 s role bounce never
+# delays user.slice thaw or display wake after resume.
+
+set -u
+
+case "${1:-}" in
+	post)
+		systemctl reset-failed gts9wifi-usb-host-resume >/dev/null 2>&1 || true
+		/usr/bin/systemd-run --unit=gts9wifi-usb-host-resume --collect \
+			--no-block /usr/libexec/gts9wifi-usb-host-resume || true
+		;;
+esac
+
+exit 0

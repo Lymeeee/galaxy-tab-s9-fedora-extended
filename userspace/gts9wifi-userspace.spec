@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.112
+Version:        0.17.113
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -325,10 +325,13 @@ fi
 %dir %{_sysconfdir}/systemd/system/hexagonrpcd-adsp-rootpd.service.d
 %config(noreplace) %{_sysconfdir}/systemd/system/hexagonrpcd-adsp-rootpd.service.d/10-gts9wifi-selinux.conf
 %attr(0755, root, root) %{_libexecdir}/gts9wifi-camera-suspend-pre
+%attr(0755, root, root) %{_libexecdir}/gts9wifi-bt-resume
 %dir %{_unitdir}/systemd-suspend.service.d
 %{_unitdir}/systemd-suspend.service.d/10-gts9wifi-camera-suspend.conf
 %{_prefix}/lib/systemd/system-sleep/gts9wifi-camera-suspend
+%attr(0755, root, root) %{_prefix}/lib/systemd/system-sleep/gts9wifi-bt-sleep
 %attr(0755, root, root) %{_prefix}/lib/systemd/system-sleep/gts9wifi-speaker-protection
+%attr(0755, root, root) %{_prefix}/lib/systemd/system-sleep/gts9wifi-usb-host-resume
 %dir %{_datadir}/pipewire
 %dir %{_datadir}/pipewire/client.conf.d
 %{_datadir}/pipewire/client.conf.d/90-gts9wifi-upmix.conf
@@ -353,6 +356,15 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.113-1
+- Speed up deep-suspend wake and prevent black-screen-on-wake stalls:
+  - Explicitly call Mutter DisplayConfig PowerSaveMode=0 in gts9wifi-power-key
+    when a wake power-key press arrives while the panel is dark, and on
+    PrepareForSleep(false) when the lid is open.
+  - Package gts9wifi-bt-sleep + gts9wifi-bt-resume into gts9wifi-userspace with
+    non-blocking systemd-run post-resume Bluetooth recovery (and faster 0.2 s
+    pre-suspend polling capped at 3 s) so user.slice thaws immediately.
+  - Make gts9wifi-usb-host-resume post hook non-blocking via systemd-run.
 * Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.112-1
 - Fix GNOME Shell startup race in galaxy-tab-extension ScreenOffMenu and
   BrightnessOsdGuard: QuickSettings._setupIndicators() populates _system and
