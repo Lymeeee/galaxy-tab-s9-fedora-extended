@@ -16,24 +16,60 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 const LOCK_FALLBACK_MS = 1500;
 const BLANK_AFTER_LOCK_MS = 250;
 const BLANK_ALREADY_LOCKED_MS = 300;
+const ATTACH_RETRY_MS = 250;
+const ATTACH_MAX_ATTEMPTS = 40;
 
 export class ScreenOffMenu {
     constructor() {
         this._item = null;
         this._activateId = 0;
         this._sessionModeId = 0;
+        this._indicators = null;
+        this._childAddedId = 0;
+        this._retryTimerId = 0;
         this._shieldId = 0;
         this._fallbackTimerId = 0;
         this._blankTimerId = 0;
     }
 
     enable() {
-        const menu = Main.panel.statusArea.quickSettings?._system?._systemItem?.menu;
-        if (!menu)
+        if (this._attach())
             return;
 
+        // QuickSettings._setupIndicators() is async (awaits network/bluetooth
+        // dynamic imports), so _system is typically not created yet when
+        // extensions are enabled during Shell startup.
+        const indicators = Main.panel.statusArea.quickSettings?._indicators;
+        if (indicators) {
+            this._indicators = indicators;
+            this._childAddedId = indicators.connect('child-added', () => {
+                if (this._attach())
+                    this._stopWatching();
+            });
+        }
+
+        let attempts = 0;
+        this._retryTimerId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT, ATTACH_RETRY_MS, () => {
+                if (this._attach() || ++attempts >= ATTACH_MAX_ATTEMPTS) {
+                    this._retryTimerId = 0;
+                    this._stopWatching();
+                    return GLib.SOURCE_REMOVE;
+                }
+                return GLib.SOURCE_CONTINUE;
+            });
+    }
+
+    _attach() {
+        if (this._item)
+            return true;
+
+        const menu = Main.panel.statusArea.quickSettings?._system?._systemItem?.menu;
+        if (!menu)
+            return false;
+
         const isZh = GLib.get_language_names().some(l => l.startsWith('zh'));
-        const label = isZh ? '关闭屏幕' : 'Turn Off Screen';
+        const label = isZh ? '锁定屏幕' : 'Lock Screen';
 
         this._item = new PopupMenu.PopupMenuItem(label);
         this._activateId = this._item.connect('activate', () => this._activate());
@@ -42,6 +78,18 @@ export class ScreenOffMenu {
         this._sessionModeId = Main.sessionMode.connect('updated',
             () => this._syncVisibility());
         this._syncVisibility();
+        return true;
+    }
+
+    _stopWatching() {
+        if (this._indicators && this._childAddedId)
+            this._indicators.disconnect(this._childAddedId);
+        this._indicators = null;
+        this._childAddedId = 0;
+        if (this._retryTimerId) {
+            GLib.source_remove(this._retryTimerId);
+            this._retryTimerId = 0;
+        }
     }
 
     _syncVisibility() {
@@ -122,6 +170,7 @@ export class ScreenOffMenu {
     }
 
     disable() {
+        this._stopWatching();
         this._cancelPending();
         if (this._sessionModeId) {
             Main.sessionMode.disconnect(this._sessionModeId);

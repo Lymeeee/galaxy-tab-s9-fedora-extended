@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.111
+Version:        0.17.112
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -353,6 +353,17 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.112-1
+- Fix GNOME Shell startup race in galaxy-tab-extension ScreenOffMenu and
+  BrightnessOsdGuard: QuickSettings._setupIndicators() populates _system and
+  _brightness asynchronously after awaiting network/bluetooth imports, so wait
+  for quickSettings._indicators child-added (with a short retry fallback)
+  instead of returning early when _system/_brightness is not yet ready.
+- Rename the power menu item to "锁定屏幕" (Lock Screen), bind short power-key
+  press in gts9wifi-power-key to lock + immediately blank the OLED panel
+  (leaving lid-close immediate suspend unchanged), and automatically enter deep
+  suspend after 5 minutes of locked-and-dark idle (deferring while 45W PPS
+  charge-hold is active or a sleep inhibitor is held).
 * Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.111-1
 - Add a "关闭屏幕" (Turn Off Screen) action to the GNOME Shell Quick Settings
   power menu in galaxy-tab-extension: locks the screen via ScreenShield and

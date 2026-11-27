@@ -5,7 +5,11 @@
 // being dragged. Suppress the OSD only during that drag; keyboard brightness
 // keys, auto-brightness and other sources keep the normal OSD.
 
+import GLib from 'gi://GLib';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
+const ATTACH_RETRY_MS = 250;
+const ATTACH_MAX_ATTEMPTS = 40;
 
 export class BrightnessOsdGuard {
     constructor() {
@@ -16,6 +20,9 @@ export class BrightnessOsdGuard {
         this._beginId = 0;
         this._endId = 0;
         this._destroyId = 0;
+        this._indicators = null;
+        this._childAddedId = 0;
+        this._retryTimerId = 0;
         this._dragging = false;
     }
 
@@ -31,14 +38,40 @@ export class BrightnessOsdGuard {
             return this._original.apply(this._manager, args);
         };
         this._manager._showOSD = this._patched;
-        this._connectSlider();
+
+        if (this._connectSlider())
+            return;
+
+        // QuickSettings._setupIndicators() is async; wait for _brightness.
+        const indicators = Main.panel.statusArea.quickSettings?._indicators;
+        if (indicators) {
+            this._indicators = indicators;
+            this._childAddedId = indicators.connect('child-added', () => {
+                if (this._connectSlider())
+                    this._stopWatching();
+            });
+        }
+
+        let attempts = 0;
+        this._retryTimerId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT, ATTACH_RETRY_MS, () => {
+                if (this._connectSlider() || ++attempts >= ATTACH_MAX_ATTEMPTS) {
+                    this._retryTimerId = 0;
+                    this._stopWatching();
+                    return GLib.SOURCE_REMOVE;
+                }
+                return GLib.SOURCE_CONTINUE;
+            });
     }
 
     _connectSlider() {
+        if (this._slider)
+            return true;
+
         const indicator = Main.panel.statusArea.quickSettings?._brightness;
         const slider = indicator?.quickSettingsItems?.[0]?.slider;
         if (!slider)
-            return;
+            return false;
 
         this._slider = slider;
         this._beginId = slider.connect('drag-begin', () => {
@@ -54,9 +87,22 @@ export class BrightnessOsdGuard {
             this._endId = 0;
             this._destroyId = 0;
         });
+        return true;
+    }
+
+    _stopWatching() {
+        if (this._indicators && this._childAddedId)
+            this._indicators.disconnect(this._childAddedId);
+        this._indicators = null;
+        this._childAddedId = 0;
+        if (this._retryTimerId) {
+            GLib.source_remove(this._retryTimerId);
+            this._retryTimerId = 0;
+        }
     }
 
     disable() {
+        this._stopWatching();
         this._dragging = false;
         if (this._slider) {
             if (this._beginId)
