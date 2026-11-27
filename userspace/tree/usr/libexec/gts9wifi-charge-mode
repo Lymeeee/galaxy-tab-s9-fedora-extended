@@ -83,6 +83,12 @@ def power_key_mark_fresh():
         return False
 
 
+def asleep():
+    """Seconds spent suspended since boot."""
+    return time.clock_gettime(time.CLOCK_BOOTTIME) - \
+        time.clock_gettime(time.CLOCK_MONOTONIC)
+
+
 class ChargeMode:
     def __init__(self):
         self.session = Gio.bus_get_sync(Gio.BusType.SESSION, None)
@@ -92,6 +98,7 @@ class ChargeMode:
         self.saved_fast = None
         self.saved_gsd = None
         self.suspend_pending = 0
+        self.sleep_asleep = None
         self.usbpd_irq = irq_for('7-0033')
 
         if os.path.exists(STATE_FILE):
@@ -222,6 +229,9 @@ class ChargeMode:
         self.saved_gsd = None
 
     def engage(self):
+        if self.engaged:
+            self.blank_if_locked_blank_screen()
+            return
         fast = read_text(FAST)
         gsd = read_text(GSD_RESTORE) or self.gsd.get_string(GSD_KEY)
         self.save_state(fast, gsd)
@@ -316,7 +326,9 @@ class ChargeMode:
         # Keep kernel charge_hold armed proactively whenever 息屏直充 is enabled
         # and we are charging below 90%, so lid close or Power Menu -> Suspend
         # is intercepted by sm5440_pm_notify before PPS drops to 9V fixed PD.
-        if read_text(HOLD) != '1':
+        # Only arm proactively when not yet engaged so we still notice if the
+        # kernel explicitly clears an active hold (timeout / error).
+        if not self.engaged and read_text(HOLD) != '1':
             write_text(HOLD, '1')
 
         idle = self.idle_ms()
@@ -361,7 +373,7 @@ class ChargeMode:
 
     def on_prepare_for_sleep(self, bus, sender, path, iface, signal, args):
         if args.unpack()[0]:
-            self.sleep_started = time.monotonic()
+            self.sleep_asleep = asleep()
             return
         GLib.timeout_add(50, self.on_resume)
 
@@ -371,10 +383,13 @@ class ChargeMode:
         eligible = (switch_on() and online == 1 and
                     capacity is not None and capacity < THRESHOLD)
         # If lid close or Power Menu -> Suspend was blocked by charge_hold,
-        # PrepareForSleep(False) arrives almost immediately: blank the panel
-        # and engage charge mode so PPS stays alive with the screen dark.
-        blocked = (getattr(self, 'sleep_started', 0) and
-                   time.monotonic() - self.sleep_started < 3.0)
+        # the kernel never actually suspended (BOOTTIME - MONOTONIC did not
+        # grow), even if delay-lock inhibitors took several seconds before
+        # PrepareForSleep(False) arrived.
+        sleep_before = self.sleep_asleep
+        self.sleep_asleep = None
+        blocked = (sleep_before is not None and
+                   asleep() - sleep_before < 0.5)
         if eligible and blocked and not power_key_mark_fresh():
             self.blank()
             self.engage()

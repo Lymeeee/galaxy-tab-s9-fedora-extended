@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.108
+Version:        0.17.109
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -353,6 +353,14 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.109-1
+- Subscribe gts9wifi-spen-remote to logind PrepareForSleep so it pauses connects
+  during suspend, resets repair lockouts on resume, wakes a docked S Pen via
+  pen_ble_wake before falling back to bond repair, and fixes the reconnect
+  cooldown check.
+- Fix gts9wifi-charge-mode blocked-suspend detection using CLOCK_BOOTTIME minus
+  CLOCK_MONOTONIC instead of a 3 s wall-clock heuristic, guard duplicate
+  engage() calls, and avoid re-arming charge_hold while already engaged.
 * Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.108-1
 - Cap zram0 at 1.8 GiB (1843 MiB) to avoid in-RAM compression thrash on 7.2 GiB RAM.
 - Revert 99-gts9wifi-zram.conf back to vm.swappiness=180 and

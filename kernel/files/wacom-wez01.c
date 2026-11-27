@@ -485,10 +485,49 @@ static ssize_t pen_ble_reset_store(struct device *dev,
 }
 static DEVICE_ATTR_WO(pen_ble_reset);
 
+static void wacom_wez01_wake_pen(struct wacom_wez01 *w)
+{
+	/*
+	 * Cycle the garage coil (KEEP_OFF -> CHARGE_ENABLE + CHARGE_START)
+	 * without issuing PAIR_RESET so a docked S Pen whose BLE radio went
+	 * idle during deep sleep wakes up and advertises using its existing
+	 * bond.
+	 */
+	wacom_wez01_send(w, WEZ01_CMD_BLE_CHARGE_KEEP_OFF);
+	usleep_range(20000, 25000);
+	w->charge_stage = 0;
+	mod_delayed_work(system_wq, &w->charge_work, 0);
+}
+
+static ssize_t pen_ble_wake_store(struct device *dev,
+				  struct device_attribute *attribute,
+				  const char *buf, size_t count)
+{
+	struct wacom_wez01 *w = dev_get_drvdata(dev);
+	bool wake;
+	int ret;
+
+	ret = kstrtobool(buf, &wake);
+	if (ret)
+		return ret;
+	if (!wake)
+		return -EINVAL;
+	if (!READ_ONCE(w->docked))
+		return -ENODEV;
+
+	cancel_delayed_work_sync(&w->charge_work);
+	wacom_wez01_wake_pen(w);
+	dev_info(dev, "S Pen BLE wake pulse requested\n");
+
+	return count;
+}
+static DEVICE_ATTR_WO(pen_ble_wake);
+
 static struct attribute *wacom_wez01_attrs[] = {
 	&dev_attr_pen_docked.attr,
 	&dev_attr_pen_charging.attr,
 	&dev_attr_pen_ble_reset.attr,
+	&dev_attr_pen_ble_wake.attr,
 	NULL,
 };
 
@@ -807,13 +846,16 @@ static int wacom_wez01_suspend(struct device *dev)
 static int wacom_wez01_resume(struct device *dev)
 {
 	struct wacom_wez01 *w = dev_get_drvdata(dev);
+	bool docked;
 
 	wacom_wez01_send(w, WEZ01_COM_SURVEY_EXIT);
 	wacom_wez01_send(w, WEZ01_COM_SAMPLERATE_START);
 	enable_irq(w->pdct_irq);
-	wacom_wez01_set_docked(w, gpiod_get_value_cansleep(w->pdct) > 0);
-	if (READ_ONCE(w->docked))
-		mod_delayed_work(system_wq, &w->charge_work, 0);
+	docked = gpiod_get_value_cansleep(w->pdct) > 0;
+	if (docked != READ_ONCE(w->docked))
+		wacom_wez01_set_docked(w, docked);
+	else if (docked)
+		wacom_wez01_wake_pen(w);
 
 	return 0;
 }

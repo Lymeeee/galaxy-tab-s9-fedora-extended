@@ -115,6 +115,11 @@ module_param(max_pps_ma, uint, 0644);
 MODULE_PARM_DESC(max_pps_ma,
 		 "Highest PPS input current to request, in mA (default 3000, max 5000)");
 
+static bool live_pps_refresh = true;
+module_param(live_pps_refresh, bool, 0644);
+MODULE_PARM_DESC(live_pps_refresh,
+		 "Refresh PPS contract without turning off the charge pump (default true)");
+
 /*
  * Board tuning from the X710 device tree (sm5440,freq = 850, freq_siop = 450
  * 650, r_ttl = 320000): the vendor driver drops the pump's switching frequency
@@ -167,14 +172,18 @@ struct sm5440_direct {
 	struct delayed_work work;
 	int target_mv;
 	int target_ma;
+	int last_ibus_ma;
+	int last_vbat_mv;
 	unsigned int pps_ticks;
 	unsigned int fails;
 	bool active;
+	bool park_on_refresh;
 	bool suspending;
 	bool hold;
 	unsigned long hold_since;
 	unsigned long hold_deadline;
 	unsigned long last_poll;
+	unsigned long last_active;
 	int cached_online;
 	int cached_capacity;
 	bool cached_fast_charge;
@@ -348,30 +357,60 @@ fixed:
 }
 
 /*
- * Keep the operating point alive.
+ * Keep the operating point alive and track target current.
  *
- * Every power_supply property write is its own Power Negotiation and each one
- * re-applies the source's output voltage, so the refresh sends as few of them as
- * it can: the voltage only when the pack has moved the operating point by a step
- * (the only way it changes), the current every time.  The pump is parked across
- * whichever negotiation happens -- see sm5440_renegotiate_pps().
+ * Every power_supply property write sends a full PPS Request in TCPM, which
+ * resets the source's PPS keep-alive timer.  Send at most one PD negotiation
+ * per refresh: write VOLTAGE_NOW when the operating point moves (it already
+ * carries op_curr and refreshes the lease), and write CURRENT_NOW only when
+ * the voltage is unchanged.
+ *
+ * When refreshing live (pump stays ON), step VBUS closed-loop against the
+ * measured bus current so cable/connector drop does not cap power below the
+ * negotiated current (e.g. 4.5 A / ~45 W), while keeping VBUS safely above
+ * 2 * VBAT to avoid tripping REVBLK.
  */
-static int sm5440_refresh_pps(struct sm5440_direct *sm)
+static int sm5440_refresh_pps(struct sm5440_direct *sm, int ibus_ma,
+			      int vbat_mv, bool park)
 {
-	int battery_uv, target_mv;
+	int target_mv = sm->target_mv;
 	int ret;
 
-	battery_uv = sm5440_psy_get(sm->battery, POWER_SUPPLY_PROP_VOLTAGE_NOW);
-	if (battery_uv < 0)
-		return battery_uv;
+	if (!park && ibus_ma > 0 && vbat_mv > 0) {
+		int floor_mv = clamp(DIV_ROUND_UP(vbat_mv * 2 + 200,
+						  SM5440_PPS_V_STEP_MV) *
+				     SM5440_PPS_V_STEP_MV,
+				     8200, SM5440_MAX_PPS_MV);
 
-	target_mv = sm5440_pps_target_mv(sm->target_ma, battery_uv);
+		if (vbat_mv < 4380 && ibus_ma < sm->target_ma - 200) {
+			int step = (sm->target_ma - ibus_ma >= 600) ?
+				   (SM5440_PPS_V_STEP_MV * 2) :
+				   SM5440_PPS_V_STEP_MV;
+
+			target_mv = min(target_mv + step, SM5440_MAX_PPS_MV);
+		} else if (ibus_ma > sm->target_ma + 150 || vbat_mv > 4420) {
+			target_mv = max(target_mv - SM5440_PPS_V_STEP_MV,
+					floor_mv);
+		}
+
+		if (target_mv < floor_mv)
+			target_mv = floor_mv;
+	} else {
+		int battery_uv = sm5440_psy_get(sm->battery,
+						POWER_SUPPLY_PROP_VOLTAGE_NOW);
+		if (battery_uv < 0)
+			return battery_uv;
+
+		target_mv = sm5440_pps_target_mv(sm->target_ma, battery_uv);
+	}
+
 	if (abs(target_mv - sm->target_mv) >= SM5440_PPS_V_STEP_MV) {
 		ret = sm5440_psy_retry(sm, POWER_SUPPLY_PROP_VOLTAGE_NOW,
 				       target_mv * 1000);
 		if (ret)
 			return ret;
 		sm->target_mv = target_mv;
+		return 0;
 	}
 
 	return sm5440_psy_retry(sm, POWER_SUPPLY_PROP_CURRENT_NOW,
@@ -462,26 +501,54 @@ static int sm5440_wait_vbus_settled(struct sm5440_direct *sm, int target_mv)
 	return -ETIMEDOUT;
 }
 
+static int sm5440_log_faults(struct sm5440_direct *sm);
+
 /*
- * Keep the programmable contract alive without killing the pump.
+ * Keep the programmable contract alive without unnecessarily parking the pump.
  *
- * A PPS source re-applies its output voltage on every Request, and that step is
- * enough to drive the 2:1 pump's output above its input for an instant.  The
- * chip then latches REVBLK and clears CHG_ON by itself, so the keep-alive used
- * to end direct charging every couple of seconds and hand the battery back to
- * the 9 V switching charger until the retry.  Park the pump across the
- * re-negotiation and re-arm it once the bus has settled again -- the same rule
- * sm5440_start() applies to the first contract.
+ * By default, send a single live PPS Request while CHG_ON stays set so input
+ * power holds steady (e.g. 40-45 W) without dropping to 0 mA every 4 seconds.
+ * If an adapter dips VBUS during a live Request and trips REVBLK, fall back
+ * to parking the pump across refreshes for the remainder of this attach.
  */
 static int sm5440_renegotiate_pps(struct sm5440_direct *sm)
 {
+	bool park = !live_pps_refresh || sm->park_on_refresh;
 	int ret;
+
+	if (!park) {
+		int op_mode, status3;
+
+		ret = sm5440_refresh_pps(sm, sm->last_ibus_ma,
+					 sm->last_vbat_mv, false);
+		if (ret)
+			return ret;
+
+		msleep(20);
+		op_mode = i2c_smbus_read_byte_data(sm->client,
+						   SM5440_REG_CNTL5);
+		status3 = i2c_smbus_read_byte_data(sm->client,
+						   SM5440_REG_STATUS3);
+		if (op_mode >= 0 && status3 >= 0 &&
+		    (!(op_mode & SM5440_CNTL5_CHG_ON) ||
+		     !(status3 & SM5440_STATUS3_VBUSPOK))) {
+			int int3 = sm5440_log_faults(sm);
+
+			if (int3 > 0 && (int3 & SM5440_INT3_REVBLK)) {
+				sm->park_on_refresh = true;
+				dev_info(sm->dev,
+					 "live PPS refresh tripped REVBLK; falling back to parked refresh\n");
+			}
+			return -EAGAIN;
+		}
+		return 0;
+	}
 
 	ret = sm5440_pump_off(sm);
 	if (ret)
 		return ret;
 
-	ret = sm5440_refresh_pps(sm);
+	ret = sm5440_refresh_pps(sm, sm->last_ibus_ma, sm->last_vbat_mv, true);
 	if (ret)
 		return ret;
 
@@ -492,7 +559,7 @@ static int sm5440_renegotiate_pps(struct sm5440_direct *sm)
 	return sm5440_pump_on(sm);
 }
 
-static void sm5440_log_faults(struct sm5440_direct *sm)
+static int sm5440_log_faults(struct sm5440_direct *sm)
 {
 	static const struct {
 		u8 bit;
@@ -524,6 +591,8 @@ static void sm5440_log_faults(struct sm5440_direct *sm)
 			dev_warn(sm->dev, "  latched fault: %s\n",
 				 faults[i].name);
 	}
+
+	return int3;
 }
 
 static void sm5440_restore_switching(struct sm5440_direct *sm)
@@ -658,8 +727,11 @@ static int sm5440_start(struct sm5440_direct *sm)
 		goto restore;
 
 	sm->active = true;
+	sm->last_active = jiffies;
 	sm->target_mv = target_mv;
 	sm->target_ma = target_ma;
+	sm->last_ibus_ma = 0;
+	sm->last_vbat_mv = 0;
 	sm->pps_ticks = 0;
 	dev_info(sm->dev,
 		 "direct charge started: PPS %d mV/%d mA, ibus limit %d mA\n",
@@ -733,6 +805,11 @@ static void sm5440_hold_update(struct sm5440_direct *sm)
 	sm->cached_fast_charge = sm5714_battery_fast_charge_enabled();
 	sm->last_poll = jiffies;
 
+	if (online == 0) {
+		sm->park_on_refresh = false;
+		sm->last_active = 0;
+	}
+
 	if (!sm->hold)
 		return;
 
@@ -766,9 +843,15 @@ static bool sm5440_hold_blocks_suspend(struct sm5440_direct *sm)
 	if (sm->cached_online <= 0 || sm->cached_capacity < 0 ||
 	    sm->cached_capacity >= 90 || !sm->cached_fast_charge)
 		return false;
-	/* Give the pump a moment to start before pinning the system. */
+	/*
+	 * Give the pump a moment to start (or recover from a brief fault)
+	 * before pinning the system, while still letting non-PPS chargers
+	 * suspend once the grace window passes.
+	 */
 	if (!sm->active &&
-	    time_after(jiffies, sm->hold_since + msecs_to_jiffies(5000)))
+	    time_after(jiffies, sm->hold_since + msecs_to_jiffies(5000)) &&
+	    (!sm->last_active ||
+	     time_after(jiffies, sm->last_active + msecs_to_jiffies(15000))))
 		return false;
 
 	return true;
@@ -878,6 +961,9 @@ static void sm5440_work(struct work_struct *work)
 
 	/* A complete, healthy poll: forget earlier failures. */
 	sm->fails = 0;
+	sm->last_ibus_ma = ibus;
+	sm->last_vbat_mv = vbat;
+	sm->last_active = jiffies;
 
 	dev_info_ratelimited(sm->dev,
 			     "direct: pack=%d.%dC vbus=%dmV ibus=%dmA "

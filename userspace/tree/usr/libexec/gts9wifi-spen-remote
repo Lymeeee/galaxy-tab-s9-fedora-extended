@@ -29,6 +29,7 @@ BATTERY_ROOT = SERVICE_PATH + "/battery"
 
 DOCK_GLOB = "/sys/bus/i2c/devices/*/pen_docked"
 RESET_GLOB = "/sys/bus/i2c/devices/*/pen_ble_reset"
+WAKE_GLOB = "/sys/bus/i2c/devices/*/pen_ble_wake"
 SPEN_SERVICES = {
     "0000fd6c-0000-1000-8000-00805f9b34fb",
     "0000fef5-0000-1000-8000-00805f9b34fb",
@@ -147,6 +148,11 @@ def publish_battery_state(percentage):
 
 def reset_path():
     paths = glob.glob(RESET_GLOB)
+    return Path(paths[0]) if paths else None
+
+
+def wake_path():
+    paths = glob.glob(WAKE_GLOB)
     return Path(paths[0]) if paths else None
 
 
@@ -406,11 +412,19 @@ class Service(dbus.service.Object):
         self.pen_watch = None
         self.pen_in_proximity = True
         self.button_down = False
+        self.suspending = False
+        self.wake_attempted = False
         self.bus.add_signal_receiver(
             self._gatt_properties,
             signal_name="PropertiesChanged",
             dbus_interface=PROPERTIES_IFACE,
             path_keyword="path",
+        )
+        self.bus.add_signal_receiver(
+            self._prepare_for_sleep,
+            signal_name="PrepareForSleep",
+            dbus_interface="org.freedesktop.login1.Manager",
+            path="/org/freedesktop/login1",
         )
 
     def devices(self):
@@ -506,9 +520,41 @@ class Service(dbus.service.Object):
                 pass
             self.agent_registered = False
 
+    def _prepare_for_sleep(self, going_to_sleep):
+        if going_to_sleep:
+            self.suspending = True
+            return
+        self.suspending = False
+        self.repairs = 0
+        self.connect_failures.clear()
+        self.pairing_attempted = False
+        self.pairing_attempts = 0
+        self.wake_attempted = False
+        # Give Bluetooth and Wacom resume a moment to settle before reconnecting.
+        self.last_connect_at = time.monotonic() + 2.5
+        print("System resumed; scheduling S Pen reconnect", flush=True)
+        GLib.timeout_add_seconds(3, self._post_resume_reconnect)
+
+    def _post_resume_reconnect(self):
+        if not self.suspending:
+            self.tick_once()
+        return False
+
+    def wake_pen(self):
+        path = wake_path()
+        if path is None or not docked():
+            return False
+        try:
+            path.write_text("1\n", encoding="ascii")
+            print("S Pen BLE wake pulse requested", flush=True)
+            return True
+        except OSError as error:
+            print(f"S Pen wake pulse failed: {error}", flush=True)
+            return False
+
     def connect(self, path):
         now = time.monotonic()
-        if path in self.connecting or now < self.last_connect_at:
+        if self.suspending or path in self.connecting or now < self.last_connect_at:
             return
         self.last_connect_at = now + CONNECT_INTERVAL_SECONDS
         self.connecting.add(path)
@@ -516,9 +562,13 @@ class Service(dbus.service.Object):
         def finished(*_args):
             self.connecting.discard(path)
             self.connect_failures.pop(path, None)
+            self.wake_attempted = False
+            self.repairs = 0
 
         def failed(error):
             self.connecting.discard(path)
+            if self.suspending:
+                return
             name = error.get_dbus_name()
             if name in {
                 "org.bluez.Error.AlreadyConnected",
@@ -528,7 +578,13 @@ class Service(dbus.service.Object):
             print(f"S Pen connect failed: {name}", flush=True)
             failures = self.connect_failures.get(path, 0) + 1
             self.connect_failures[path] = failures
-            if failures >= 2 and docked():
+            if failures == 1 and docked() and not self.wake_attempted:
+                self.wake_attempted = True
+                if self.wake_pen():
+                    self.last_connect_at = time.monotonic() + 2.5
+                    return
+            threshold = 3 if wake_path() is not None else 2
+            if failures >= threshold and docked():
                 self.repair_bond(path)
 
         dbus.Interface(
@@ -792,6 +848,8 @@ class Service(dbus.service.Object):
         self.button_down = False
 
     def tick(self):
+        if self.suspending:
+            return True
         now = time.monotonic()
         is_docked = docked()
         self.button_keys = button_mapping()
@@ -809,6 +867,7 @@ class Service(dbus.service.Object):
             self.pairing_attempts = 0
             self.next_pair_at = 0.0
             self.repairs = 0
+            self.wake_attempted = False
             paired_path, paired = self.paired_spen()
             if paired_path is not None and paired.get("Connected", False):
                 self.refresh_gatt(paired_path, now)
@@ -826,6 +885,7 @@ class Service(dbus.service.Object):
             self.pairing_attempted = False
             self.pairing_attempts = 0
             self.next_pair_at = 0.0
+            self.wake_attempted = False
 
         paired_path, paired = self.paired_spen()
         if paired_path is not None:
@@ -836,7 +896,7 @@ class Service(dbus.service.Object):
                 self.refresh_gatt(paired_path, now)
             else:
                 self.battery.update(None, None)
-                if now - self.last_connect_at >= CONNECT_INTERVAL_SECONDS:
+                if now >= self.last_connect_at:
                     self.connect(paired_path)
             return True
 
