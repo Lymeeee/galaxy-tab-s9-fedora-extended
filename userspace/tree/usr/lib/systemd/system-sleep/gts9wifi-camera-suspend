@@ -24,6 +24,7 @@ post)
 	# unit does the restart once the user manager can be reached again.
 	systemctl reset-failed gts9wifi-camera-resume >/dev/null 2>&1 || true
 	/usr/bin/systemd-run --unit=gts9wifi-camera-resume --collect \
+		--property=After=gts9wifi-speaker-protection-resume.service \
 		--no-block /usr/libexec/gts9wifi-camera-resume || true
 	;;
 esac

@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.106
+Version:        0.17.107
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -353,6 +353,16 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.107-1
+- Serialize gts9wifi-camera-resume after gts9wifi-speaker-protection-resume so
+  PipeWire/WirePlumber does not probe ALSA while CS35L45 DSP1 firmware is
+  reloading after suspend.
+- Ignore qcom-iris video codec nodes (/dev/video17..18) in
+  gts9wifi-camera-suspend-pre so hardware video playback does not stop
+  PipeWire on every suspend.
+- Make zram reclaim more proactive (vm.swappiness=200,
+  vm.watermark_scale_factor=800) so kswapd compresses cold pages around
+  60-70% memory utilization.
 * Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.106-1
 - Revert UCM2 speaker routing and PipeWire speaker EQ back to stable 2-ch
   PRIMARY_MI2S_RX stereo (all 4 CS35L45 amps: L=ASP_RX1, R=ASP_RX2) after

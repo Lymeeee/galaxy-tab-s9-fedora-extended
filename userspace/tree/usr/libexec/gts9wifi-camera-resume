@@ -11,6 +11,22 @@ user=lyme
 uid=$(id -u "$user" 2>/dev/null) || exit 0
 [ -d "/run/user/$uid" ] || exit 0
 
+# Let the speaker-protection post hook enqueue and finish reloading the four
+# CS35L45 DSP1 instances before PipeWire/WirePlumber probes ALSA controls.
+sleep 1
+w=0
+while [ "$w" -lt 30 ]; do
+	case "$(systemctl is-active gts9wifi-speaker-protection-resume.service 2>/dev/null || true)" in
+	active | activating)
+		sleep 0.5
+		w=$((w + 1))
+		;;
+	*)
+		break
+		;;
+	esac
+done
+
 i=0
 while [ "$i" -lt 10 ]; do
 	if runuser -u "$user" -- env XDG_RUNTIME_DIR="/run/user/$uid" \

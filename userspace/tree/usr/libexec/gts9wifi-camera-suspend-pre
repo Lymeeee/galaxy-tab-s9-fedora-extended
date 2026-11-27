@@ -16,7 +16,17 @@ camera_busy() {
 	for fd in /proc/[0-9]*/fd/*; do
 		target=$(readlink "$fd" 2>/dev/null) || continue
 		case "$target" in
-		/dev/video* | /dev/v4l-subdev*) return 0 ;;
+		/dev/v4l-subdev*)
+			return 0
+			;;
+		/dev/video*)
+			dev=${target#/dev/}
+			name=$(cat "/sys/class/video4linux/$dev/name" 2>/dev/null || true)
+			case "$name" in
+			qcom-iris-*) continue ;;
+			esac
+			return 0
+			;;
 		esac
 	done
 	return 1
