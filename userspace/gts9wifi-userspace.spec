@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.107
+Version:        0.17.108
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -353,6 +353,11 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.108-1
+- Cap zram0 at 1.8 GiB (1843 MiB) to avoid in-RAM compression thrash on 7.2 GiB RAM.
+- Revert 99-gts9wifi-zram.conf back to vm.swappiness=180 and
+  vm.watermark_scale_factor=125 (watermark_scale_factor=800 reserved ~1.2 GiB
+  high watermark and would saturate a 1.8 GiB zram prematurely).
 * Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.107-1
 - Serialize gts9wifi-camera-resume after gts9wifi-speaker-protection-resume so
   PipeWire/WirePlumber does not probe ALSA while CS35L45 DSP1 firmware is
