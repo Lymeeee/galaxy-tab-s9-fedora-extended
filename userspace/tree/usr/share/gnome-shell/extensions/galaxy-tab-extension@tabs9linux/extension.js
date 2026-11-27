@@ -27,6 +27,7 @@ import {CapsLockOsd} from './capsLockOsd.js';
 import {BrightnessWarning} from './brightnessWarning.js';
 import {AutoBrightnessFloor} from './autoBrightnessFloor.js';
 import {BrightnessOsdGuard} from './brightnessOsdGuard.js';
+import {ScreenOffMenu} from './screenOffMenu.js';
 
 export default class GalaxyTabExtension extends Extension {
     enable() {
@@ -37,6 +38,8 @@ export default class GalaxyTabExtension extends Extension {
         this._cornerMask.enable();
         this._fingerprintOverlay = new FingerprintOverlay();
         this._fingerprintOverlay.enable();
+        this._screenOffMenu = new ScreenOffMenu();
+        this._screenOffMenu.enable();
 
         this._sessionModeId = Main.sessionMode.connect('updated',
             () => this._syncUserModules());
@@ -97,6 +100,8 @@ export default class GalaxyTabExtension extends Extension {
             this._sessionModeId = 0;
         }
         this._disableUserModules();
+        this._screenOffMenu?.disable();
+        this._screenOffMenu = null;
         this._fingerprintOverlay?.disable();
         this._fingerprintOverlay = null;
         this._cornerMask?.disable();

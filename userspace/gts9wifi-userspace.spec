@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.110
+Version:        0.17.111
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -353,6 +353,11 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.111-1
+- Add a "关闭屏幕" (Turn Off Screen) action to the GNOME Shell Quick Settings
+  power menu in galaxy-tab-extension: locks the screen via ScreenShield and
+  blanks the OLED panel via Mutter DisplayConfig PowerSaveMode without
+  entering system suspend.
 * Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.110-1
 - Raise zram0 size from 1843 MiB (1.8 GiB) to 3686 MiB (3.6 GiB, 50% of RAM)
   to prevent premature swap saturation while keeping zstd physical footprint
