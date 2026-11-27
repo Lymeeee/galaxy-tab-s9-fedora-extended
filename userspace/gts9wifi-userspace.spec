@@ -1,7 +1,7 @@
 %define debug_package %{nil}
 
 Name:           gts9wifi-userspace
-Version:        0.17.109
+Version:        0.17.110
 Release:        1%{?dist}
 Summary:        Galaxy Tab S9 Wi-Fi device controls, updates and GNOME integration
 License:        MIT
@@ -353,6 +353,10 @@ fi
 %attr(0755, root, root) %{_prefix}/lib/tuned/profiles/gts9wifi-performance/script.sh
 
 %changelog
+* Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.110-1
+- Raise zram0 size from 1843 MiB (1.8 GiB) to 3686 MiB (3.6 GiB, 50% of RAM)
+  to prevent premature swap saturation while keeping zstd physical footprint
+  bounded (~0.6-1.0 GiB typical).
 * Fri Nov 27 2026 Lymeeee <mr_xunyu@163.com> - 0.17.109-1
 - Subscribe gts9wifi-spen-remote to logind PrepareForSleep so it pauses connects
   during suspend, resets repair lockouts on resume, wakes a docked S Pen via
